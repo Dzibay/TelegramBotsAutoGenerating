@@ -35,13 +35,17 @@
 
       <div class="form-group">
         <label>Аккаунт Telegram</label>
-        <select v-model.number="accountId" required :disabled="!accounts.length">
+        <select v-model.number="accountId" required :disabled="!usableAccounts.length">
           <option :value="null" disabled>Выберите аккаунт</option>
-          <option v-for="a in accounts" :key="a.id" :value="a.id">
-            {{ a.label || a.phone || `#${a.id}` }}
-            ({{ a.bots_created }}/{{ a.max_bots_limit }} ботов)
+          <option v-for="a in usableAccounts" :key="a.id" :value="a.id">
+            {{ accountOptionLabel(a) }}
           </option>
         </select>
+        <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
+          Нет готовых аккаунтов. Добавьте подготовленные в
+          <RouterLink :to="{ name: 'campaign-detail', params: { id: campaignId } }">кампанию</RouterLink>
+          (статус должен быть «готов»).
+        </p>
       </div>
 
       <div class="form-group">
@@ -93,7 +97,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
@@ -120,6 +124,29 @@ const form = ref({
   welcome_message: '',
 });
 
+const STATUS_LABELS = {
+  ready: 'готов',
+  creating: 'создание',
+  pending: 'ожидание',
+  error: 'ошибка',
+  exhausted: 'лимит',
+  disabled: 'отключён',
+};
+
+const usableAccounts = computed(() =>
+  accounts.value.filter((a) => {
+    if (a.status === 'disabled') return false;
+    if (a.bots_created >= a.max_bots_limit) return false;
+    return ['ready', 'creating', 'pending', 'error', 'exhausted'].includes(a.status);
+  }),
+);
+
+function accountOptionLabel(a) {
+  const name = a.label || a.phone || `#${a.id}`;
+  const st = STATUS_LABELS[a.status] || a.status;
+  return `${name} — ${st} (${a.bots_created}/${a.max_bots_limit} ботов)`;
+}
+
 async function loadCampaigns() {
   campaigns.value = await campaignService.list();
   if (campaignId.value) {
@@ -136,10 +163,9 @@ async function loadAccounts() {
     return;
   }
   accounts.value = await campaignService.getAccounts(campaignId.value);
-  if (accounts.value.length && !accountId.value) {
-    const free = accounts.value.find((a) => a.bots_created < a.max_bots_limit);
-    accountId.value = free?.id ?? accounts.value[0].id;
-  }
+  const pick = usableAccounts.value.find((a) => a.status === 'ready' || a.status === 'creating')
+    ?? usableAccounts.value[0];
+  accountId.value = pick?.id ?? null;
 }
 
 function onCampaignChange() {

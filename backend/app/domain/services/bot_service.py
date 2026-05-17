@@ -7,7 +7,7 @@ from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-from app.domain.services import bot_promo_service, campaign_service
+from app.domain.services import account_service, bot_promo_service, campaign_service
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.bot_api import telegram_bot_url, verify_bot_token
@@ -257,12 +257,7 @@ async def create_bot(
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     account = await _get_account_for_campaign(campaign_id, telegram_account_id)
-
-    if account["bots_created"] >= account["max_bots_limit"]:
-        raise ConflictError("На аккаунте достигнут лимит ботов")
-
-    if account["status"] not in ("ready", "creating", "exhausted"):
-        raise BadRequestError("Аккаунт не готов к созданию ботов")
+    account = await account_service.ensure_ready_for_bot_creation(account)
 
     target = bot_promo_service.normalize_target_url(target_url)
     slug = redirect_slug or bot_promo_service.generate_redirect_slug()

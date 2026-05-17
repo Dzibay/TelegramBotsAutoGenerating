@@ -5,7 +5,10 @@ from typing import Any
 
 from app.config import Config
 from app.constants import ErrorMessages
-from app.core.exceptions import BadRequestError, NotFoundError
+from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 from app.domain.services import campaign_service
 from app.infrastructure.database import repository as db
 
@@ -69,6 +72,84 @@ async def add_tdata_archive(campaign_id: int, archive_path: Path, label: str | N
         "bots_created": updated["bots_created"],
         "created_at": updated["created_at"].isoformat() if updated.get("created_at") else None,
     }
+
+
+def _tdata_path_valid(tdata_path: str | None) -> bool:
+    if not tdata_path or not str(tdata_path).strip():
+        return False
+    p = Path(tdata_path)
+    return p.is_dir() and any(p.rglob("*"))
+
+
+_STATUS_HINTS = {
+    "pending": "аккаунт ещё не активирован — перепривяжите из пула подготовленных",
+    "error": "ошибка на аккаунте — проверьте подготовку tdata",
+    "disabled": "аккаунт отключён",
+    "exhausted": "достигнут лимит ботов на этом аккаунте",
+}
+
+
+async def ensure_ready_for_bot_creation(account: dict[str, Any]) -> dict[str, Any]:
+    """
+    Проверяет, что аккаунт можно использовать для BotFather.
+    При pending/error и валидном tdata — автоматически переводит в ready.
+    """
+    account_id = account["id"]
+    status = account.get("status") or "pending"
+    bots_created = int(account.get("bots_created") or 0)
+    max_limit = int(account.get("max_bots_limit") or 20)
+    tdata_ok = _tdata_path_valid(account.get("tdata_path"))
+
+    if bots_created >= max_limit:
+        raise ConflictError(
+            f"На аккаунте достигнут лимит ботов ({bots_created}/{max_limit})"
+        )
+
+    if status in ("ready", "creating"):
+        if not tdata_ok:
+            raise BadRequestError(
+                "Файлы tdata аккаунта не найдены на сервере. "
+                "Удалите аккаунт из кампании и добавьте снова из пула подготовленных."
+            )
+        return account
+
+    if status == "exhausted" and bots_created < max_limit:
+        row = await db.fetch_one(
+            """
+            UPDATE telegram_accounts
+            SET status = 'ready', updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+            """,
+            account_id,
+        )
+        logger.info("Account id=%s: exhausted -> ready (есть слоты для ботов)", account_id)
+        return row
+
+    if status in ("pending", "error") and tdata_ok:
+        row = await db.fetch_one(
+            """
+            UPDATE telegram_accounts
+            SET status = 'ready', last_error = NULL, updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+            """,
+            account_id,
+        )
+        logger.info("Account id=%s: %s -> ready (tdata на месте)", account_id, status)
+        return row
+
+    hint = _STATUS_HINTS.get(status, "неизвестный статус")
+    last_err = account.get("last_error") or ""
+    extra = f" Ошибка: {last_err}" if last_err else ""
+    if status in ("pending", "error") and not tdata_ok:
+        raise BadRequestError(
+            f"Аккаунт не готов (статус: {status}). Нет файлов tdata на сервере. "
+            f"Добавьте аккаунт из раздела «Подготовка аккаунтов» в кампанию.{extra}"
+        )
+    raise BadRequestError(
+        f"Аккаунт не готов к созданию ботов (статус: {status}). {hint}.{extra}"
+    )
 
 
 async def list_accounts(campaign_id: int) -> list[dict[str, Any]]:

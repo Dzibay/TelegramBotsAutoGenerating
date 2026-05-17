@@ -1,8 +1,10 @@
+# syntax=docker/dockerfile:1
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci 2>/dev/null || npm install
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci 2>/dev/null || npm install
 
 COPY . .
 ARG VITE_API_BASE_URL=/api/v1

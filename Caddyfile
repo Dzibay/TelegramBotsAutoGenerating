@@ -1,0 +1,4 @@
+# Пример reverse proxy для production (замените домен)
+# localhost {
+#     reverse_proxy frontend:80
+# }

@@ -1,0 +1,8 @@
+**/.env
+**/venv
+**/__pycache__
+**/.git
+frontend/node_modules
+frontend/dist
+storage/tdata
+storage/avatars

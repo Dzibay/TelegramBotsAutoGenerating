@@ -1,0 +1,170 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tgbots-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-tg_bots}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      # 5433 на хосте — чтобы не конфликтовать с локальным PostgreSQL на 5432
+      - "${DB_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-tg_bots}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - tgbots
+
+  redis:
+    image: redis:7-alpine
+    container_name: tgbots-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tgbots
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: tgbots-backend
+    container_name: tgbots-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tg_bots}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ROOT: /app/storage
+    ports:
+      - "5000:5000"
+    volumes:
+      - tdata_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tgbots
+
+  worker:
+    image: tgbots-backend
+    container_name: tgbots-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.creation_worker"]
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tg_bots}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ROOT: /app/storage
+    volumes:
+      - tdata_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - tgbots
+
+  prep-worker:
+    image: tgbots-backend
+    container_name: tgbots-prep-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.prep_worker"]
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tg_bots}
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_ROOT: /app/storage
+    volumes:
+      - tdata_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - tgbots
+
+  bot-runner:
+    image: tgbots-backend
+    container_name: tgbots-bot-runner
+    restart: unless-stopped
+    command: ["python", "-m", "app.bot_runner.main"]
+    env_file: .env
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-tg_bots}
+      STORAGE_ROOT: /app/storage
+    volumes:
+      - tdata_storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - tgbots
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: /api/v1
+    container_name: tgbots-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    networks:
+      - tgbots
+
+volumes:
+  postgres_data:
+  redis_data:
+  tdata_storage:
+
+networks:
+  tgbots:
+    driver: bridge

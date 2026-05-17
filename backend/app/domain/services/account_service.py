@@ -75,7 +75,7 @@ async def list_accounts(campaign_id: int) -> list[dict[str, Any]]:
     await campaign_service.get_campaign(campaign_id)
     rows = await db.fetch_all(
         """
-        SELECT id, campaign_id, label, status, max_bots_limit, bots_created, last_error, created_at
+        SELECT id, campaign_id, label, phone, status, max_bots_limit, bots_created, last_error, created_at
         FROM telegram_accounts
         WHERE campaign_id = $1
         ORDER BY created_at
@@ -87,6 +87,7 @@ async def list_accounts(campaign_id: int) -> list[dict[str, Any]]:
             "id": r["id"],
             "campaign_id": r["campaign_id"],
             "label": r.get("label"),
+            "phone": r.get("phone"),
             "status": r["status"],
             "max_bots_limit": r["max_bots_limit"],
             "bots_created": r["bots_created"],

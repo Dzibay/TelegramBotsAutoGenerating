@@ -26,5 +26,10 @@ class ErrorMessages:
 class SuccessMessages:
     LOGIN_SUCCESS = "Успешный вход"
     CAMPAIGN_CREATED = "Кампания создана"
+    CAMPAIGN_UPDATED = "Кампания обновлена"
+    CAMPAIGN_DELETED = "Кампания удалена"
     JOB_STARTED = "Задача создания ботов поставлена в очередь"
     ACCOUNT_UPLOADED = "Аккаунт загружен"
+    BOT_CREATED = "Бот создан"
+    BOT_UPDATED = "Бот обновлён"
+    BOT_DELETED = "Бот удалён"

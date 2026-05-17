@@ -8,6 +8,14 @@
       <div class="title-row">
         <h1>{{ campaign.title }}</h1>
         <StatusBadge :status="campaign.status" />
+        <div class="header-btns">
+          <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }" class="btn-ghost btn-sm">
+            Изменить
+          </RouterLink>
+          <button type="button" class="btn-ghost btn-sm btn-danger" @click="onDeleteCampaign">
+            Удалить
+          </button>
+        </div>
       </div>
       <p class="resource">{{ campaign.resource_url }}</p>
       <p class="keywords">{{ campaign.keywords?.join(' · ') }}</p>
@@ -79,15 +87,41 @@
         </section>
 
         <section class="card section">
-          <h3>Созданные боты</h3>
-          <p v-if="!bots.length" class="muted">Боты появятся после выполнения задачи</p>
+          <div class="section-head">
+            <h3>Боты</h3>
+            <RouterLink
+              :to="{ name: 'bot-create', query: { campaign_id: campaignId } }"
+              class="btn-sm"
+            >
+              + Создать бота
+            </RouterLink>
+          </div>
+          <p v-if="!bots.length" class="muted">Создайте бота вручную или запустите массовое создание</p>
           <ul v-else class="mini-list bots">
-            <li v-for="b in bots" :key="b.id">
-              <strong>@{{ b.username || '—' }}</strong>
-              <span>{{ b.display_name }}</span>
-              <StatusBadge :status="b.status" />
+            <li v-for="b in bots" :key="b.id" class="bot-li">
+              <div class="bot-li-main">
+                <strong>@{{ b.username || '—' }}</strong>
+                <span>{{ b.display_name }}</span>
+                <StatusBadge :status="b.status" />
+              </div>
+              <div class="bot-li-actions">
+                <button
+                  v-if="b.status !== 'active'"
+                  type="button"
+                  class="link-btn"
+                  @click="onBotStart(b)"
+                >
+                  Запустить
+                </button>
+                <button v-else type="button" class="link-btn" @click="onBotStop(b)">Стоп</button>
+                <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="link-btn">
+                  Изменить
+                </RouterLink>
+                <button type="button" class="link-btn danger" @click="onBotDelete(b)">Удалить</button>
+              </div>
             </li>
           </ul>
+          <RouterLink to="/app/bots" class="all-bots-link">Все боты →</RouterLink>
         </section>
       </div>
     </div>
@@ -96,13 +130,15 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { RouterLink, useRoute } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 import JobLogPanel from '../components/JobLogPanel.vue';
 import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import StatusBadge from '../components/StatusBadge.vue';
+import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
 
 const route = useRoute();
+const router = useRouter();
 const campaignId = computed(() => Number(route.params.id));
 
 const loading = ref(true);
@@ -210,6 +246,45 @@ async function onStart() {
     loadError.value = e.response?.data?.error || 'Не удалось запустить';
   } finally {
     starting.value = false;
+  }
+}
+
+async function onDeleteCampaign() {
+  if (!confirm(`Удалить кампанию «${campaign.value.title}»?`)) return;
+  try {
+    await campaignService.remove(campaignId.value);
+    router.push({ name: 'dashboard' });
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Ошибка удаления';
+  }
+}
+
+async function onBotStart(b) {
+  try {
+    await botService.start(b.id);
+    await loadExtras();
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Ошибка запуска';
+  }
+}
+
+async function onBotStop(b) {
+  try {
+    await botService.stop(b.id);
+    await loadExtras();
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Ошибка остановки';
+  }
+}
+
+async function onBotDelete(b) {
+  if (!confirm(`Удалить @${b.username || b.id}?`)) return;
+  try {
+    await botService.remove(b.id);
+    await loadCampaign();
+    await loadExtras();
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Ошибка удаления';
   }
 }
 
@@ -391,6 +466,22 @@ onUnmounted(stopPolling);
   align-items: flex-start;
 }
 
+.add-prepared {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.add-prepared .small {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+}
+
+.btn-add {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
 .upload-more {
   display: block;
   margin-top: 0.75rem;
@@ -407,5 +498,56 @@ onUnmounted(stopPolling);
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.header-btns {
+  display: flex;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.btn-sm {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.75rem;
+  width: auto;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.section-head h3 {
+  margin: 0;
+}
+
+.bot-li {
+  flex-direction: column;
+  align-items: stretch !important;
+  gap: 0.35rem;
+}
+
+.bot-li-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.bot-li-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.link-btn.danger {
+  color: #f87171;
+}
+
+.all-bots-link {
+  display: inline-block;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
 }
 </style>

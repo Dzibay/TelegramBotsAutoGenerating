@@ -81,6 +81,59 @@ async def get_campaign(campaign_id: int) -> dict[str, Any]:
     return _campaign_row(row)
 
 
+async def update_campaign(
+    campaign_id: int,
+    *,
+    title: str | None = None,
+    niche_description: str | None = None,
+    keywords: list[str] | None = None,
+    resource_url: str | None = None,
+) -> dict[str, Any]:
+    await get_campaign(campaign_id)
+    sets = []
+    params: list[Any] = []
+    if title is not None:
+        params.append(title.strip())
+        sets.append(f"title = ${len(params)}")
+    if niche_description is not None:
+        params.append(niche_description)
+        sets.append(f"niche_description = ${len(params)}")
+    if keywords is not None:
+        cleaned = [k.strip() for k in keywords if k and k.strip()]
+        params.append(cleaned)
+        sets.append(f"keywords = ${len(params)}::text[]")
+    if resource_url is not None:
+        params.append(resource_url.strip())
+        sets.append(f"resource_url = ${len(params)}")
+    if not sets:
+        return await get_campaign(campaign_id)
+
+    params.append(campaign_id)
+    await db.execute(
+        f"UPDATE campaigns SET {', '.join(sets)}, updated_at = NOW() WHERE id = ${len(params)}",
+        *params,
+    )
+    return await get_campaign(campaign_id)
+
+
+async def delete_campaign(campaign_id: int) -> None:
+    row = await db.fetch_one("SELECT id FROM campaigns WHERE id = $1", campaign_id)
+    if not row:
+        raise NotFoundError(ErrorMessages.CAMPAIGN_NOT_FOUND)
+    await db.execute(
+        """
+        UPDATE prepared_accounts
+        SET status = 'available', updated_at = NOW()
+        WHERE id IN (
+            SELECT prepared_account_id FROM telegram_accounts
+            WHERE campaign_id = $1 AND prepared_account_id IS NOT NULL
+        )
+        """,
+        campaign_id,
+    )
+    await db.execute("DELETE FROM campaigns WHERE id = $1", campaign_id)
+
+
 async def list_campaign_bots(campaign_id: int) -> list[dict[str, Any]]:
     await get_campaign(campaign_id)
     rows = await db.fetch_all(

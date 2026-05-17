@@ -23,6 +23,13 @@ export const API_ENDPOINTS = {
     JOB: (id) => `/account-prep/jobs/${id}`,
     LOGS: (id) => `/account-prep/jobs/${id}/logs`,
   },
+  BOTS: {
+    LIST: '/bots',
+    GET: (id) => `/bots/${id}`,
+    GENERATE: '/bots/generate-draft',
+    START: (id) => `/bots/${id}/start`,
+    STOP: (id) => `/bots/${id}/stop`,
+  },
   PREPARED_ACCOUNTS: {
     LIST: '/prepared-accounts',
     GET: (id) => `/prepared-accounts/${id}`,

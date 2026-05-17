@@ -52,15 +52,18 @@
 
       <section v-show="step === 2">
         <div class="form-group">
-          <label>Telegram-аккаунты (tdata)</label>
-          <AccountDropzone v-model="accountFiles" />
+          <label>Подготовленные аккаунты</label>
           <p class="field-hint">
-            Каждый ZIP — отдельный аккаунт. Внутри должна быть папка <code>tdata</code> из Telegram Desktop.
+            Сначала загрузите и подготовьте tdata на странице
+            <RouterLink to="/app/accounts/prepare">«Подготовка аккаунтов»</RouterLink>.
           </p>
+          <PreparedAccountPicker v-model="selectedPreparedIds" />
         </div>
         <div class="nav-row">
           <button type="button" class="btn-ghost" @click="step = 1">← Назад</button>
-          <button type="button" :disabled="!accountFiles.length" @click="step = 3">Далее →</button>
+          <button type="button" :disabled="!selectedPreparedIds.length" @click="step = 3">
+            Далее →
+          </button>
         </div>
       </section>
 

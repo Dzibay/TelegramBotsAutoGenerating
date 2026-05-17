@@ -90,6 +90,19 @@
           </ul>
         </div>
 
+        <div class="card pool-card">
+          <h3>Пул для кампаний</h3>
+          <p class="hint">После успешной подготовки аккаунты появляются здесь и доступны при создании кампании.</p>
+          <p v-if="poolLoading" class="muted">Загрузка…</p>
+          <ul v-else-if="poolAccounts.length" class="pool-list">
+            <li v-for="a in poolAccounts" :key="a.id">
+              <span>{{ a.label || a.phone || `#${a.id}` }}</span>
+              <StatusBadge :status="a.status" />
+            </li>
+          </ul>
+          <p v-else class="muted">Пока нет подготовленных аккаунтов.</p>
+        </div>
+
         <div v-if="pastJobs.length" class="card">
           <h3>История</h3>
           <ul class="history">
@@ -111,6 +124,7 @@ import { RouterLink } from 'vue-router';
 import AccountDropzone from '../components/AccountDropzone.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
+import { preparedAccountService } from '../services/preparedAccountService';
 import { prepService } from '../services/prepService';
 
 const files = ref([]);
@@ -132,6 +146,8 @@ const logs = ref([]);
 const logsLoading = ref(false);
 const lastLogId = ref(0);
 const pastJobs = ref([]);
+const poolAccounts = ref([]);
+const poolLoading = ref(false);
 let pollTimer = null;
 
 const isPolling = computed(
@@ -145,6 +161,15 @@ watch(isPolling, (on) => {
 
 async function loadHistory() {
   pastJobs.value = await prepService.listJobs();
+}
+
+async function loadPool() {
+  poolLoading.value = true;
+  try {
+    poolAccounts.value = await preparedAccountService.listAll();
+  } finally {
+    poolLoading.value = false;
+  }
 }
 
 async function loadJob(jobId) {
@@ -182,6 +207,9 @@ async function refreshJob() {
 async function poll() {
   await refreshJob();
   await fetchLogs();
+  if (activeJob.value && !['queued', 'running'].includes(activeJob.value.status)) {
+    await loadPool();
+  }
 }
 
 function startPolling() {
@@ -216,6 +244,7 @@ async function onSubmit() {
     files.value = [];
     await loadJob(job.id);
     await loadHistory();
+    await loadPool();
   } catch (e) {
     submitError.value = e.response?.data?.error || e.response?.data?.message || 'Ошибка запуска';
   } finally {
@@ -223,7 +252,10 @@ async function onSubmit() {
   }
 }
 
-onMounted(loadHistory);
+onMounted(async () => {
+  await loadHistory();
+  await loadPool();
+});
 onUnmounted(stopPolling);
 </script>
 
@@ -373,5 +405,25 @@ onUnmounted(stopPolling);
 .link-btn:hover {
   background: none;
   text-decoration: underline;
+}
+
+.pool-card h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.pool-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.pool-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
 }
 </style>

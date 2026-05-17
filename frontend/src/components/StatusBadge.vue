@@ -79,4 +79,9 @@ const label = computed(() => labels[props.status] || props.status);
   background: rgba(234, 179, 8, 0.15);
   color: #facc15;
 }
+
+.badge--in_use {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c4b5fd;
+}
 </style>

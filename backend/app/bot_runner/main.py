@@ -1,10 +1,9 @@
 """
-Единый процесс обслуживания всех активных ботов (aiogram).
+Единый процесс обслуживания активных ботов (aiogram) с периодической синхронизацией БД.
 
 Запуск: python -m app.bot_runner.main
 """
 import asyncio
-import os
 import sys
 
 from dotenv import load_dotenv
@@ -47,8 +46,7 @@ async def _load_active_bots() -> list[dict]:
     return bots
 
 
-async def run_bot_polling(bot_info: dict) -> None:
-    """Один бот в общем event loop — aiogram 3."""
+async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
     from aiogram import Bot, Dispatcher
     from aiogram.filters import CommandStart
     from aiogram.types import Message
@@ -66,22 +64,70 @@ async def run_bot_polling(bot_info: dict) -> None:
         await message.answer(welcome)
 
     logger.info("Polling bot id=%s @%s", bot_info["id"], bot_info.get("username"))
-    await dp.start_polling(bot)
+    poll_task = asyncio.create_task(dp.start_polling(bot))
+    stop_wait = asyncio.create_task(stop_event.wait())
+    done, pending = await asyncio.wait(
+        {poll_task, stop_wait},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+    for t in pending:
+        t.cancel()
+    if poll_task in done and not poll_task.cancelled():
+        exc = poll_task.exception()
+        if exc:
+            raise exc
+    await bot.session.close()
+    logger.info("Stopped polling bot id=%s", bot_info["id"])
+
+
+class BotRunnerManager:
+    def __init__(self) -> None:
+        self._tasks: dict[int, asyncio.Task] = {}
+        self._stops: dict[int, asyncio.Event] = {}
+
+    async def sync(self) -> None:
+        active = await _load_active_bots()
+        active_ids = {b["id"] for b in active}
+        active_map = {b["id"]: b for b in active}
+
+        for bid in list(self._tasks):
+            if bid not in active_ids:
+                self._stops[bid].set()
+                task = self._tasks.pop(bid)
+                self._stops.pop(bid, None)
+                try:
+                    await asyncio.wait_for(task, timeout=10.0)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    task.cancel()
+
+        for bot in active:
+            bid = bot["id"]
+            if bid not in self._tasks:
+                stop_event = asyncio.Event()
+                self._stops[bid] = stop_event
+                self._tasks[bid] = asyncio.create_task(
+                    run_bot_polling(bot, stop_event),
+                    name=f"bot-{bid}",
+                )
+
+    async def run_forever(self) -> None:
+        while True:
+            try:
+                await self.sync()
+            except Exception as exc:
+                logger.exception("Bot sync error: %s", exc)
+            await asyncio.sleep(Config.BOT_RUNNER_RELOAD_INTERVAL_SEC)
 
 
 async def main() -> None:
     Config.validate()
     await init_pool()
-
-    bots = await _load_active_bots()
-    if not bots:
-        logger.info("Нет активных ботов. Ожидание… (перезапуск после создания)")
-        await asyncio.sleep(Config.BOT_RUNNER_RELOAD_INTERVAL_SEC)
+    manager = BotRunnerManager()
+    logger.info("Bot runner started (reload every %ss)", Config.BOT_RUNNER_RELOAD_INTERVAL_SEC)
+    try:
+        await manager.run_forever()
+    finally:
         await close_pool()
-        return
-
-    logger.info("Запуск polling для %s ботов", len(bots))
-    await asyncio.gather(*(run_bot_polling(b) for b in bots))
 
 
 if __name__ == "__main__":

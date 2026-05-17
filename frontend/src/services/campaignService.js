@@ -57,6 +57,15 @@ export const campaignService = {
     const res = await apiClient.post(API_ENDPOINTS.CAMPAIGNS.START(campaignId));
     return res.data?.job;
   },
+
+  async update(id, payload) {
+    const res = await apiClient.patch(API_ENDPOINTS.CAMPAIGNS.GET(id), payload);
+    return res.data?.campaign;
+  },
+
+  async remove(id) {
+    await apiClient.delete(API_ENDPOINTS.CAMPAIGNS.GET(id));
+  },
 };
 
 export const jobService = {

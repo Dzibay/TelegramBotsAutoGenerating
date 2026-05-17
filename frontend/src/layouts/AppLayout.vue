@@ -4,7 +4,8 @@
       <RouterLink to="/app" class="logo">TG Bots Generator</RouterLink>
       <nav>
         <RouterLink to="/app" class="nav-link">Кампании</RouterLink>
-        <RouterLink to="/app/accounts/prepare" class="nav-link">Подготовка аккаунтов</RouterLink>
+        <RouterLink to="/app/bots" class="nav-link">Боты</RouterLink>
+        <RouterLink to="/app/accounts/prepare" class="nav-link">Подготовка</RouterLink>
         <span class="user">Админ</span>
         <button type="button" class="btn-ghost" @click="onLogout">Выйти</button>
       </nav>

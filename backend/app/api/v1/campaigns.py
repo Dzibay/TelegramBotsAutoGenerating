@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 from app.constants import HTTPStatus, SuccessMessages
 from app.core.dependencies import get_current_user
 from app.core.exceptions import BadRequestError
+from app.domain.models.bot_models import CampaignUpdateRequest
 from app.domain.models.campaign_models import CampaignCreateRequest
 from app.domain.services import account_service, campaign_service, job_service, prepared_account_service
 from app.utils.response import success_response
@@ -77,6 +78,28 @@ async def create_campaign_full(
         data={"campaign": campaign, "accounts": uploaded, "job": job},
         message=SuccessMessages.CAMPAIGN_CREATED,
     )
+
+
+@router.patch("/{campaign_id}")
+async def update_campaign(
+    campaign_id: int,
+    body: CampaignUpdateRequest,
+    _user: dict = Depends(get_current_user),
+):
+    campaign = await campaign_service.update_campaign(
+        campaign_id,
+        title=body.title,
+        niche_description=body.niche_description,
+        keywords=body.keywords,
+        resource_url=body.resource_url,
+    )
+    return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
+
+
+@router.delete("/{campaign_id}")
+async def delete_campaign(campaign_id: int, _user: dict = Depends(get_current_user)):
+    await campaign_service.delete_campaign(campaign_id)
+    return success_response(message=SuccessMessages.CAMPAIGN_DELETED)
 
 
 @router.get("/{campaign_id}")

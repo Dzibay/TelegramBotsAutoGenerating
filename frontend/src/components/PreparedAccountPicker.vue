@@ -28,7 +28,7 @@
     <p v-if="accounts.length" class="pick-meta">
       Выбрано: {{ modelValue.length }} из {{ accounts.length }}
     </p>
-  </motion.div>
+  </div>
 </template>
 
 <script setup>

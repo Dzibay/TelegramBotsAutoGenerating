@@ -31,13 +31,24 @@
               <div class="bot-info">
                 <strong>@{{ b.username || '—' }}</strong>
                 <span>{{ b.display_name }}</span>
+                <span v-if="b.click_count != null" class="clicks">{{ b.click_count }} кликов</span>
+                <a
+                  v-if="botLink(b)"
+                  :href="botLink(b)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="tg-open"
+                  @click.stop
+                >
+                  Открыть в Telegram ↗
+                </a>
               </div>
               <StatusBadge :status="b.status" />
               <div class="bot-actions">
                 <button
                   v-if="b.status !== 'active'"
                   type="button"
-                  class="btn-sm"
+                  class="btn btn-sm"
                   :disabled="actionId === b.id"
                   @click="onStart(b)"
                 >
@@ -46,18 +57,18 @@
                 <button
                   v-else
                   type="button"
-                  class="btn-sm btn-ghost"
+                  class="btn btn-sm btn-ghost"
                   :disabled="actionId === b.id"
                   @click="onStop(b)"
                 >
                   Остановить
                 </button>
-                <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="btn-sm btn-ghost">
+                <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="btn btn-sm btn-ghost">
                   Изменить
                 </RouterLink>
                 <button
                   type="button"
-                  class="btn-sm btn-danger"
+                  class="btn btn-sm btn-danger"
                   :disabled="actionId === b.id"
                   @click="onDelete(b)"
                 >
@@ -77,6 +88,11 @@ import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
+import { telegramBotUrl } from '../utils/botLink';
+
+function botLink(b) {
+  return b.telegram_url || telegramBotUrl(b.username);
+}
 
 const campaigns = ref([]);
 const loading = ref(true);
@@ -213,25 +229,21 @@ onMounted(load);
   color: var(--muted);
 }
 
+.tg-open {
+  font-size: 0.75rem;
+  color: var(--accent);
+  margin-top: 0.15rem;
+}
+
+.clicks {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .bot-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
 }
 
-.btn-sm {
-  padding: 0.25rem 0.55rem;
-  font-size: 0.75rem;
-  width: auto;
-}
-
-.btn-danger {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.35);
-}
-
-.btn-danger:hover {
-  background: rgba(239, 68, 68, 0.35);
-}
 </style>

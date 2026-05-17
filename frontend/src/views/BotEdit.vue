@@ -10,7 +10,20 @@
       </div>
     </header>
 
+    <p v-if="justCreated" class="success-banner card">Бот создан. Откройте ссылку ниже и проверьте работу.</p>
+
+    <BotTelegramPanel
+      :bot="bot"
+      :auto-verify="justCreated"
+      @verified="onVerified"
+    />
+
     <form class="card form" @submit.prevent="onSave">
+      <div class="form-group">
+        <label>Ссылка на рекламируемый сервис</label>
+        <input v-model="form.target_url" type="url" required placeholder="https://..." />
+        <p class="field-hint">В боте используется трекинг-ссылка /go/… (клики считаются автоматически)</p>
+      </div>
       <div class="form-group">
         <label>Имя</label>
         <input v-model="form.display_name" required maxlength="64" />
@@ -27,6 +40,11 @@
         <label>Ключевое слово</label>
         <input v-model="form.keyword" />
       </div>
+
+      <label class="check">
+        <input v-model="form.sync_botfather" type="checkbox" />
+        Обновить описание, about и аватар в BotFather
+      </label>
 
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <div class="actions">
@@ -49,13 +67,15 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import BotTelegramPanel from '../components/BotTelegramPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 
 const route = useRoute();
 const router = useRouter();
+const justCreated = computed(() => route.query.created === '1');
 const bot = ref({});
 const loading = ref(true);
 const loadError = ref(null);
@@ -63,10 +83,12 @@ const saveError = ref(null);
 const saving = ref(false);
 const acting = ref(false);
 const form = ref({
+  target_url: '',
   display_name: '',
   description: '',
   welcome_message: '',
   keyword: '',
+  sync_botfather: false,
 });
 
 async function load() {
@@ -74,10 +96,12 @@ async function load() {
   try {
     bot.value = await botService.get(Number(route.params.id));
     form.value = {
+      target_url: bot.value.target_url || '',
       display_name: bot.value.display_name,
       description: bot.value.description || '',
       welcome_message: bot.value.welcome_message || '',
       keyword: bot.value.keyword || '',
+      sync_botfather: false,
     };
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Бот не найден';
@@ -120,6 +144,12 @@ async function onStop() {
   }
 }
 
+function onVerified(result) {
+  if (result?.username) {
+    bot.value = { ...bot.value, username: result.username, telegram_url: result.telegram_url };
+  }
+}
+
 async function onDelete() {
   if (!confirm('Удалить бота?')) return;
   acting.value = true;
@@ -159,9 +189,32 @@ onMounted(load);
   margin-top: 1rem;
 }
 
-.btn-danger {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.35);
+.success-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  color: #86efac;
+  font-size: 0.9rem;
 }
+
+.field-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.35rem;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.check input {
+  width: auto;
+}
+
 </style>

@@ -3,11 +3,12 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.config import Config
-from app.domain.services import job_log_service
+from app.domain.services import bot_promo_service, job_log_service
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.botfather_client import (
     create_bot_via_botfather,
+    set_bot_about,
     set_bot_description,
     set_bot_photo,
 )
@@ -160,11 +161,14 @@ class CreationPipeline:
             await self.log(f"{label}: сессия OK ({phone})", context={"account_id": account_id})
 
             keywords = list(campaign["keywords"] or [])
+            if not keywords:
+                keywords = ["bot", "helper", "telegram"]
+            resource_url = campaign.get("resource_url") or ""
             await self.log(f"{label}: анализ ниши AI ({slots} ботов)…")
             concepts = await self.ai.analyze_niche(
                 keywords,
                 campaign.get("niche_description"),
-                campaign["resource_url"],
+                resource_url,
                 slots,
                 campaign_id=self.campaign_id,
             )
@@ -230,8 +234,25 @@ class CreationPipeline:
             campaign_id=self.campaign_id,
         )
         display_name = profile.get("display_name", "Bot")[:64]
-        description = profile.get("description", "")[:512]
         username = profile.get("username", concept.get("username_hint", "my_bot"))
+
+        target_url = (campaign.get("resource_url") or "").strip()
+        if not target_url:
+            await self.log("Пропуск: у кампании не задан resource_url (ссылка на сервис)", level="warn")
+            return None
+        target = bot_promo_service.normalize_target_url(target_url)
+        slug = bot_promo_service.generate_redirect_slug()
+        tracking_url = bot_promo_service.build_tracking_url(slug)
+        promo = bot_promo_service.build_promo_texts(
+            tracking_url=tracking_url,
+            display_name=display_name,
+            keyword=keyword,
+        )
+        description = bot_promo_service.embed_tracking_in_description(
+            profile.get("description", "") or promo["description"],
+            tracking_url,
+            target,
+        )
 
         await self.log(f"BotFather: создание @{username}…")
         result = await create_bot_via_botfather(client, display_name, username)
@@ -239,16 +260,18 @@ class CreationPipeline:
         username = result["username"]
 
         welcome = await self.ai.generate_welcome_message(
-            campaign["resource_url"],
+            tracking_url,
             keyword,
             display_name,
             variant_index,
             campaign_id=self.campaign_id,
+            moved_notice=True,
         )
+        welcome = bot_promo_service.embed_tracking_in_welcome(welcome, tracking_url, target)
 
         avatar_path = None
         try:
-            prompt = profile.get("avatar_prompt", f"telegram bot icon {keyword}")
+            prompt = profile.get("avatar_prompt", promo["avatar_prompt"])
             img = await generate_image_bytes(prompt)
             avatar_path = Config.AVATARS_DIR / str(self.campaign_id) / f"{username}.jpg"
             avatar_path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,15 +281,17 @@ class CreationPipeline:
             await self.log(f"Аватар @{username}: {exc}", level="warn")
 
         await set_bot_description(client, username, description)
+        await set_bot_about(client, username, promo["about_text"])
 
         token_enc = encrypt_token(token)
         row = await db.fetch_one(
             """
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
-                description, token_encrypted, avatar_path, welcome_message, status
+                description, token_encrypted, avatar_path, welcome_message,
+                target_url, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'active')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
             RETURNING id
             """,
             self.campaign_id,
@@ -278,6 +303,8 @@ class CreationPipeline:
             token_enc,
             str(avatar_path) if avatar_path else None,
             welcome,
+            target,
+            slug,
         )
         bot_id = row["id"]
         await self.log(f"✓ Бот @{username} создан", context={"bot_id": bot_id, "username": username})

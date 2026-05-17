@@ -1,12 +1,15 @@
 :root {
   --bg: #0f1419;
   --surface: #1a2332;
+  --surface-hover: #243044;
   --border: #2d3a4d;
   --text: #e8edf4;
   --muted: #8b9cb3;
   --accent: #3b82f6;
   --accent-hover: #2563eb;
   --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --danger-muted: #f87171;
   --success: #22c55e;
   --radius: 10px;
   --font: 'Segoe UI', system-ui, sans-serif;
@@ -27,6 +30,7 @@ body {
   min-height: 100vh;
 }
 
+/* --- Typography & links --- */
 a {
   color: var(--accent);
   text-decoration: none;
@@ -36,44 +40,243 @@ a:hover {
   text-decoration: underline;
 }
 
-button,
-.btn {
+a.btn,
+a[class*='btn-'],
+a.back,
+a.item-link,
+a.nav-link,
+a.all-bots-link,
+a.link-btn {
+  text-decoration: none;
+}
+
+a.btn:hover,
+a[class*='btn-']:hover,
+a.back:hover,
+a.item-link:hover,
+a.nav-link:hover,
+a.all-bots-link:hover {
+  text-decoration: none;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.hint,
+.field-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0.35rem 0 0;
+  line-height: 1.45;
+}
+
+.field-hint a {
+  color: var(--accent);
+}
+
+.back {
+  display: inline-block;
+  font-size: 0.875rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.back:hover {
+  color: var(--accent);
+}
+
+.subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.page-header {
+  margin-bottom: 1.5rem;
+}
+
+.page-header h1 {
+  margin: 0.35rem 0 0;
+  font-size: 1.5rem;
+}
+
+/* --- Buttons: base for <button> and <a> with btn* classes --- */
+:is(button, a).btn,
+:is(button, a)[class*='btn-'] {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.2rem;
+  gap: 0.35rem;
+  padding: 0.55rem 1.1rem;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    opacity 0.15s;
+  border: 1px solid transparent;
+}
+
+:is(button, a).btn:disabled,
+:is(button, a)[class*='btn-']:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Primary */
+:is(button, a).btn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+:is(button, a).btn:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+/* Bare <button> without class = primary */
+button:not([class]),
+button[type='submit']:not([class*='btn-']):not(.link-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.55rem 1.1rem;
   border: none;
   border-radius: var(--radius);
   font: inherit;
+  font-weight: 500;
   cursor: pointer;
   background: var(--accent);
   color: #fff;
   transition: background 0.15s;
 }
 
-button:hover,
-.btn:hover {
+button:not([class]):hover,
+button[type='submit']:not([class*='btn-']):not(.link-btn):hover {
   background: var(--accent-hover);
 }
 
 button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.btn-ghost {
-  background: transparent;
-  border: 1px solid var(--border);
+/* Ghost / secondary */
+:is(button, a).btn-ghost {
+  background: var(--surface);
+  border-color: var(--border);
   color: var(--text);
 }
 
-.btn-ghost:hover {
-  background: var(--surface);
+:is(button, a).btn-ghost:hover {
+  background: var(--surface-hover);
+  border-color: var(--muted);
+  color: var(--text);
 }
 
+/* Sizes */
+.btn-sm,
+:is(button, a).btn-sm {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.btn-xs,
+:is(button, a).btn-xs {
+  padding: 0.28rem 0.6rem;
+  font-size: 0.75rem;
+}
+
+/* Danger */
+:is(button, a).btn-danger,
+:is(button, a).btn-ghost.btn-danger,
+:is(button, a).btn-ghost.danger {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: var(--danger-muted);
+}
+
+:is(button, a).btn-danger:hover,
+:is(button, a).btn-ghost.btn-danger:hover,
+:is(button, a).btn-ghost.danger:hover {
+  background: rgba(239, 68, 68, 0.28);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+/* AI accent button */
+:is(button, a).btn-ai {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-color: transparent;
+  color: #fff;
+  width: 100%;
+}
+
+:is(button, a).btn-ai:hover {
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+  color: #fff;
+}
+
+/* Full-width action in forms */
+.btn-add,
+.btn-next,
+.form > button[type='submit'],
+.actions > button[type='submit']:last-child {
+  min-height: 2.5rem;
+}
+
+.btn-add,
+.btn-next {
+  width: 100%;
+}
+
+/* Text link actions (lists) */
+.link-btn,
+button.link-btn,
+a.link-btn {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.link-btn:hover,
+button.link-btn:hover,
+a.link-btn:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  background: none;
+}
+
+.link-btn.danger,
+button.link-btn.danger {
+  color: var(--danger-muted);
+}
+
+.link-btn.danger:hover {
+  color: var(--danger);
+}
+
+/* --- Form controls --- */
 input,
-textarea {
+textarea,
+select {
   width: 100%;
   padding: 0.65rem 0.85rem;
   border: 1px solid var(--border);
@@ -83,12 +286,50 @@ textarea {
   font: inherit;
 }
 
-input:focus,
-textarea:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
+select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238b9cb3' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
 }
 
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  border-color: var(--accent);
+}
+
+input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkbox-row,
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.checkbox-row input,
+.check input {
+  width: auto;
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+/* --- Layout helpers --- */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -107,8 +348,102 @@ textarea:focus {
   color: var(--muted);
 }
 
+.actions,
+.nav-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.nav-row button:last-child,
+.actions > :is(button, a).btn:last-child,
+.actions > :is(button, a).btn-ghost:last-child {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.dash-header,
+.bots-hub .page-header,
+.create-page .page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.empty {
+  text-align: center;
+  padding: 2rem;
+}
+
+.empty a {
+  color: var(--accent);
+}
+
+details {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-size: 0.875rem;
+}
+
+details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text);
+  user-select: none;
+}
+
+details[open] summary {
+  margin-bottom: 0.5rem;
+}
+
 .error-text {
   color: var(--danger);
   font-size: 0.875rem;
   margin-top: 0.5rem;
+}
+
+.all-bots-link {
+  display: inline-block;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-link:hover,
+.nav-link.router-link-active {
+  color: var(--accent);
+  background: rgba(59, 130, 246, 0.12);
+  text-decoration: none;
+}
+
+/* List reset */
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }

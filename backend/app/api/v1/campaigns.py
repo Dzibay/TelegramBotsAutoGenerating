@@ -86,13 +86,7 @@ async def update_campaign(
     body: CampaignUpdateRequest,
     _user: dict = Depends(get_current_user),
 ):
-    campaign = await campaign_service.update_campaign(
-        campaign_id,
-        title=body.title,
-        niche_description=body.niche_description,
-        keywords=body.keywords,
-        resource_url=body.resource_url,
-    )
+    campaign = await campaign_service.update_campaign(campaign_id, title=body.title)
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
 
 

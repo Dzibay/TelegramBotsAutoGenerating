@@ -69,6 +69,23 @@ async def set_bot_description(client, username: str, description: str) -> None:
         logger.warning("setdescription failed for @%s: %s", username, exc)
 
 
+async def set_bot_about(client, username: str, about: str) -> None:
+    """Короткий текст в профиле бота (до 120 символов)."""
+    text = (about or "").strip()[:120]
+    if not text:
+        return
+    try:
+        async with client.conversation("BotFather", timeout=20) as conv:
+            await conv.send_message("/setabouttext")
+            await _wait_reply(conv)
+            await conv.send_message(f"@{username.lstrip('@')}")
+            await _wait_reply(conv)
+            await conv.send_message(text)
+            await _wait_reply(conv)
+    except Exception as exc:
+        logger.warning("setabouttext failed for @%s: %s", username, exc)
+
+
 async def set_bot_photo(client, username: str, image_path: Path) -> None:
     path = Path(image_path)
     if not path.is_file():

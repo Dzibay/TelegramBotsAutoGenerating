@@ -15,7 +15,7 @@ def _campaign_row(row: dict[str, Any]) -> dict[str, Any]:
         "title": row["title"],
         "niche_description": row.get("niche_description"),
         "keywords": list(row.get("keywords") or []),
-        "resource_url": row["resource_url"],
+        "resource_url": row.get("resource_url"),
         "status": row["status"],
         "accounts_count": int(row.get("accounts_count") or 0),
         "bots_count": int(row.get("bots_count") or 0),
@@ -27,11 +27,12 @@ def _campaign_row(row: dict[str, Any]) -> dict[str, Any]:
 
 async def create_campaign(
     title: str,
-    keywords: list[str],
-    resource_url: str,
+    keywords: list[str] | None = None,
+    resource_url: str | None = None,
     niche_description: str | None = None,
 ) -> dict[str, Any]:
-    cleaned_keywords = [k.strip() for k in keywords if k and k.strip()]
+    cleaned_keywords = [k.strip() for k in (keywords or []) if k and k.strip()]
+    resource = (resource_url or "").strip() or None
     row = await db.fetch_one(
         """
         INSERT INTO campaigns (title, niche_description, keywords, resource_url)
@@ -41,7 +42,7 @@ async def create_campaign(
         title.strip(),
         niche_description,
         cleaned_keywords,
-        resource_url.strip(),
+        resource,
     )
     out = _campaign_row(row)
     out["accounts_count"] = 0
@@ -81,37 +82,14 @@ async def get_campaign(campaign_id: int) -> dict[str, Any]:
     return _campaign_row(row)
 
 
-async def update_campaign(
-    campaign_id: int,
-    *,
-    title: str | None = None,
-    niche_description: str | None = None,
-    keywords: list[str] | None = None,
-    resource_url: str | None = None,
-) -> dict[str, Any]:
+async def update_campaign(campaign_id: int, *, title: str | None = None) -> dict[str, Any]:
     await get_campaign(campaign_id)
-    sets = []
-    params: list[Any] = []
-    if title is not None:
-        params.append(title.strip())
-        sets.append(f"title = ${len(params)}")
-    if niche_description is not None:
-        params.append(niche_description)
-        sets.append(f"niche_description = ${len(params)}")
-    if keywords is not None:
-        cleaned = [k.strip() for k in keywords if k and k.strip()]
-        params.append(cleaned)
-        sets.append(f"keywords = ${len(params)}::text[]")
-    if resource_url is not None:
-        params.append(resource_url.strip())
-        sets.append(f"resource_url = ${len(params)}")
-    if not sets:
+    if title is None:
         return await get_campaign(campaign_id)
-
-    params.append(campaign_id)
     await db.execute(
-        f"UPDATE campaigns SET {', '.join(sets)}, updated_at = NOW() WHERE id = ${len(params)}",
-        *params,
+        "UPDATE campaigns SET title = $2, updated_at = NOW() WHERE id = $1",
+        campaign_id,
+        title.strip(),
     )
     return await get_campaign(campaign_id)
 

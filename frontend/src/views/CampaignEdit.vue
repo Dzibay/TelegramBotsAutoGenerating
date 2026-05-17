@@ -10,19 +10,7 @@
     <form class="card form" @submit.prevent="onSave">
       <div class="form-group">
         <label>Название</label>
-        <input v-model="form.title" required />
-      </div>
-      <div class="form-group">
-        <label>Ссылка на ресурс</label>
-        <input v-model="form.resource_url" type="url" required />
-      </div>
-      <div class="form-group">
-        <label>Описание ниши</label>
-        <textarea v-model="form.niche_description" rows="3" />
-      </div>
-      <div class="form-group">
-        <label>Ключевые слова (через запятую)</label>
-        <input v-model="keywordsRaw" required />
+        <input v-model="title" required placeholder="Название группы аккаунтов" />
       </div>
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <div class="actions">
@@ -45,19 +33,13 @@ const loading = ref(true);
 const loadError = ref(null);
 const saveError = ref(null);
 const saving = ref(false);
-const keywordsRaw = ref('');
-const form = ref({ title: '', resource_url: '', niche_description: '' });
+const title = ref('');
 
 async function load() {
   loading.value = true;
   try {
     const { campaign } = await campaignService.get(id.value);
-    form.value = {
-      title: campaign.title,
-      resource_url: campaign.resource_url,
-      niche_description: campaign.niche_description || '',
-    };
-    keywordsRaw.value = (campaign.keywords || []).join(', ');
+    title.value = campaign.title;
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
@@ -68,17 +50,8 @@ async function load() {
 async function onSave() {
   saving.value = true;
   saveError.value = null;
-  const keywords = keywordsRaw.value
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean);
   try {
-    await campaignService.update(id.value, {
-      title: form.value.title,
-      resource_url: form.value.resource_url,
-      niche_description: form.value.niche_description || null,
-      keywords,
-    });
+    await campaignService.update(id.value, { title: title.value.trim() });
     router.push({ name: 'campaign-detail', params: { id: id.value } });
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка сохранения';
@@ -92,7 +65,7 @@ onMounted(load);
 
 <style scoped>
 .edit-page {
-  max-width: 560px;
+  max-width: 480px;
 }
 
 .actions {

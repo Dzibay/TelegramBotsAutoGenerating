@@ -3,88 +3,64 @@
     <header class="page-header">
       <RouterLink to="/app" class="back">← Кампании</RouterLink>
       <h1>Новая кампания</h1>
-      <p class="subtitle">Заполните данные, выберите подготовленные аккаунты и запустите создание ботов</p>
+      <p class="subtitle">Название и подготовленные аккаунты — ботов создаёте отдельно на странице «Боты»</p>
     </header>
 
     <div class="steps">
-      <div class="step" :class="{ active: step >= 1, done: step > 1 }">1. Ниша</div>
-      <div class="step" :class="{ active: step >= 2, done: step > 2 }">2. Аккаунты</div>
-      <div class="step" :class="{ active: step >= 3 }">3. Запуск</div>
+      <div class="step" :class="{ active: step >= 1, done: step > 1 }">1. Название</div>
+      <div class="step" :class="{ active: step >= 2 }">2. Аккаунты</div>
     </div>
 
     <form class="card form" @submit.prevent="onSubmit">
       <section v-show="step === 1">
         <div class="form-group">
           <label for="title">Название кампании</label>
-          <input id="title" v-model="form.title" required placeholder="Например: Крипто сигналы Q1" />
-        </div>
-        <div class="form-group">
-          <label for="resource">Ссылка на основной ресурс</label>
           <input
-            id="resource"
-            v-model="form.resource_url"
-            type="url"
+            id="title"
+            v-model="form.title"
             required
-            placeholder="https://t.me/your_channel"
+            placeholder="Например: Аккаунты май 2026"
+            autofocus
           />
+          <p class="field-hint">Группа для хранения аккаунтов и привязанных к ним ботов</p>
         </div>
-        <div class="form-group">
-          <label for="niche">Описание ниши</label>
-          <textarea
-            id="niche"
-            v-model="form.niche_description"
-            rows="3"
-            placeholder="Кому адресованы боты, какой оффер, тон общения…"
-          />
-        </div>
-        <div class="form-group">
-          <label for="keywords">Ключевые слова</label>
-          <input
-            id="keywords"
-            v-model="keywordsRaw"
-            required
-            placeholder="крипто, сигналы, трейдинг, bitcoin"
-          />
-          <p class="field-hint">Через запятую — AI распределит их по ботам</p>
-        </div>
-        <button type="button" class="btn-next" @click="step = 2">Далее: аккаунты →</button>
+        <button type="button" class="btn btn-next" :disabled="!form.title.trim()" @click="step = 2">
+          Далее: аккаунты →
+        </button>
       </section>
 
       <section v-show="step === 2">
         <div class="form-group">
           <label>Подготовленные аккаунты</label>
           <p class="field-hint">
-            Сначала загрузите и подготовьте tdata на странице
+            Сначала подготовьте tdata на странице
             <RouterLink to="/app/accounts/prepare">«Подготовка аккаунтов»</RouterLink>.
           </p>
           <PreparedAccountPicker v-model="selectedPreparedIds" />
         </div>
-        <div class="nav-row">
-          <button type="button" class="btn-ghost" @click="step = 1">← Назад</button>
-          <button type="button" :disabled="!selectedPreparedIds.length" @click="step = 3">
-            Далее →
-          </button>
-        </div>
-      </section>
 
-      <section v-show="step === 3">
-        <div class="summary card-inner">
-          <h3>Проверьте перед запуском</h3>
+        <details class="optional-mass">
+          <summary>Опционально: массовое создание ботов (AI)</summary>
+          <p class="field-hint">
+            Сразу запустить worker — создаст до 20 ботов на аккаунт через BotFather без ручной настройки.
+          </p>
+          <label class="checkbox-row">
+            <input v-model="autoStart" type="checkbox" />
+            Запустить массовое создание после сохранения
+          </label>
+        </details>
+
+        <div class="summary card-inner" v-if="form.title">
           <ul>
             <li><strong>Название:</strong> {{ form.title }}</li>
-            <li><strong>Ресурс:</strong> {{ form.resource_url }}</li>
-            <li><strong>Ключевые слова:</strong> {{ parsedKeywords.join(', ') }}</li>
             <li><strong>Аккаунтов:</strong> {{ selectedPreparedIds.length }}</li>
           </ul>
         </div>
-        <label class="checkbox-row">
-          <input v-model="autoStart" type="checkbox" />
-          Сразу запустить создание ботов после сохранения
-        </label>
+
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
         <div class="nav-row">
-          <button type="button" class="btn-ghost" @click="step = 2">← Назад</button>
-          <button type="submit" :disabled="submitting">
+          <button type="button" class="btn-ghost" @click="step = 1">← Назад</button>
+          <button type="submit" :disabled="submitting || !selectedPreparedIds.length">
             {{ submitting ? 'Создание…' : 'Создать кампанию' }}
           </button>
         </div>
@@ -94,7 +70,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import { campaignService } from '../services/campaignService';
@@ -104,20 +80,8 @@ const step = ref(1);
 const submitting = ref(false);
 const submitError = ref(null);
 const selectedPreparedIds = ref([]);
-const autoStart = ref(true);
-const keywordsRaw = ref('');
-const form = ref({
-  title: '',
-  resource_url: '',
-  niche_description: '',
-});
-
-const parsedKeywords = computed(() =>
-  keywordsRaw.value
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean)
-);
+const autoStart = ref(false);
+const form = ref({ title: '' });
 
 async function onSubmit() {
   if (!selectedPreparedIds.value.length) {
@@ -129,17 +93,11 @@ async function onSubmit() {
   submitError.value = null;
   try {
     const data = await campaignService.createFull({
-      payload: {
-        title: form.value.title,
-        resource_url: form.value.resource_url,
-        niche_description: form.value.niche_description || null,
-        keywords: parsedKeywords.value,
-      },
+      payload: { title: form.value.title.trim() },
       preparedAccountIds: selectedPreparedIds.value,
       autoStart: autoStart.value,
     });
-    const id = data.campaign?.id;
-    router.push({ name: 'campaign-detail', params: { id } });
+    router.push({ name: 'campaign-detail', params: { id: data.campaign?.id } });
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Не удалось создать кампанию';
   } finally {
@@ -207,11 +165,17 @@ async function onSubmit() {
   color: var(--muted);
 }
 
-.field-hint code {
-  font-size: 0.85em;
-  background: var(--bg);
-  padding: 0.1rem 0.3rem;
-  border-radius: 4px;
+.optional-mass {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.875rem;
+}
+
+.optional-mass summary {
+  cursor: pointer;
+  font-weight: 600;
 }
 
 .btn-next {
@@ -229,20 +193,11 @@ async function onSubmit() {
   flex: 1;
 }
 
-.summary h3 {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
-}
-
 .summary ul {
   margin: 0;
   padding-left: 1.1rem;
   color: var(--muted);
   font-size: 0.9rem;
-}
-
-.summary li {
-  margin-bottom: 0.35rem;
 }
 
 .card-inner {
@@ -257,8 +212,7 @@ async function onSubmit() {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 1rem;
-  font-size: 0.9rem;
+  margin-top: 0.5rem;
   cursor: pointer;
 }
 

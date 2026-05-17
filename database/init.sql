@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     title TEXT NOT NULL,
     niche_description TEXT,
     keywords TEXT[] NOT NULL DEFAULT '{}',
-    resource_url TEXT NOT NULL,
+    resource_url TEXT,
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'queued', 'running', 'completed', 'failed', 'cancelled')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -44,12 +44,18 @@ CREATE TABLE IF NOT EXISTS bots (
     token_encrypted BYTEA,
     avatar_path TEXT,
     welcome_message TEXT NOT NULL,
+    target_url TEXT,
+    redirect_slug TEXT,
+    click_count BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'active', 'stopped', 'failed', 'banned')),
     botfather_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bots_redirect_slug ON bots (redirect_slug)
+    WHERE redirect_slug IS NOT NULL;
 
 -- Фоновая задача создания ботов по кампании
 CREATE TABLE IF NOT EXISTS creation_jobs (

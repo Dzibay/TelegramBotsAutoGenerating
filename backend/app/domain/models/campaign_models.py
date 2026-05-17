@@ -6,8 +6,8 @@ from pydantic import BaseModel, Field
 class CampaignCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     niche_description: Optional[str] = Field(None, max_length=2000)
-    keywords: list[str] = Field(..., min_length=1)
-    resource_url: str = Field(..., min_length=4, max_length=2048)
+    keywords: list[str] = Field(default_factory=list)
+    resource_url: Optional[str] = Field(None, max_length=2048)
 
 
 class CampaignResponse(BaseModel):
@@ -15,7 +15,7 @@ class CampaignResponse(BaseModel):
     title: str
     niche_description: Optional[str]
     keywords: list[str]
-    resource_url: str
+    resource_url: Optional[str] = None
     status: str
     accounts_count: int = 0
     bots_count: int = 0

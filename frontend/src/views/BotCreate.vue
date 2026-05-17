@@ -3,10 +3,28 @@
     <header class="page-header">
       <RouterLink to="/app/bots" class="back">← Боты</RouterLink>
       <h1>Создание бота</h1>
-      <p class="subtitle">Выберите кампанию и аккаунт, сгенерируйте контент через AI и создайте бота в BotFather</p>
+      <p class="subtitle">
+        Укажите ссылку на рекламируемый сервис — в боте будет трекинг-ссылка с подсчётом кликов
+      </p>
     </header>
 
     <form class="card form" @submit.prevent="onSubmit">
+      <div class="form-group">
+        <label>Ссылка на рекламируемый сервис *</label>
+        <input
+          v-model="targetUrl"
+          type="url"
+          required
+          placeholder="https://example.com/landing"
+        />
+        <p class="field-hint">Прямая ссылка. В боте пользователи увидят защищённую ссылку вида /go/…</p>
+      </div>
+
+      <div v-if="draftTrackingUrl" class="preview-tracking card-inner">
+        <span class="preview-label">Трекинг-ссылка (будет в боте):</span>
+        <code>{{ draftTrackingUrl }}</code>
+      </div>
+
       <div class="form-group">
         <label>Кампания</label>
         <select v-model.number="campaignId" required @change="onCampaignChange">
@@ -24,24 +42,20 @@
             ({{ a.bots_created }}/{{ a.max_bots_limit }} ботов)
           </option>
         </select>
-        <p v-if="campaignId && !accounts.length" class="field-hint">
-          В кампании нет аккаунтов.
-          <RouterLink :to="{ name: 'campaign-detail', params: { id: campaignId } }">Добавьте подготовленные</RouterLink>
-        </p>
       </div>
 
       <div class="form-group">
         <label>Ключевое слово (для AI)</label>
-        <input v-model="keyword" placeholder="Необязательно — возьмётся из кампании" />
+        <input v-model="keyword" placeholder="Необязательно" />
       </div>
 
       <button
         type="button"
         class="btn-ai"
-        :disabled="!campaignId || !accountId || generating"
+        :disabled="!campaignId || !accountId || !targetUrl.trim() || generating"
         @click="onGenerate"
       >
-        {{ generating ? 'Генерация…' : '✨ Сгенерировать поля через AI' }}
+        {{ generating ? 'Генерация…' : '✨ Сгенерировать поля (переезд + ссылка)' }}
       </button>
 
       <div class="form-group">
@@ -53,12 +67,13 @@
         <input v-model="form.username" required placeholder="my_bot" />
       </div>
       <div class="form-group">
-        <label>Описание</label>
-        <textarea v-model="form.description" rows="3" maxlength="512" />
+        <label>Описание (до старта чата)</label>
+        <textarea v-model="form.description" rows="4" maxlength="512" />
+        <p class="field-hint">Текст «бот переехал» и трекинг-ссылка подставляются автоматически</p>
       </div>
       <div class="form-group">
-        <label>Приветственное сообщение</label>
-        <textarea v-model="form.welcome_message" rows="4" required />
+        <label>Сообщение /start</label>
+        <textarea v-model="form.welcome_message" rows="5" required />
       </div>
 
       <label class="check">
@@ -69,7 +84,7 @@
       <p v-if="submitError" class="error-text">{{ submitError }}</p>
       <div class="actions">
         <RouterLink to="/app/bots" class="btn-ghost">Отмена</RouterLink>
-        <button type="submit" :disabled="submitting">
+        <button type="submit" class="btn" :disabled="submitting || !targetUrl.trim()">
           {{ submitting ? 'Создание…' : 'Создать бота' }}
         </button>
       </div>
@@ -90,7 +105,10 @@ const campaigns = ref([]);
 const accounts = ref([]);
 const campaignId = ref(route.query.campaign_id ? Number(route.query.campaign_id) : null);
 const accountId = ref(null);
+const targetUrl = ref('');
 const keyword = ref('');
+const redirectSlug = ref(null);
+const draftTrackingUrl = ref(null);
 const generating = ref(false);
 const submitting = ref(false);
 const submitError = ref(null);
@@ -104,6 +122,12 @@ const form = ref({
 
 async function loadCampaigns() {
   campaigns.value = await campaignService.list();
+  if (campaignId.value) {
+    const c = campaigns.value.find((x) => x.id === campaignId.value);
+    if (c?.resource_url && !targetUrl.value) {
+      targetUrl.value = c.resource_url;
+    }
+  }
 }
 
 async function loadAccounts() {
@@ -120,6 +144,8 @@ async function loadAccounts() {
 
 function onCampaignChange() {
   accountId.value = null;
+  const c = campaigns.value.find((x) => x.id === campaignId.value);
+  if (c?.resource_url) targetUrl.value = c.resource_url;
   loadAccounts();
 }
 
@@ -130,13 +156,21 @@ async function onGenerate() {
     const draft = await botService.generateDraft({
       campaignId: campaignId.value,
       accountId: accountId.value,
+      targetUrl: targetUrl.value.trim(),
       keyword: keyword.value || undefined,
+      redirectSlug: redirectSlug.value,
     });
+    redirectSlug.value = draft.redirect_slug;
+    draftTrackingUrl.value = draft.tracking_url;
+    targetUrl.value = draft.target_url || targetUrl.value;
     form.value.display_name = draft.display_name;
     form.value.username = draft.username;
     form.value.description = draft.description;
     form.value.welcome_message = draft.welcome_message;
     if (draft.keyword) keyword.value = draft.keyword;
+    if (draft.ai_hint) {
+      submitError.value = draft.ai_hint;
+    }
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Ошибка генерации AI';
   } finally {
@@ -151,15 +185,17 @@ async function onSubmit() {
     const bot = await botService.create({
       campaign_id: campaignId.value,
       telegram_account_id: accountId.value,
+      target_url: targetUrl.value.trim(),
       display_name: form.value.display_name,
       username: form.value.username.replace(/^@/, ''),
       description: form.value.description,
       welcome_message: form.value.welcome_message,
       keyword: keyword.value || null,
+      redirect_slug: redirectSlug.value,
       create_via_botfather: true,
       auto_start: autoStart.value,
     });
-    router.push({ name: 'bot-edit', params: { id: bot.id } });
+    router.push({ name: 'bot-edit', params: { id: bot.id }, query: { created: '1' } });
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Не удалось создать бота';
   } finally {
@@ -204,6 +240,26 @@ onMounted(async () => {
   margin-top: 0.35rem;
 }
 
+.preview-tracking {
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.75rem;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.preview-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.35rem;
+}
+
+.preview-tracking code {
+  font-size: 0.8rem;
+  word-break: break-all;
+}
+
 .btn-ai {
   width: 100%;
   margin: 0.5rem 0 1rem;
@@ -229,7 +285,7 @@ onMounted(async () => {
   margin-top: 1rem;
 }
 
-.actions button[type='submit'] {
+.actions .btn {
   flex: 1;
 }
 </style>

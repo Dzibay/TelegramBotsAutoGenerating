@@ -3,7 +3,7 @@
     <header class="dash-header">
       <div>
         <h1>Кампании</h1>
-        <p class="subtitle">Массовое создание Telegram-ботов по нише и ключевым словам</p>
+        <p class="subtitle">Группы аккаунтов и ботов</p>
       </div>
       <div class="header-actions">
         <RouterLink to="/app/accounts/prepare" class="btn-ghost">Подготовка</RouterLink>
@@ -27,7 +27,6 @@
               <strong>{{ c.title }}</strong>
               <StatusBadge :status="c.status" />
             </div>
-            <p class="desc">{{ c.keywords?.join(', ') }}</p>
             <p class="meta">
               {{ c.bots_count }} ботов · {{ c.accounts_count }} аккаунтов
               <span v-if="c.active_bots_count"> · {{ c.active_bots_count }} активных</span>
@@ -147,16 +146,6 @@ onMounted(load);
   padding: 0 1rem 0.75rem;
   border-top: 1px solid var(--border);
   padding-top: 0.5rem;
-}
-
-.btn-xs {
-  padding: 0.2rem 0.5rem;
-  font-size: 0.75rem;
-  width: auto;
-}
-
-.danger {
-  color: #f87171;
 }
 
 .item-title {

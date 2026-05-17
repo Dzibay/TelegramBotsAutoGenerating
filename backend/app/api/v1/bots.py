@@ -30,7 +30,9 @@ async def generate_draft(body: BotGenerateRequest, _user: dict = Depends(get_cur
     draft = await bot_service.generate_bot_draft(
         body.campaign_id,
         body.telegram_account_id,
+        body.target_url,
         keyword=body.keyword,
+        redirect_slug=body.redirect_slug,
     )
     return success_response(data={"draft": draft})
 
@@ -46,11 +48,13 @@ async def create_bot(body: BotCreateRequest, _user: dict = Depends(get_current_u
     bot = await bot_service.create_bot(
         campaign_id=body.campaign_id,
         telegram_account_id=body.telegram_account_id,
+        target_url=body.target_url,
         display_name=body.display_name,
         username=body.username,
         description=body.description,
         welcome_message=body.welcome_message,
         keyword=body.keyword,
+        redirect_slug=body.redirect_slug,
         create_via_botfather=body.create_via_botfather,
         auto_start=body.auto_start,
     )
@@ -66,9 +70,11 @@ async def update_bot(
     bot = await bot_service.update_bot(
         bot_id,
         display_name=body.display_name,
+        target_url=body.target_url,
         description=body.description,
         welcome_message=body.welcome_message,
         keyword=body.keyword,
+        sync_botfather=body.sync_botfather,
     )
     return success_response(data={"bot": bot}, message=SuccessMessages.BOT_UPDATED)
 
@@ -77,6 +83,12 @@ async def update_bot(
 async def delete_bot(bot_id: int, _user: dict = Depends(get_current_user)):
     await bot_service.delete_bot(bot_id)
     return success_response(message=SuccessMessages.BOT_DELETED)
+
+
+@router.post("/{bot_id}/verify")
+async def verify_bot(bot_id: int, _user: dict = Depends(get_current_user)):
+    result = await bot_service.verify_bot(bot_id)
+    return success_response(data=result)
 
 
 @router.post("/{bot_id}/start")

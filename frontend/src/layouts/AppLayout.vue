@@ -67,17 +67,6 @@ nav {
   color: var(--muted);
 }
 
-.nav-link {
-  font-size: 0.875rem;
-  color: var(--muted);
-  text-decoration: none;
-}
-
-.nav-link:hover,
-.nav-link.router-link-active {
-  color: var(--accent);
-}
-
 .main {
   flex: 1;
   padding: 1.5rem;

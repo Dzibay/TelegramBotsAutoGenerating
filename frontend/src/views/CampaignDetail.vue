@@ -17,8 +17,6 @@
           </button>
         </div>
       </div>
-      <p class="resource">{{ campaign.resource_url }}</p>
-      <p class="keywords">{{ campaign.keywords?.join(' · ') }}</p>
     </header>
 
     <div class="stats">
@@ -77,7 +75,7 @@
             <PreparedAccountPicker ref="pickerRef" v-model="selectedPreparedIds" />
             <button
               type="button"
-              class="btn-add"
+              class="btn btn-add"
               :disabled="!selectedPreparedIds.length || attaching"
               @click="onAttachPrepared"
             >
@@ -91,7 +89,7 @@
             <h3>Боты</h3>
             <RouterLink
               :to="{ name: 'bot-create', query: { campaign_id: campaignId } }"
-              class="btn-sm"
+              class="btn btn-sm"
             >
               + Создать бота
             </RouterLink>
@@ -102,7 +100,17 @@
               <div class="bot-li-main">
                 <strong>@{{ b.username || '—' }}</strong>
                 <span>{{ b.display_name }}</span>
+                <span v-if="b.click_count != null" class="clicks">{{ b.click_count }} кл.</span>
                 <StatusBadge :status="b.status" />
+                <a
+                  v-if="botLink(b)"
+                  :href="botLink(b)"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="tg-open"
+                >
+                  Telegram ↗
+                </a>
               </div>
               <div class="bot-li-actions">
                 <button
@@ -136,6 +144,11 @@ import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
+import { telegramBotUrl } from '../utils/botLink';
+
+function botLink(b) {
+  return b.telegram_url || telegramBotUrl(b.username);
+}
 
 const route = useRoute();
 const router = useRouter();
@@ -506,12 +519,6 @@ onUnmounted(stopPolling);
   margin-left: auto;
 }
 
-.btn-sm {
-  padding: 0.25rem 0.6rem;
-  font-size: 0.75rem;
-  width: auto;
-}
-
 .section-head {
   display: flex;
   align-items: center;
@@ -536,18 +543,19 @@ onUnmounted(stopPolling);
   gap: 0.35rem;
 }
 
+.tg-open {
+  font-size: 0.75rem;
+  color: var(--accent);
+}
+
+.clicks {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
 .bot-li-actions {
   display: flex;
   gap: 0.5rem;
 }
 
-.link-btn.danger {
-  color: #f87171;
-}
-
-.all-bots-link {
-  display: inline-block;
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
-}
 </style>

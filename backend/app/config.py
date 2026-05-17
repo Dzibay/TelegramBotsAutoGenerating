@@ -45,6 +45,8 @@ class Config:
 
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
     BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:5000")
+    # Базовый URL для трекинг-ссылок /go/{slug} (обычно = FRONTEND_URL)
+    PUBLIC_SITE_URL = os.getenv("PUBLIC_SITE_URL", os.getenv("FRONTEND_URL", "http://localhost:5173")).rstrip("/")
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 
     # Хранилище tdata и аватаров
@@ -62,6 +64,12 @@ class Config:
 
     # AI
     AI_TEXT_PROVIDER = os.getenv("AI_TEXT_PROVIDER", "groq").lower()
+    # При ошибке Groq/Ollama использовать шаблоны вместо 500
+    AI_FALLBACK_ON_ERROR = os.getenv("AI_FALLBACK_ON_ERROR", "true").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     AI_IMAGE_PROVIDER = os.getenv("AI_IMAGE_PROVIDER", "pollinations").lower()
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")

@@ -17,11 +17,13 @@ export const botService = {
     return res.data?.bot;
   },
 
-  async generateDraft({ campaignId, accountId, keyword }) {
+  async generateDraft({ campaignId, accountId, targetUrl, keyword, redirectSlug }) {
     const res = await apiClient.post('/bots/generate-draft', {
       campaign_id: campaignId,
       telegram_account_id: accountId,
+      target_url: targetUrl,
       keyword: keyword || null,
+      redirect_slug: redirectSlug || null,
     });
     return res.data?.draft;
   },
@@ -48,5 +50,10 @@ export const botService = {
   async stop(id) {
     const res = await apiClient.post(`/bots/${id}/stop`);
     return res.data?.bot;
+  },
+
+  async verify(id) {
+    const res = await apiClient.post(`/bots/${id}/verify`);
+    return res.data;
   },
 };

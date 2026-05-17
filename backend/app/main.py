@@ -4,6 +4,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api import redirect as redirect_routes
 from app.api.v1 import account_prep, auth, bots, campaigns, health, jobs, prepared_accounts
 from app.config import Config
 from app.core import (
@@ -39,6 +40,8 @@ app.add_middleware(
 )
 
 register_error_handlers(app)
+
+app.include_router(redirect_routes.router)
 
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
 app.include_router(auth.router, prefix="/api/v1", tags=["auth"])

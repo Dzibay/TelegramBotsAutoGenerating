@@ -35,6 +35,8 @@ def _sql_files() -> list[Path]:
         "migrate_job_logs.sql",
         "migrate_account_prep.sql",
         "migrate_prepared_accounts.sql",
+        "migrate_campaign_optional.sql",
+        "migrate_bot_promo.sql",
     ):
         for base in (_SCRIPT_DIR.parents[1], _SCRIPT_DIR.parent):
             migrate = base / "database" / name

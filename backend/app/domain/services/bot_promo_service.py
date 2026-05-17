@@ -72,6 +72,18 @@ def build_promo_texts(
     }
 
 
+def embed_tracking_in_about(text: str, tracking_url: str, target_url: Optional[str] = None) -> str:
+    out = (text or "").strip()[:120]
+    if not out:
+        return out
+    if target_url and target_url in out:
+        out = out.replace(target_url, tracking_url)
+    if tracking_url and tracking_url not in out:
+        extra = f" {tracking_url}"
+        out = (out + extra)[:120] if len(out) + len(extra) <= 120 else out
+    return out
+
+
 def embed_tracking_in_welcome(text: str, tracking_url: str, target_url: Optional[str] = None) -> str:
     out = (text or "").strip()
     if target_url and target_url in out:

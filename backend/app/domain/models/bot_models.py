@@ -27,11 +27,13 @@ class BotCreateRequest(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=64)
     username: str = Field(..., min_length=1, max_length=64)
     description: str = Field("", max_length=512)
+    about_text: str = Field("", max_length=120)
     welcome_message: str = Field(..., min_length=1, max_length=2000)
     keyword: Optional[str] = Field(None, max_length=100)
     redirect_slug: Optional[str] = Field(None, max_length=32)
     create_via_botfather: bool = True
     auto_start: bool = False
+    generate_avatar: bool = Field(True, description="Сгенерировать аватар AI, если файл не загружен")
 
     @field_validator("username", mode="before")
     @classmethod
@@ -39,10 +41,17 @@ class BotCreateRequest(BaseModel):
         return normalize_bot_username(v or "")
 
 
+class GenerateAvatarPreviewRequest(BaseModel):
+    prompt: Optional[str] = Field(None, max_length=500)
+    keyword: Optional[str] = Field(None, max_length=100)
+
+
 class BotUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(None, min_length=1, max_length=64)
     target_url: Optional[str] = Field(None, min_length=4, max_length=2048)
     description: Optional[str] = Field(None, max_length=512)
+    about_text: Optional[str] = Field(None, max_length=120)
     welcome_message: Optional[str] = Field(None, min_length=1, max_length=2000)
     keyword: Optional[str] = Field(None, max_length=100)
-    sync_botfather: bool = Field(False, description="Обновить описание/about в BotFather")
+    sync_botfather: bool = Field(False, description="Применить имя, описание, about и аватар в BotFather")
+    generate_avatar: bool = Field(False, description="Сгенерировать новый аватар AI при sync")

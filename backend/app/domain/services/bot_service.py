@@ -7,7 +7,7 @@ from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-from app.domain.services import account_service, bot_promo_service, campaign_service
+from app.domain.services import account_service, bot_promo_service, campaign_service, username_service
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.bot_api import telegram_bot_url, verify_bot_token
@@ -15,10 +15,11 @@ from app.infrastructure.telegram.botfather_client import (
     create_bot_via_botfather,
     set_bot_about,
     set_bot_description,
+    set_bot_name,
     set_bot_photo,
 )
 from app.utils.crypto import decrypt_token, encrypt_token
-from app.utils.telegram_username import normalize_bot_username
+from app.utils.telegram_username import build_username_from_keyword, normalize_bot_username
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 
 
@@ -26,15 +27,30 @@ def _iso(dt) -> Optional[str]:
     return dt.isoformat() if dt else None
 
 
+def _avatar_api_url(bot_id: int) -> str:
+    return f"/api/v1/bots/{bot_id}/avatar"
+
+
+def _save_avatar_file(campaign_id: int, username: str, data: bytes) -> Path:
+    path = Config.AVATARS_DIR / str(campaign_id) / f"{username.lstrip('@')}.jpg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
 def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
+    bot_id = row["id"]
     out = {
-        "id": row["id"],
+        "id": bot_id,
         "campaign_id": row["campaign_id"],
         "telegram_account_id": row.get("telegram_account_id"),
         "keyword": row.get("keyword"),
         "username": row.get("username"),
         "display_name": row["display_name"],
         "description": row.get("description"),
+        "about_text": row.get("about_text"),
+        "has_avatar": bool(row.get("avatar_path")),
+        "avatar_url": _avatar_api_url(bot_id) if row.get("avatar_path") else None,
         "status": row["status"],
         "has_token": bool(row.get("token_encrypted")),
         "telegram_url": telegram_bot_url(row.get("username")),
@@ -56,6 +72,50 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
     if row.get("account_phone") is not None:
         out["account_phone"] = row.get("account_phone")
     return out
+
+
+async def _apply_bot_avatar(
+    client,
+    campaign_id: int,
+    username: str,
+    *,
+    avatar_bytes: Optional[bytes] = None,
+    generate_avatar: bool = False,
+    avatar_prompt: Optional[str] = None,
+) -> Optional[Path]:
+    """Сохраняет аватар на диск и загружает в BotFather."""
+    path: Optional[Path] = None
+    try:
+        if avatar_bytes:
+            path = _save_avatar_file(campaign_id, username, avatar_bytes)
+        elif generate_avatar and avatar_prompt:
+            img = await generate_image_bytes(avatar_prompt)
+            path = _save_avatar_file(campaign_id, username, img)
+        if path and path.is_file():
+            await set_bot_photo(client, username, path)
+            return path
+    except Exception as exc:
+        logger.warning("Avatar apply failed for @%s: %s", username, exc)
+    return path if path and path.is_file() else None
+
+
+async def get_bot_avatar_path(bot_id: int) -> Path:
+    row = await db.fetch_one("SELECT avatar_path FROM bots WHERE id = $1", bot_id)
+    if not row or not row.get("avatar_path"):
+        raise NotFoundError("Аватар не задан")
+    path = Path(row["avatar_path"])
+    if not path.is_file():
+        raise NotFoundError("Файл аватара не найден")
+    return path
+
+
+async def generate_avatar_preview(
+    *,
+    prompt: Optional[str] = None,
+    keyword: Optional[str] = None,
+) -> bytes:
+    text = (prompt or "").strip() or f"Telegram bot icon, theme {keyword or 'app'}, flat modern"
+    return await generate_image_bytes(text)
 
 
 async def _get_account_for_campaign(campaign_id: int, account_id: int) -> dict:
@@ -170,7 +230,7 @@ async def generate_bot_draft(
         "keyword": kw,
         "display_name": f"{kw.title()} Bot",
         "description_hint": f"Бот переехал — {kw}",
-        "username_hint": ("".join(c for c in kw.lower() if c.isalnum())[:12] or "tg") + "_bot",
+        "username_hint": build_username_from_keyword(kw, campaign_id=campaign_id),
     }
 
     ai = AIService()
@@ -192,7 +252,11 @@ async def generate_bot_draft(
         ai_fallback = True
 
     display_name = profile.get("display_name", concept["display_name"])[:64]
-    username = normalize_bot_username(profile.get("username", concept["username_hint"]))
+    username = await username_service.allocate_unique_username(
+        kw,
+        preferred=profile.get("username") or concept.get("username_hint"),
+        campaign_id=campaign_id,
+    )
 
     promo = bot_promo_service.build_promo_texts(
         tracking_url=tracking_url,
@@ -255,10 +319,13 @@ async def create_bot(
     username: str,
     description: str,
     welcome_message: str,
+    about_text: str = "",
     keyword: Optional[str] = None,
     redirect_slug: Optional[str] = None,
     create_via_botfather: bool = True,
     auto_start: bool = False,
+    avatar_bytes: Optional[bytes] = None,
+    generate_avatar: bool = True,
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     account = await _get_account_for_campaign(campaign_id, telegram_account_id)
@@ -276,10 +343,13 @@ async def create_bot(
         display_name=display_name,
         keyword=keyword or "",
     )
-    about_text = promo["about_text"]
+    about_final = (about_text or promo["about_text"]).strip()[:120]
+    about_final = bot_promo_service.embed_tracking_in_about(
+        about_final, tracking_url, target
+    )
 
     token = None
-    final_username = normalize_bot_username(username)
+    kw_for_user = (keyword or "").strip() or display_name
     avatar_path = None
     client = None
 
@@ -289,20 +359,38 @@ async def create_bot(
                 Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{telegram_account_id}.session"
             )
             client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
-            result = await create_bot_via_botfather(client, display_name, final_username)
+            final_username = await username_service.allocate_unique_username(
+                kw_for_user,
+                preferred=username,
+                campaign_id=campaign_id,
+                telethon_client=client,
+            )
+            reserved = await username_service.get_reserved_usernames()
+            username_factory = username_service.make_username_factory(
+                kw_for_user,
+                preferred=final_username,
+                campaign_id=campaign_id,
+                reserved=reserved,
+            )
+            result = await create_bot_via_botfather(
+                client,
+                display_name,
+                final_username,
+                username_factory=username_factory,
+            )
             token = result["token"]
             final_username = result["username"]
-            try:
-                prompt = promo.get("avatar_prompt") or f"telegram bot banner icon {keyword or display_name}"
-                img = await generate_image_bytes(prompt)
-                avatar_path = Config.AVATARS_DIR / str(campaign_id) / f"{final_username}.jpg"
-                avatar_path.parent.mkdir(parents=True, exist_ok=True)
-                avatar_path.write_bytes(img)
-                await set_bot_photo(client, final_username, avatar_path)
-            except Exception:
-                avatar_path = None
+            avatar_path = await _apply_bot_avatar(
+                client,
+                campaign_id,
+                final_username,
+                avatar_bytes=avatar_bytes,
+                generate_avatar=generate_avatar and not avatar_bytes,
+                avatar_prompt=promo.get("avatar_prompt")
+                or f"telegram bot banner icon {keyword or display_name}",
+            )
             await set_bot_description(client, final_username, description)
-            await set_bot_about(client, final_username, about_text)
+            await set_bot_about(client, final_username, about_final)
 
         status = "active" if auto_start and token else "stopped"
         if not create_via_botfather:
@@ -313,10 +401,10 @@ async def create_bot(
             """
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
-                description, token_encrypted, avatar_path, welcome_message,
+                description, about_text, token_encrypted, avatar_path, welcome_message,
                 target_url, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
             """,
             campaign_id,
@@ -325,6 +413,7 @@ async def create_bot(
             final_username,
             display_name[:64],
             description[:512] if description else None,
+            about_final or None,
             token_enc,
             str(avatar_path) if avatar_path else None,
             welcome_message,
@@ -384,14 +473,21 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
             fields["welcome_message"] = bot_promo_service.embed_tracking_in_welcome(
                 fields["welcome_message"], tracking_url, target
             )
+        if fields.get("about_text") is not None:
+            fields["about_text"] = bot_promo_service.embed_tracking_in_about(
+                fields["about_text"], tracking_url, target
+            )
 
     updates = []
     params: list[Any] = []
-    for key in ("display_name", "target_url", "description", "welcome_message", "keyword"):
+    for key in ("display_name", "target_url", "description", "about_text", "welcome_message", "keyword"):
         if fields.get(key) is not None:
             params.append(fields[key])
             updates.append(f"{key} = ${len(params)}")
-    if not updates and not fields.get("sync_botfather"):
+    avatar_bytes = fields.pop("avatar_bytes", None)
+    generate_avatar = fields.pop("generate_avatar", False)
+
+    if not updates and not fields.get("sync_botfather") and not avatar_bytes and not generate_avatar:
         return bot
 
     row = row_data
@@ -406,14 +502,57 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
             *params,
         )
 
+    if (avatar_bytes or generate_avatar) and row.get("username"):
+        account = await db.fetch_one(
+            "SELECT * FROM telegram_accounts WHERE id = $1",
+            row.get("telegram_account_id"),
+        )
+        if account:
+            client = None
+            try:
+                session_file = (
+                    Config.STORAGE_ROOT
+                    / "sessions"
+                    / str(row["campaign_id"])
+                    / f"{account['id']}.session"
+                )
+                client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+                promo = bot_promo_service.build_promo_texts(
+                    tracking_url=tracking_url or "",
+                    display_name=row["display_name"],
+                    keyword=row.get("keyword") or "",
+                )
+                path = await _apply_bot_avatar(
+                    client,
+                    row["campaign_id"],
+                    row["username"],
+                    avatar_bytes=avatar_bytes,
+                    generate_avatar=generate_avatar and not avatar_bytes,
+                    avatar_prompt=promo.get("avatar_prompt"),
+                )
+                if path:
+                    row = await db.fetch_one(
+                        "UPDATE bots SET avatar_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+                        bot_id,
+                        str(path),
+                    )
+            finally:
+                if client:
+                    await client.disconnect()
+
     if fields.get("sync_botfather") and row.get("token_encrypted"):
-        await _sync_botfather_promo(bot_id, row)
+        await _sync_botfather_promo(bot_id, row, generate_avatar=generate_avatar)
 
     return _bot_row(row, include_welcome=True)
 
 
-async def _sync_botfather_promo(bot_id: int, row: dict) -> None:
-    """Обновить описание и about в BotFather."""
+async def _sync_botfather_promo(
+    bot_id: int,
+    row: dict,
+    *,
+    generate_avatar: bool = False,
+) -> None:
+    """Обновить имя, описание, about и аватар в BotFather."""
     from app.infrastructure.telegram.session_loader import load_client_from_tdata
 
     account = await db.fetch_one(
@@ -430,7 +569,7 @@ async def _sync_botfather_promo(bot_id: int, row: dict) -> None:
         keyword=row.get("keyword") or "",
     )
     description = row.get("description") or promo["description"]
-    about = promo["about_text"]
+    about = (row.get("about_text") or promo["about_text"])[:120]
     client = None
     try:
         session_file = (
@@ -440,9 +579,24 @@ async def _sync_botfather_promo(bot_id: int, row: dict) -> None:
             / f"{account['id']}.session"
         )
         client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+        await set_bot_name(client, row["username"], row["display_name"])
         await set_bot_description(client, row["username"], description)
         await set_bot_about(client, row["username"], about)
-        if row.get("avatar_path"):
+        if generate_avatar:
+            path = await _apply_bot_avatar(
+                client,
+                row["campaign_id"],
+                row["username"],
+                generate_avatar=True,
+                avatar_prompt=promo.get("avatar_prompt"),
+            )
+            if path:
+                await db.execute(
+                    "UPDATE bots SET avatar_path = $2, updated_at = NOW() WHERE id = $1",
+                    bot_id,
+                    str(path),
+                )
+        elif row.get("avatar_path"):
             await set_bot_photo(client, row["username"], Path(row["avatar_path"]))
     finally:
         if client:

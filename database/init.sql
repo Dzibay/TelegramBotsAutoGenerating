@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS bots (
     username TEXT,
     display_name TEXT NOT NULL,
     description TEXT,
+    about_text TEXT,
     token_encrypted BYTEA,
     avatar_path TEXT,
     welcome_message TEXT NOT NULL,

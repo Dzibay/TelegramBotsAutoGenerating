@@ -24,18 +24,15 @@
         <input v-model="form.target_url" type="url" required placeholder="https://..." />
         <p class="field-hint">В боте используется трекинг-ссылка /go/… (клики считаются автоматически)</p>
       </div>
-      <div class="form-group">
-        <label>Имя</label>
-        <input v-model="form.display_name" required maxlength="64" />
-      </div>
-      <div class="form-group">
-        <label>Описание</label>
-        <textarea v-model="form.description" rows="3" />
-      </div>
-      <div class="form-group">
-        <label>Приветствие</label>
-        <textarea v-model="form.welcome_message" rows="4" required />
-      </div>
+
+      <BotProfileFields
+        v-model="profile"
+        username-readonly
+        :keyword="form.keyword"
+        :avatar-url="avatarDisplayUrl"
+        @update:avatar-file="pendingAvatarFile = $event"
+      />
+
       <div class="form-group">
         <label>Ключевое слово</label>
         <input v-model="form.keyword" />
@@ -43,7 +40,11 @@
 
       <label class="check">
         <input v-model="form.sync_botfather" type="checkbox" />
-        Обновить описание, about и аватар в BotFather
+        Применить в BotFather (имя, описание, профиль, аватар)
+      </label>
+      <label v-if="form.sync_botfather" class="check">
+        <input v-model="form.generate_avatar" type="checkbox" />
+        Перегенерировать аватар через AI
       </label>
 
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
@@ -69,6 +70,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPanel from '../components/BotTelegramPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
@@ -82,13 +84,26 @@ const loadError = ref(null);
 const saveError = ref(null);
 const saving = ref(false);
 const acting = ref(false);
+const pendingAvatarFile = ref(null);
+
 const form = ref({
   target_url: '',
-  display_name: '',
-  description: '',
-  welcome_message: '',
   keyword: '',
   sync_botfather: false,
+  generate_avatar: false,
+});
+
+const profile = ref({
+  display_name: '',
+  username: '',
+  description: '',
+  about_text: '',
+  welcome_message: '',
+});
+
+const avatarDisplayUrl = computed(() => {
+  if (pendingAvatarFile.value || !bot.value?.has_avatar) return null;
+  return botService.avatarUrl(bot.value);
 });
 
 async function load() {
@@ -97,11 +112,16 @@ async function load() {
     bot.value = await botService.get(Number(route.params.id));
     form.value = {
       target_url: bot.value.target_url || '',
-      display_name: bot.value.display_name,
-      description: bot.value.description || '',
-      welcome_message: bot.value.welcome_message || '',
       keyword: bot.value.keyword || '',
       sync_botfather: false,
+      generate_avatar: false,
+    };
+    profile.value = {
+      display_name: bot.value.display_name,
+      username: bot.value.username || '',
+      description: bot.value.description || '',
+      about_text: bot.value.about_text || '',
+      welcome_message: bot.value.welcome_message || '',
     };
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Бот не найден';
@@ -114,7 +134,20 @@ async function onSave() {
   saving.value = true;
   saveError.value = null;
   try {
-    bot.value = await botService.update(bot.value.id, form.value);
+    if (pendingAvatarFile.value) {
+      bot.value = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
+      pendingAvatarFile.value = null;
+    }
+    bot.value = await botService.update(bot.value.id, {
+      target_url: form.value.target_url,
+      display_name: profile.value.display_name,
+      description: profile.value.description,
+      about_text: profile.value.about_text,
+      welcome_message: profile.value.welcome_message,
+      keyword: form.value.keyword,
+      sync_botfather: form.value.sync_botfather,
+      generate_avatar: form.value.generate_avatar,
+    });
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка сохранения';
   } finally {
@@ -208,7 +241,7 @@ onMounted(load);
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0.75rem 0;
+  margin: 0.5rem 0;
   font-size: 0.9rem;
   cursor: pointer;
 }
@@ -216,5 +249,4 @@ onMounted(load);
 .check input {
   width: auto;
 }
-
 </style>

@@ -74,24 +74,32 @@
         {{ generating ? 'Генерация…' : '✨ Сгенерировать поля (переезд + ссылка)' }}
       </button>
 
-      <div class="form-group">
+      <BotProfileFields
+        v-model="form"
+        v-model:generate-avatar="generateAvatar"
+        :keyword="keyword"
+        :avatar-prompt="avatarPrompt"
+        show-generate-on-create
+        @update:avatar-file="avatarFile = $event"
+      />
+      <div v-if="false" class="form-group">
         <label>Имя бота</label>
         <input v-model="form.display_name" required maxlength="64" />
       </div>
-      <div class="form-group">
+      <div v-if="false" class="form-group">
         <label>Username (@)</label>
         <input v-model="form.username" required placeholder="my_service_bot" />
         <p class="field-hint">
-          Только латиница, цифры и _, 5–32 символа, обязательно окончание <code>bot</code>
-          (например: promo_shop_bot). После сохранения будет нормализован автоматически.
+          Латиница (кириллица транслитерируется), 5–32 символа, окончание <code>bot</code>.
+          Уникальность проверяется в базе и в Telegram; при коллизии подставится суффикс.
         </p>
       </div>
-      <div class="form-group">
+      <div v-if="false" class="form-group">
         <label>Описание (до старта чата)</label>
         <textarea v-model="form.description" rows="4" maxlength="512" />
         <p class="field-hint">Текст «бот переехал» и трекинг-ссылка подставляются автоматически</p>
       </div>
-      <div class="form-group">
+      <div v-if="false" class="form-group">
         <label>Сообщение /start</label>
         <textarea v-model="form.welcome_message" rows="5" required />
       </div>
@@ -115,6 +123,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import BotProfileFields from '../components/BotProfileFields.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 
@@ -135,10 +144,14 @@ const generating = ref(false);
 const submitting = ref(false);
 const submitError = ref(null);
 const autoStart = ref(true);
+const generateAvatar = ref(true);
+const avatarFile = ref(null);
+const avatarPrompt = ref('');
 const form = ref({
   display_name: '',
   username: '',
   description: '',
+  about_text: '',
   welcome_message: '',
 });
 
@@ -233,7 +246,9 @@ async function onGenerate() {
     form.value.display_name = draft.display_name;
     form.value.username = draft.username;
     form.value.description = draft.description;
+    form.value.about_text = draft.about_text || '';
     form.value.welcome_message = draft.welcome_message;
+    avatarPrompt.value = draft.avatar_prompt || '';
     if (draft.keyword) keyword.value = draft.keyword;
     if (draft.ai_hint) {
       submitError.value = draft.ai_hint;
@@ -249,19 +264,24 @@ async function onSubmit() {
   submitting.value = true;
   submitError.value = null;
   try {
-    const bot = await botService.create({
-      campaign_id: campaignId.value,
-      telegram_account_id: accountId.value,
-      target_url: targetUrl.value.trim(),
-      display_name: form.value.display_name,
-      username: form.value.username.replace(/^@/, ''),
-      description: form.value.description,
-      welcome_message: form.value.welcome_message,
-      keyword: keyword.value || null,
-      redirect_slug: redirectSlug.value,
-      create_via_botfather: true,
-      auto_start: autoStart.value,
-    });
+    const bot = await botService.create(
+      {
+        campaign_id: campaignId.value,
+        telegram_account_id: accountId.value,
+        target_url: targetUrl.value.trim(),
+        display_name: form.value.display_name,
+        username: form.value.username.replace(/^@/, ''),
+        description: form.value.description,
+        about_text: form.value.about_text,
+        welcome_message: form.value.welcome_message,
+        keyword: keyword.value || null,
+        redirect_slug: redirectSlug.value,
+        create_via_botfather: true,
+        auto_start: autoStart.value,
+        generate_avatar: generateAvatar.value,
+      },
+      avatarFile.value
+    );
     router.push({ name: 'bot-edit', params: { id: bot.id }, query: { created: '1' } });
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Не удалось создать бота';

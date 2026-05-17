@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.config import Config
-from app.domain.services import bot_promo_service, job_log_service
+from app.domain.services import bot_promo_service, job_log_service, username_service
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.botfather_client import (
@@ -14,7 +14,6 @@ from app.infrastructure.telegram.botfather_client import (
 )
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 from app.utils.crypto import encrypt_token
-from app.utils.telegram_username import normalize_bot_username
 
 
 class CreationPipeline:
@@ -257,8 +256,12 @@ class CreationPipeline:
             campaign_id=self.campaign_id,
         )
         display_name = profile.get("display_name", "Bot")[:64]
-        username = normalize_bot_username(
-            profile.get("username", concept.get("username_hint", "my_bot"))
+        preferred = profile.get("username") or concept.get("username_hint")
+        username = await username_service.allocate_unique_username(
+            keyword,
+            preferred=preferred,
+            campaign_id=self.campaign_id,
+            telethon_client=client,
         )
 
         target_url = (campaign.get("resource_url") or "").strip()
@@ -280,7 +283,19 @@ class CreationPipeline:
         )
 
         await self.log(f"BotFather: создание @{username}…")
-        result = await create_bot_via_botfather(client, display_name, username)
+        reserved = await username_service.get_reserved_usernames()
+        username_factory = username_service.make_username_factory(
+            keyword,
+            preferred=username,
+            campaign_id=self.campaign_id,
+            reserved=reserved,
+        )
+        result = await create_bot_via_botfather(
+            client,
+            display_name,
+            username,
+            username_factory=username_factory,
+        )
         token = result["token"]
         username = result["username"]
 
@@ -305,18 +320,19 @@ class CreationPipeline:
         except Exception as exc:
             await self.log(f"Аватар @{username}: {exc}", level="warn")
 
+        about_text = promo["about_text"]
         await set_bot_description(client, username, description)
-        await set_bot_about(client, username, promo["about_text"])
+        await set_bot_about(client, username, about_text)
 
         token_enc = encrypt_token(token)
         row = await db.fetch_one(
             """
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
-                description, token_encrypted, avatar_path, welcome_message,
+                description, about_text, token_encrypted, avatar_path, welcome_message,
                 target_url, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active')
             RETURNING id
             """,
             self.campaign_id,
@@ -325,6 +341,7 @@ class CreationPipeline:
             username,
             display_name,
             description,
+            about_text,
             token_enc,
             str(avatar_path) if avatar_path else None,
             welcome,

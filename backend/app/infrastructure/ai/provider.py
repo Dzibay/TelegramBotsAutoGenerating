@@ -8,6 +8,7 @@ from app.config import Config
 from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
 from app.infrastructure.ai.json_utils import extract_json_array, extract_json_object
+from app.utils.telegram_username import build_username_from_keyword, normalize_bot_username
 from app.infrastructure.ai.prompts import (
     BOT_PROFILE_SYSTEM,
     KEYWORDS_SYSTEM,
@@ -239,25 +240,26 @@ class AIService:
             "Каждый концепт обязан иметь поле keyword из списка или близкую вариацию."
         )
         if not self._ai_enabled():
-            return self._fallback_concepts(kw_list, max_bots)
+            return self._fallback_concepts(kw_list, max_bots, campaign_id)
         try:
             raw = await self._text.complete(NICHE_ANALYSIS_SYSTEM, user)
         except Exception as exc:
             logger.warning("AI niche analysis failed, fallback: %s", exc)
-            return self._fallback_concepts(kw_list, max_bots)
+            return self._fallback_concepts(kw_list, max_bots, campaign_id)
         await self._audit("niche_analysis", f"{NICHE_ANALYSIS_SYSTEM}\n---\n{user}", raw, campaign_id=campaign_id)
         try:
             concepts = extract_json_array(raw)
-            return self._normalize_concepts(concepts, kw_list, max_bots)
+            return self._normalize_concepts(concepts, kw_list, max_bots, campaign_id)
         except Exception as exc:
             logger.warning("AI niche parse failed, fallback: %s", exc)
-            return self._fallback_concepts(kw_list, max_bots)
+            return self._fallback_concepts(kw_list, max_bots, campaign_id)
 
     def _normalize_concepts(
         self,
         concepts: list[dict[str, Any]],
         keywords: list[str],
         max_bots: int,
+        campaign_id: Optional[int] = None,
     ) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         used_kw: set[str] = set()
@@ -272,17 +274,21 @@ class AIService:
             if not kw:
                 kw = f"бот {i + 1}"
             used_kw.add(kw.lower())
-            slug = "".join(ch for ch in kw.lower() if ch.isalnum())[:12] or f"kw{i}"
+            ai_hint = c.get("username_hint")
+            if ai_hint:
+                hint = normalize_bot_username(str(ai_hint))
+            else:
+                hint = build_username_from_keyword(kw, variant=i, campaign_id=campaign_id)
             out.append(
                 {
                     "keyword": kw,
                     "display_name": (c.get("display_name") or f"{kw.title()} Bot")[:64],
                     "description_hint": (c.get("description_hint") or f"Бот по запросу «{kw}»")[:120],
-                    "username_hint": c.get("username_hint") or f"{slug}_{i}_bot",
+                    "username_hint": hint,
                 }
             )
         while len(out) < max_bots:
-            fallback = self._fallback_concepts(keywords, max_bots - len(out))
+            fallback = self._fallback_concepts(keywords, max_bots - len(out), campaign_id)
             for c in fallback:
                 if c["keyword"].lower() not in used_kw:
                     out.append(c)
@@ -293,30 +299,33 @@ class AIService:
                 break
         return out[:max_bots]
 
-    def _fallback_concepts(self, keywords: list[str], max_bots: int) -> list[dict[str, Any]]:
+    def _fallback_concepts(
+        self,
+        keywords: list[str],
+        max_bots: int,
+        campaign_id: Optional[int] = None,
+    ) -> list[dict[str, Any]]:
         concepts = []
         for i, kw in enumerate(keywords):
             if len(concepts) >= max_bots:
                 break
-            slug = "".join(c for c in kw.lower() if c.isalnum())[:12] or f"kw{i}"
             concepts.append(
                 {
                     "keyword": kw,
                     "display_name": f"{kw.title()} Bot",
                     "description_hint": f"Бот по теме {kw}",
-                    "username_hint": f"{slug}_{i}_bot",
+                    "username_hint": build_username_from_keyword(kw, variant=i, campaign_id=campaign_id),
                 }
             )
         while len(concepts) < max_bots and keywords:
             i = len(concepts)
             kw = keywords[i % len(keywords)]
-            slug = "".join(c for c in kw.lower() if c.isalnum())[:10] or "bot"
             concepts.append(
                 {
                     "keyword": kw,
                     "display_name": f"{kw.title()} {i + 1}",
                     "description_hint": f"Помощник {kw}",
-                    "username_hint": f"{slug}{i}_bot",
+                    "username_hint": build_username_from_keyword(kw, variant=i, campaign_id=campaign_id),
                 }
             )
         return concepts[:max_bots]

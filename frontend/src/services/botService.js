@@ -17,6 +17,14 @@ export const botService = {
     return res.data?.bot;
   },
 
+  avatarUrl(bot) {
+    if (!bot?.avatar_url) return null;
+    const base = import.meta.env.DEV
+      ? (import.meta.env.VITE_API_BASE_URL || '/api/v1')
+      : '/api/v1';
+    return `${base.replace(/\/$/, '')}${bot.avatar_url}`;
+  },
+
   async generateDraft({ campaignId, accountId, targetUrl, keyword, redirectSlug }) {
     const res = await apiClient.post('/bots/generate-draft', {
       campaign_id: campaignId,
@@ -28,13 +36,29 @@ export const botService = {
     return res.data?.draft;
   },
 
-  async create(payload) {
-    const res = await apiClient.post('/bots', payload, { timeout: 300000 });
+  async create(payload, avatarFile = null) {
+    const form = new FormData();
+    form.append('data', JSON.stringify(payload));
+    if (avatarFile) form.append('avatar', avatarFile);
+    const res = await apiClient.post('/bots', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000,
+    });
     return res.data?.bot;
   },
 
   async update(id, payload) {
     const res = await apiClient.patch(`/bots/${id}`, payload);
+    return res.data?.bot;
+  },
+
+  async uploadAvatar(id, file) {
+    const form = new FormData();
+    form.append('avatar', file);
+    const res = await apiClient.post(`/bots/${id}/avatar`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
     return res.data?.bot;
   },
 

@@ -116,6 +116,32 @@
         @input="patch('welcome_message', $event.target.value)"
       />
     </div>
+
+    <label class="checkbox-row">
+      <input
+        type="checkbox"
+        :checked="modelValue.welcome_button_enabled !== false"
+        @change="patch('welcome_button_enabled', $event.target.checked)"
+      />
+      Кнопка со ссылкой на сервис под сообщением
+    </label>
+    <div v-if="modelValue.welcome_button_enabled !== false" class="form-group button-text-group">
+      <label>Текст кнопки</label>
+      <input
+        :value="modelValue.welcome_button_text || 'Перейти по ссылке'"
+        type="text"
+        maxlength="64"
+        placeholder="Перейти по ссылке"
+        @input="patch('welcome_button_text', $event.target.value)"
+      />
+      <p v-if="publicLink" class="field-hint">
+        Ссылка кнопки: <code>{{ publicLink }}</code>
+        (трекинг или прямая — как в настройках бота выше).
+      </p>
+      <p v-else class="field-hint">
+        Ссылка кнопки — публичная ссылка бота (появится после генерации или создания).
+      </p>
+    </div>
   </section>
 </template>
 
@@ -135,6 +161,7 @@ const props = defineProps({
   avatarUrl: { type: String, default: null },
   keyword: { type: String, default: '' },
   avatarPrompt: { type: String, default: '' },
+  publicLink: { type: String, default: '' },
 });
 
 const emit = defineEmits([
@@ -298,5 +325,14 @@ defineExpose({ avatarFile, clearAvatar });
 
 .checkbox-row input {
   width: auto;
+}
+
+.button-text-group {
+  margin-top: 0.35rem;
+}
+
+.button-text-group code {
+  word-break: break-all;
+  font-size: 0.75rem;
 }
 </style>

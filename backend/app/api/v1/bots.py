@@ -112,6 +112,8 @@ async def create_bot(
         description=body.description,
         about_text=body.about_text,
         welcome_message=body.welcome_message,
+        welcome_button_enabled=body.welcome_button_enabled,
+        welcome_button_text=body.welcome_button_text,
         keyword=body.keyword,
         redirect_slug=body.redirect_slug,
         link_mode=body.link_mode,

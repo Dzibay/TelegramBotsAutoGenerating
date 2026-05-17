@@ -19,12 +19,15 @@ logger = get_logger(__name__)
 
 
 async def _load_active_bots() -> list[dict]:
+    from app.domain.services import bot_promo_service
     from app.infrastructure.database import repository as db
     from app.utils.crypto import decrypt_token
 
     rows = await db.fetch_all(
         """
-        SELECT id, token_encrypted, welcome_message, username
+        SELECT id, token_encrypted, welcome_message, username,
+               target_url, link_mode, redirect_slug,
+               welcome_button_enabled, welcome_button_text
         FROM bots
         WHERE status = 'active' AND token_encrypted IS NOT NULL
         """
@@ -33,17 +36,49 @@ async def _load_active_bots() -> list[dict]:
     for row in rows:
         try:
             token = decrypt_token(bytes(row["token_encrypted"]))
+            link_mode = bot_promo_service.normalize_link_mode(row.get("link_mode"))
+            target = row.get("target_url") or ""
+            slug = row.get("redirect_slug")
+            public_link = bot_promo_service.resolve_public_link(link_mode, target, slug)
             bots.append(
                 {
                     "id": row["id"],
                     "token": token,
                     "welcome_message": row["welcome_message"],
                     "username": row.get("username"),
+                    "public_link": public_link,
+                    "welcome_button_enabled": bool(row.get("welcome_button_enabled", True)),
+                    "welcome_button_text": bot_promo_service.welcome_button_label(
+                        row.get("welcome_button_text")
+                    ),
                 }
             )
         except Exception as exc:
             logger.warning("Skip bot id=%s: %s", row["id"], exc)
     return bots
+
+
+def _welcome_reply_markup(bot_info: dict):
+    from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+    from app.domain.services import bot_promo_service
+
+    if not bot_info.get("welcome_button_enabled"):
+        return None
+    url = (bot_info.get("public_link") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return None
+    label = bot_info.get("welcome_button_text") or bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label[:64], url=url)],
+        ]
+    )
+
+
+async def _send_welcome(message, bot_info: dict) -> None:
+    markup = _welcome_reply_markup(bot_info)
+    await message.answer(bot_info["welcome_message"], reply_markup=markup)
 
 
 async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
@@ -53,15 +88,14 @@ async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
 
     bot = Bot(token=bot_info["token"])
     dp = Dispatcher()
-    welcome = bot_info["welcome_message"]
 
     @dp.message(CommandStart())
     async def on_start(message: Message) -> None:
-        await message.answer(welcome)
+        await _send_welcome(message, bot_info)
 
     @dp.message()
     async def on_any(message: Message) -> None:
-        await message.answer(welcome)
+        await _send_welcome(message, bot_info)
 
     logger.info("Polling bot id=%s @%s", bot_info["id"], bot_info.get("username"))
     poll_task = asyncio.create_task(dp.start_polling(bot))
@@ -80,10 +114,42 @@ async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
     logger.info("Stopped polling bot id=%s", bot_info["id"])
 
 
+def _bot_runtime_key(bot: dict) -> tuple:
+    return (
+        bot.get("welcome_message"),
+        bot.get("public_link"),
+        bot.get("welcome_button_enabled"),
+        bot.get("welcome_button_text"),
+    )
+
+
 class BotRunnerManager:
     def __init__(self) -> None:
         self._tasks: dict[int, asyncio.Task] = {}
         self._stops: dict[int, asyncio.Event] = {}
+        self._runtime: dict[int, tuple] = {}
+
+    async def _stop_bot(self, bid: int) -> None:
+        if bid not in self._tasks:
+            return
+        self._stops[bid].set()
+        task = self._tasks.pop(bid)
+        self._stops.pop(bid, None)
+        self._runtime.pop(bid, None)
+        try:
+            await asyncio.wait_for(task, timeout=10.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            task.cancel()
+
+    def _start_bot(self, bot: dict) -> None:
+        bid = bot["id"]
+        stop_event = asyncio.Event()
+        self._stops[bid] = stop_event
+        self._runtime[bid] = _bot_runtime_key(bot)
+        self._tasks[bid] = asyncio.create_task(
+            run_bot_polling(bot, stop_event),
+            name=f"bot-{bid}",
+        )
 
     async def sync(self) -> None:
         active = await _load_active_bots()
@@ -92,23 +158,14 @@ class BotRunnerManager:
 
         for bid in list(self._tasks):
             if bid not in active_ids:
-                self._stops[bid].set()
-                task = self._tasks.pop(bid)
-                self._stops.pop(bid, None)
-                try:
-                    await asyncio.wait_for(task, timeout=10.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    task.cancel()
+                await self._stop_bot(bid)
+            elif self._runtime.get(bid) != _bot_runtime_key(active_map[bid]):
+                await self._stop_bot(bid)
 
         for bot in active:
             bid = bot["id"]
             if bid not in self._tasks:
-                stop_event = asyncio.Event()
-                self._stops[bid] = stop_event
-                self._tasks[bid] = asyncio.create_task(
-                    run_bot_polling(bot, stop_event),
-                    name=f"bot-{bid}",
-                )
+                self._start_bot(bot)
 
     async def run_forever(self) -> None:
         while True:

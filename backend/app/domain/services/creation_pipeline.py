@@ -350,9 +350,10 @@ class CreationPipeline:
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
                 description, about_text, token_encrypted, avatar_path, welcome_message,
+                welcome_button_enabled, welcome_button_text,
                 target_url, link_mode, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12, $13, $14, 'active')
             RETURNING id
             """,
             self.campaign_id,
@@ -365,6 +366,7 @@ class CreationPipeline:
             token_enc,
             str(avatar_path) if avatar_path else None,
             welcome,
+            bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
             target,
             mode,
             slug,

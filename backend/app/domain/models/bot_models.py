@@ -30,6 +30,8 @@ class BotCreateRequest(BaseModel):
     description: str = Field("", max_length=512)
     about_text: str = Field("", max_length=120)
     welcome_message: str = Field(..., min_length=1, max_length=2000)
+    welcome_button_enabled: bool = True
+    welcome_button_text: str = Field("Перейти по ссылке", min_length=1, max_length=64)
     keyword: Optional[str] = Field(None, max_length=100)
     redirect_slug: Optional[str] = Field(None, max_length=32)
     link_mode: str = Field("redirect", pattern="^(redirect|direct)$")
@@ -55,6 +57,8 @@ class BotUpdateRequest(BaseModel):
     description: Optional[str] = Field(None, max_length=512)
     about_text: Optional[str] = Field(None, max_length=120)
     welcome_message: Optional[str] = Field(None, min_length=1, max_length=2000)
+    welcome_button_enabled: Optional[bool] = None
+    welcome_button_text: Optional[str] = Field(None, min_length=1, max_length=64)
     keyword: Optional[str] = Field(None, max_length=100)
     sync_botfather: bool = Field(False, description="Применить имя, описание, about и аватар в BotFather")
     generate_avatar: bool = Field(False, description="Сгенерировать новый аватар AI при sync")

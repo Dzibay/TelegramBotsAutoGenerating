@@ -76,6 +76,7 @@
         v-model:generate-avatar="generateAvatar"
         :keyword="keyword"
         :avatar-prompt="avatarPrompt"
+        :public-link="linkPreview || ''"
         show-generate-on-create
         @update:avatar-file="avatarFile = $event"
       />
@@ -131,6 +132,8 @@ const form = ref({
   description: '',
   about_text: '',
   welcome_message: '',
+  welcome_button_enabled: true,
+  welcome_button_text: 'Перейти по ссылке',
 });
 
 const STATUS_LABELS = {
@@ -234,6 +237,8 @@ async function onGenerate() {
     form.value.description = draft.description;
     form.value.about_text = draft.about_text || '';
     form.value.welcome_message = draft.welcome_message;
+    form.value.welcome_button_enabled = draft.welcome_button_enabled !== false;
+    form.value.welcome_button_text = draft.welcome_button_text || 'Перейти по ссылке';
     avatarPrompt.value = draft.avatar_prompt || '';
     if (draft.keyword) keyword.value = draft.keyword;
     if (draft.ai_hint) {
@@ -260,6 +265,8 @@ async function onSubmit() {
         description: form.value.description,
         about_text: form.value.about_text,
         welcome_message: form.value.welcome_message,
+        welcome_button_enabled: form.value.welcome_button_enabled,
+        welcome_button_text: form.value.welcome_button_text,
         keyword: keyword.value || null,
         redirect_slug: redirectSlug.value,
         link_mode: linkMode.value,

@@ -9,6 +9,8 @@ from app.infrastructure.database import repository as db
 
 MOVED_HEAD = "⚠️ Бот переехал!"
 
+WELCOME_BUTTON_TEXT_DEFAULT = "Перейти по ссылке"
+
 LINK_MODE_REDIRECT = "redirect"
 LINK_MODE_DIRECT = "direct"
 
@@ -285,6 +287,11 @@ def finalize_bot_texts(
         "about_text": final_about,
         "welcome_message": final_welcome,
     }
+
+
+def welcome_button_label(text: str | None) -> str:
+    label = (text or WELCOME_BUTTON_TEXT_DEFAULT).strip()
+    return (label[:64] if label else WELCOME_BUTTON_TEXT_DEFAULT)
 
 
 # Обратная совместимость

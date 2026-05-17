@@ -65,6 +65,10 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
         "tracking_url": tracking_url,
         "redirect_slug": slug,
         "click_count": int(row.get("click_count") or 0),
+        "welcome_button_enabled": bool(row.get("welcome_button_enabled", True)),
+        "welcome_button_text": bot_promo_service.welcome_button_label(
+            row.get("welcome_button_text")
+        ),
         "created_at": _iso(row.get("created_at")),
         "updated_at": _iso(row.get("updated_at")),
     }
@@ -334,6 +338,8 @@ async def generate_bot_draft(
         "description": description,
         "welcome_message": welcome,
         "about_text": about_draft,
+        "welcome_button_enabled": True,
+        "welcome_button_text": bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
         "avatar_prompt": profile.get("avatar_prompt", promo["avatar_prompt"]),
         "ai_fallback": ai_fallback,
         "ai_hint": (
@@ -354,6 +360,8 @@ async def create_bot(
     description: str,
     welcome_message: str,
     about_text: str = "",
+    welcome_button_enabled: bool = True,
+    welcome_button_text: str = bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
     keyword: Optional[str] = None,
     redirect_slug: Optional[str] = None,
     link_mode: str = bot_promo_service.LINK_MODE_REDIRECT,
@@ -446,9 +454,10 @@ async def create_bot(
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
                 description, about_text, token_encrypted, avatar_path, welcome_message,
+                welcome_button_enabled, welcome_button_text,
                 target_url, link_mode, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             RETURNING *
             """,
             campaign_id,
@@ -461,6 +470,8 @@ async def create_bot(
             token_enc,
             str(avatar_path) if avatar_path else None,
             welcome_message,
+            welcome_button_enabled,
+            bot_promo_service.welcome_button_label(welcome_button_text),
             target,
             mode,
             slug,
@@ -515,6 +526,11 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
         fields["link_mode"] = link_mode
 
     needs_reembed = fields.get("link_mode") is not None or fields.get("target_url") is not None
+    if fields.get("welcome_button_text") is not None:
+        fields["welcome_button_text"] = bot_promo_service.welcome_button_label(
+            fields["welcome_button_text"]
+        )
+
     if needs_reembed or any(fields.get(k) is not None for k in ("description", "welcome_message", "about_text")):
         texts = bot_promo_service.finalize_bot_texts(
             description=fields.get("description")
@@ -546,6 +562,8 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
         "description",
         "about_text",
         "welcome_message",
+        "welcome_button_enabled",
+        "welcome_button_text",
         "keyword",
     ):
         if fields.get(key) is not None:

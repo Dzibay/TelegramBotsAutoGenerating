@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS bots (
     token_encrypted BYTEA,
     avatar_path TEXT,
     welcome_message TEXT NOT NULL,
+    welcome_button_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    welcome_button_text TEXT NOT NULL DEFAULT 'Перейти по ссылке',
     target_url TEXT,
     link_mode TEXT NOT NULL DEFAULT 'redirect'
         CHECK (link_mode IN ('redirect', 'direct')),

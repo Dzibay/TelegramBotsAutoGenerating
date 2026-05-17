@@ -31,6 +31,7 @@
         v-model="profile"
         username-readonly
         :keyword="form.keyword"
+        :public-link="linkPreview"
         :avatar-url="avatarDisplayUrl"
         @update:avatar-file="pendingAvatarFile = $event"
       />
@@ -103,6 +104,8 @@ const profile = ref({
   description: '',
   about_text: '',
   welcome_message: '',
+  welcome_button_enabled: true,
+  welcome_button_text: 'Перейти по ссылке',
 });
 
 const avatarDisplayUrl = computed(() => {
@@ -132,6 +135,8 @@ async function load() {
       description: bot.value.description || '',
       about_text: bot.value.about_text || '',
       welcome_message: bot.value.welcome_message || '',
+      welcome_button_enabled: bot.value.welcome_button_enabled !== false,
+      welcome_button_text: bot.value.welcome_button_text || 'Перейти по ссылке',
     };
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Бот не найден';
@@ -155,6 +160,8 @@ async function onSave() {
       description: profile.value.description,
       about_text: profile.value.about_text,
       welcome_message: profile.value.welcome_message,
+      welcome_button_enabled: profile.value.welcome_button_enabled,
+      welcome_button_text: profile.value.welcome_button_text,
       keyword: form.value.keyword,
       sync_botfather: form.value.sync_botfather,
       generate_avatar: form.value.generate_avatar,

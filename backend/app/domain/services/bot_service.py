@@ -400,9 +400,15 @@ async def create_bot(
     description = texts["description"] or ""
     welcome_message = texts["welcome_message"] or ""
     about_final = texts["about_text"] or ""
+    kw_for_user = (keyword or "").strip() or display_name
+    promo = bot_promo_service.build_promo_texts(
+        public_link=public_link,
+        display_name=display_name,
+        keyword=kw_for_user,
+        link_mode=mode,
+    )
 
     token = None
-    kw_for_user = (keyword or "").strip() or display_name
     avatar_path = None
     client = None
 

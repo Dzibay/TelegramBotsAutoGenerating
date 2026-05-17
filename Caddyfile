@@ -1,4 +1,10 @@
-# Пример reverse proxy для production (замените домен)
-# localhost {
-#     reverse_proxy frontend:80
-# }
+# HTTPS + reverse proxy → frontend (nginx внутри Docker)
+# Домен должен указывать на IP сервера (A-запись). Порты 80/443 открыты в firewall.
+
+{
+	email {$ACME_EMAIL:admin@tg-bots-generate.ru}
+}
+
+{$SITE_DOMAIN:localhost}, www.{$SITE_DOMAIN:localhost} {
+	reverse_proxy frontend:80
+}

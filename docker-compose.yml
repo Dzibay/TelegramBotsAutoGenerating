@@ -153,8 +153,8 @@ services:
         VITE_API_BASE_URL: /api/v1
     container_name: tgbots-frontend
     restart: unless-stopped
-    expose:
-      - "80"
+    ports:
+      - "8080:80"
     depends_on:
       - api
     networks:
@@ -170,7 +170,7 @@ services:
       - "443:443/udp"
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN:-tg-bots-generate.ru}
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@tg-bots-generate.ru}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

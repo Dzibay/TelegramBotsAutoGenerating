@@ -1,10 +1,11 @@
 # HTTPS + reverse proxy → frontend (nginx внутри Docker)
-# Домен должен указывать на IP сервера (A-запись). Порты 80/443 открыты в firewall.
+# SITE_DOMAIN и ACME_EMAIL задаются в docker-compose / .env
+# Не используйте {$VAR:default@email} — символ @ ломает разбор Caddyfile
 
 {
-	email {$ACME_EMAIL:admin@tg-bots-generate.ru}
+	email {$ACME_EMAIL}
 }
 
-{$SITE_DOMAIN:localhost}, www.{$SITE_DOMAIN:localhost} {
+{$SITE_DOMAIN}, www.{$SITE_DOMAIN} {
 	reverse_proxy frontend:80
 }

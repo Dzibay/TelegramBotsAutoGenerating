@@ -29,20 +29,26 @@ def _load_env() -> None:
             load_dotenv(env_path)
 
 
-def _sql_files() -> list[Path]:
-    files = [_find_sql_path()]
-    for name in (
+def _migration_files() -> list[Path]:
+    """Миграции для уже существующих БД (ALTER, индексы)."""
+    names = (
         "migrate_job_logs.sql",
         "migrate_account_prep.sql",
         "migrate_prepared_accounts.sql",
         "migrate_campaign_optional.sql",
         "migrate_bot_promo.sql",
-    ):
+    )
+    files: list[Path] = []
+    for name in names:
         for base in (_SCRIPT_DIR.parents[1], _SCRIPT_DIR.parent):
             migrate = base / "database" / name
             if migrate.is_file() and migrate not in files:
                 files.append(migrate)
     return files
+
+
+def _sql_files() -> list[Path]:
+    return [_find_sql_path(), *_migration_files()]
 
 
 async def apply_schema(

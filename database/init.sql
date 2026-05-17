@@ -54,8 +54,7 @@ CREATE TABLE IF NOT EXISTS bots (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_bots_redirect_slug ON bots (redirect_slug)
-    WHERE redirect_slug IS NOT NULL;
+-- Индекс idx_bots_redirect_slug — в migrate_bot_promo.sql (для уже существующих БД)
 
 -- Фоновая задача создания ботов по кампании
 CREATE TABLE IF NOT EXISTS creation_jobs (

@@ -76,27 +76,33 @@
     </div>
 
     <div class="form-group">
-      <label>Описание в чате (до кнопки «Старт»)</label>
-      <textarea
-        :value="modelValue.description"
-        rows="4"
-        maxlength="512"
-        placeholder="Текст, который виден при открытии бота до нажатия Start"
-        @input="patch('description', $event.target.value)"
-      />
-      <p class="field-hint">До 512 символов. BotFather: /setdescription</p>
-    </div>
-
-    <div class="form-group">
       <label>Краткий профиль — «плакат» в карточке бота</label>
       <textarea
         :value="modelValue.about_text"
         rows="2"
         maxlength="120"
-        placeholder="Короткая строка в профиле до открытия чата"
+        placeholder="Подпись в шапке профиля @бот (до открытия чата)"
         @input="patch('about_text', $event.target.value)"
       />
-      <p class="field-hint">До 120 символов. BotFather: /setabouttext</p>
+      <p class="field-hint">
+        До 120 символов — короткая строка в карточке бота (BotFather: /setabouttext).
+        Пустое поле → шаблон при создании.
+      </p>
+    </div>
+
+    <div class="form-group">
+      <label>Описание в чате (большой текст до «Старт»)</label>
+      <textarea
+        :value="modelValue.description"
+        rows="4"
+        maxlength="512"
+        placeholder="Текст в пустом чате с ботом, до нажатия Start"
+        @input="patch('description', $event.target.value)"
+      />
+      <p class="field-hint">
+        До 512 символов — основной блок в чате (BotFather: /setdescription).
+        Заполняется кнопкой «Сгенерировать» или шаблоном «бот переехал», если пусто.
+      </p>
     </div>
 
     <div class="form-group">

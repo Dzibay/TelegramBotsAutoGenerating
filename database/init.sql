@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS bots (
     avatar_path TEXT,
     welcome_message TEXT NOT NULL,
     target_url TEXT,
+    link_mode TEXT NOT NULL DEFAULT 'redirect'
+        CHECK (link_mode IN ('redirect', 'direct')),
     redirect_slug TEXT,
     click_count BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending'

@@ -22,8 +22,10 @@
       <div class="form-group">
         <label>Ссылка на рекламируемый сервис</label>
         <input v-model="form.target_url" type="url" required placeholder="https://..." />
-        <p class="field-hint">В боте используется трекинг-ссылка /go/… (клики считаются автоматически)</p>
+        <p class="field-hint">Целевой URL (при режиме «трекинг» — конечная точка редиректа).</p>
       </div>
+
+      <BotLinkModeField v-model="form.link_mode" :preview-url="linkPreview" />
 
       <BotProfileFields
         v-model="profile"
@@ -70,6 +72,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPanel from '../components/BotTelegramPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -88,6 +91,7 @@ const pendingAvatarFile = ref(null);
 
 const form = ref({
   target_url: '',
+  link_mode: 'redirect',
   keyword: '',
   sync_botfather: false,
   generate_avatar: false,
@@ -106,12 +110,18 @@ const avatarDisplayUrl = computed(() => {
   return botService.avatarUrl(bot.value);
 });
 
+const linkPreview = computed(() => {
+  if (form.value.link_mode === 'direct') return form.value.target_url?.trim() || '';
+  return bot.value.public_link || bot.value.tracking_url || '';
+});
+
 async function load() {
   loading.value = true;
   try {
     bot.value = await botService.get(Number(route.params.id));
     form.value = {
       target_url: bot.value.target_url || '',
+      link_mode: bot.value.link_mode || 'redirect',
       keyword: bot.value.keyword || '',
       sync_botfather: false,
       generate_avatar: false,
@@ -140,6 +150,7 @@ async function onSave() {
     }
     bot.value = await botService.update(bot.value.id, {
       target_url: form.value.target_url,
+      link_mode: form.value.link_mode,
       display_name: profile.value.display_name,
       description: profile.value.description,
       about_text: profile.value.about_text,

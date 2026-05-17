@@ -268,19 +268,34 @@ class CreationPipeline:
         if not target_url:
             await self.log("Пропуск: у кампании не задан resource_url (ссылка на сервис)", level="warn")
             return None
-        target = bot_promo_service.normalize_target_url(target_url)
-        slug = bot_promo_service.generate_redirect_slug()
-        tracking_url = bot_promo_service.build_tracking_url(slug)
+        links = bot_promo_service.prepare_bot_links(
+            link_mode=bot_promo_service.LINK_MODE_REDIRECT, target_url=target_url
+        )
+        target = links["target_url"]
+        slug = links["redirect_slug"]
+        tracking_url = links["tracking_url"]
+        public_link = links["public_link"]
+        mode = links["link_mode"]
         promo = bot_promo_service.build_promo_texts(
+            public_link=public_link,
+            display_name=display_name,
+            keyword=keyword,
+            link_mode=mode,
+        )
+        texts = bot_promo_service.finalize_bot_texts(
+            description=profile.get("description", ""),
+            about_text=profile.get("about_text", ""),
+            welcome_message=None,
+            public_link=public_link,
+            link_mode=mode,
+            target_url=target,
             tracking_url=tracking_url,
             display_name=display_name,
             keyword=keyword,
+            use_promo_welcome=False,
         )
-        description = bot_promo_service.embed_tracking_in_description(
-            profile.get("description", "") or promo["description"],
-            tracking_url,
-            target,
-        )
+        description = texts["description"] or promo["description"]
+        about_text = texts["about_text"] or promo["about_text"]
 
         await self.log(f"BotFather: создание @{username}…")
         reserved = await username_service.get_reserved_usernames()
@@ -300,14 +315,20 @@ class CreationPipeline:
         username = result["username"]
 
         welcome = await self.ai.generate_welcome_message(
-            tracking_url,
+            public_link,
             keyword,
             display_name,
             variant_index,
             campaign_id=self.campaign_id,
             moved_notice=True,
         )
-        welcome = bot_promo_service.embed_tracking_in_welcome(welcome, tracking_url, target)
+        welcome = bot_promo_service.embed_link_in_welcome(
+            welcome,
+            public_link,
+            link_mode=mode,
+            target_url=target,
+            tracking_url=tracking_url,
+        )
 
         avatar_path = None
         try:
@@ -320,7 +341,6 @@ class CreationPipeline:
         except Exception as exc:
             await self.log(f"Аватар @{username}: {exc}", level="warn")
 
-        about_text = promo["about_text"]
         await set_bot_description(client, username, description)
         await set_bot_about(client, username, about_text)
 
@@ -330,9 +350,9 @@ class CreationPipeline:
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
                 description, about_text, token_encrypted, avatar_path, welcome_message,
-                target_url, redirect_slug, status
+                target_url, link_mode, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'active')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active')
             RETURNING id
             """,
             self.campaign_id,
@@ -346,6 +366,7 @@ class CreationPipeline:
             str(avatar_path) if avatar_path else None,
             welcome,
             target,
+            mode,
             slug,
         )
         bot_id = row["id"]

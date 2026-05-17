@@ -4,7 +4,7 @@
       <RouterLink to="/app/bots" class="back">← Боты</RouterLink>
       <h1>Создание бота</h1>
       <p class="subtitle">
-        Укажите ссылку на рекламируемый сервис — в боте будет трекинг-ссылка с подсчётом кликов
+        Укажите ссылку на сервис и выберите: трекинг /go/… (по умолчанию) или прямая ссылка в текстах бота
       </p>
     </header>
 
@@ -17,13 +17,10 @@
           required
           placeholder="https://example.com/landing"
         />
-        <p class="field-hint">Прямая ссылка. В боте пользователи увидят защищённую ссылку вида /go/…</p>
+        <p class="field-hint">Целевой URL сервиса (куда ведёт редирект при режиме «трекинг»).</p>
       </div>
 
-      <div v-if="draftTrackingUrl" class="preview-tracking card-inner">
-        <span class="preview-label">Трекинг-ссылка (будет в боте):</span>
-        <code>{{ draftTrackingUrl }}</code>
-      </div>
+      <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
 
       <div class="form-group">
         <label>Кампания</label>
@@ -82,27 +79,6 @@
         show-generate-on-create
         @update:avatar-file="avatarFile = $event"
       />
-      <div v-if="false" class="form-group">
-        <label>Имя бота</label>
-        <input v-model="form.display_name" required maxlength="64" />
-      </div>
-      <div v-if="false" class="form-group">
-        <label>Username (@)</label>
-        <input v-model="form.username" required placeholder="my_service_bot" />
-        <p class="field-hint">
-          Латиница (кириллица транслитерируется), 5–32 символа, окончание <code>bot</code>.
-          Уникальность проверяется в базе и в Telegram; при коллизии подставится суффикс.
-        </p>
-      </div>
-      <div v-if="false" class="form-group">
-        <label>Описание (до старта чата)</label>
-        <textarea v-model="form.description" rows="4" maxlength="512" />
-        <p class="field-hint">Текст «бот переехал» и трекинг-ссылка подставляются автоматически</p>
-      </div>
-      <div v-if="false" class="form-group">
-        <label>Сообщение /start</label>
-        <textarea v-model="form.welcome_message" rows="5" required />
-      </div>
 
       <label class="check">
         <input v-model="autoStart" type="checkbox" />
@@ -123,6 +99,7 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
@@ -138,8 +115,9 @@ const targetUrl = ref('');
 const keyword = ref('');
 const campaignKeywords = ref([]);
 const usedKeywords = ref(new Set());
+const linkMode = ref('redirect');
 const redirectSlug = ref(null);
-const draftTrackingUrl = ref(null);
+const draftPublicLink = ref(null);
 const generating = ref(false);
 const submitting = ref(false);
 const submitError = ref(null);
@@ -163,6 +141,12 @@ const STATUS_LABELS = {
   exhausted: 'лимит',
   disabled: 'отключён',
 };
+
+const linkPreview = computed(() => {
+  if (draftPublicLink.value) return draftPublicLink.value;
+  if (linkMode.value === 'direct' && targetUrl.value.trim()) return targetUrl.value.trim();
+  return null;
+});
 
 const usableAccounts = computed(() =>
   accounts.value.filter((a) => {
@@ -239,9 +223,11 @@ async function onGenerate() {
       targetUrl: targetUrl.value.trim(),
       keyword: keyword.value || undefined,
       redirectSlug: redirectSlug.value,
+      linkMode: linkMode.value,
     });
     redirectSlug.value = draft.redirect_slug;
-    draftTrackingUrl.value = draft.tracking_url;
+    draftPublicLink.value = draft.public_link;
+    if (draft.link_mode) linkMode.value = draft.link_mode;
     targetUrl.value = draft.target_url || targetUrl.value;
     form.value.display_name = draft.display_name;
     form.value.username = draft.username;
@@ -276,6 +262,7 @@ async function onSubmit() {
         welcome_message: form.value.welcome_message,
         keyword: keyword.value || null,
         redirect_slug: redirectSlug.value,
+        link_mode: linkMode.value,
         create_via_botfather: true,
         auto_start: autoStart.value,
         generate_avatar: generateAvatar.value,

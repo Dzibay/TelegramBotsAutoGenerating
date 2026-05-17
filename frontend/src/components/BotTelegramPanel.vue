@@ -3,7 +3,9 @@
     <h2 class="panel-title">Ссылки и статистика</h2>
 
     <div v-if="promoLink" class="promo-block">
-      <p class="block-label">Трекинг-ссылка (в боте и описании)</p>
+      <p class="block-label">
+        {{ isRedirect ? 'Трекинг-ссылка в боте (/go/…)' : 'Прямая ссылка в боте' }}
+      </p>
       <div class="link-row">
         <a :href="promoLink" target="_blank" rel="noopener noreferrer" class="tg-link">
           {{ promoLink }}
@@ -12,11 +14,14 @@
           {{ copiedPromo ? 'Скопировано' : 'Копировать' }}
         </button>
       </div>
-      <p class="stats">
+      <p v-if="isRedirect" class="stats">
         Кликов по ссылке: <strong>{{ bot.click_count ?? 0 }}</strong>
       </p>
-      <p v-if="bot.target_url" class="target-hint">
+      <p v-if="isRedirect && bot.target_url" class="target-hint">
         Редирект на: <span class="muted">{{ bot.target_url }}</span>
+      </p>
+      <p v-else-if="!isRedirect" class="target-hint muted">
+        Режим «прямая ссылка» — клики по /go/ не используются.
       </p>
     </div>
 
@@ -28,7 +33,7 @@
           Открыть ↗
         </a>
       </div>
-      <p class="hint">Отправьте <code>/start</code> — должно прийти сообщение о переезде с трекинг-ссылкой.</p>
+      <p class="hint">Отправьте <code>/start</code> — должно прийти сообщение с выбранной ссылкой.</p>
     </div>
 
     <p v-if="!promoLink && !tgLink" class="muted">Ссылки появятся после создания бота.</p>
@@ -72,7 +77,10 @@ const verifyError = ref(null);
 const verifyResult = ref(null);
 
 const botId = computed(() => props.bot?.id);
-const promoLink = computed(() => props.bot?.tracking_url);
+const isRedirect = computed(() => (props.bot?.link_mode || 'redirect') === 'redirect');
+const promoLink = computed(
+  () => props.bot?.public_link || (isRedirect.value ? props.bot?.tracking_url : props.bot?.target_url)
+);
 const tgLink = computed(
   () => props.bot?.telegram_url || telegramBotUrl(props.bot?.username),
 );
@@ -94,39 +102,34 @@ async function onVerify() {
   if (!botId.value) return;
   verifying.value = true;
   verifyError.value = null;
+  verifyResult.value = null;
   try {
-    const result = await botService.verify(botId.value);
-    verifyResult.value = result;
-    emit('verified', result);
+    const data = await botService.verify(botId.value);
+    verifyResult.value = data;
+    emit('verified', data);
   } catch (e) {
     verifyError.value = e.response?.data?.error || 'Ошибка проверки';
-    verifyResult.value = null;
   } finally {
     verifying.value = false;
   }
 }
 
 watch(
-  () => [props.bot?.id, props.autoVerify],
-  () => {
-    verifyResult.value = null;
-    verifyError.value = null;
-    if (props.autoVerify && props.bot?.has_token && props.bot?.id) {
-      onVerify();
-    }
+  () => props.autoVerify,
+  (v) => {
+    if (v && botId.value) onVerify();
   },
-  { immediate: true },
+  { immediate: true }
 );
 </script>
 
 <style scoped>
 .bot-telegram-panel {
   margin-bottom: 1.25rem;
-  padding: 1rem 1.15rem;
 }
 
 .panel-title {
-  margin: 0 0 0.75rem;
+  margin: 0 0 1rem;
   font-size: 1rem;
 }
 
@@ -144,50 +147,38 @@ watch(
 .link-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.35rem;
+  align-items: center;
 }
 
 .tg-link {
-  flex: 1;
-  min-width: 12rem;
-  font-size: 0.85rem;
   word-break: break-all;
+  font-size: 0.875rem;
   color: var(--accent);
 }
 
 .stats {
-  margin: 0.35rem 0 0;
-  font-size: 0.85rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
 }
 
 .target-hint {
-  margin: 0.25rem 0 0;
-  font-size: 0.75rem;
-  word-break: break-all;
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
 }
 
 .hint {
-  margin: 0.35rem 0 0;
+  margin: 0.5rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
 }
 
-.hint code {
-  font-size: 0.85em;
-  padding: 0.1rem 0.35rem;
-  background: var(--bg);
-  border-radius: 4px;
-}
-
 .verify-btn {
-  width: 100%;
   margin-top: 0.5rem;
 }
 
 .verify-result {
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
   padding: 0.65rem 0.75rem;
   border-radius: 8px;
   font-size: 0.875rem;
@@ -199,8 +190,8 @@ watch(
 }
 
 .verify-result.warn {
-  background: rgba(234, 179, 8, 0.1);
-  border: 1px solid rgba(234, 179, 8, 0.35);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
 }
 
 .verify-msg {
@@ -209,7 +200,7 @@ watch(
 
 .verify-hint {
   margin: 0.35rem 0 0;
-  color: var(--muted);
   font-size: 0.8rem;
+  color: var(--muted);
 }
 </style>

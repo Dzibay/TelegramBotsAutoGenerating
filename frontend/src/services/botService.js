@@ -25,13 +25,14 @@ export const botService = {
     return `${base.replace(/\/$/, '')}${bot.avatar_url}`;
   },
 
-  async generateDraft({ campaignId, accountId, targetUrl, keyword, redirectSlug }) {
+  async generateDraft({ campaignId, accountId, targetUrl, keyword, redirectSlug, linkMode = 'redirect' }) {
     const res = await apiClient.post('/bots/generate-draft', {
       campaign_id: campaignId,
       telegram_account_id: accountId,
       target_url: targetUrl,
       keyword: keyword || null,
       redirect_slug: redirectSlug || null,
+      link_mode: linkMode,
     });
     return res.data?.draft;
   },

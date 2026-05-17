@@ -39,6 +39,7 @@ async def generate_draft(body: BotGenerateRequest, _user: dict = Depends(get_cur
         body.target_url,
         keyword=body.keyword,
         redirect_slug=body.redirect_slug,
+        link_mode=body.link_mode,
     )
     return success_response(data={"draft": draft})
 
@@ -113,6 +114,7 @@ async def create_bot(
         welcome_message=body.welcome_message,
         keyword=body.keyword,
         redirect_slug=body.redirect_slug,
+        link_mode=body.link_mode,
         create_via_botfather=body.create_via_botfather,
         auto_start=body.auto_start,
         avatar_bytes=avatar_bytes,

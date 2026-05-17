@@ -343,9 +343,11 @@ class AIService:
             f"Концепт: {concept}\n"
             "Весь текст бота должен быть заточен под это ключевое слово."
         )
+        hint = concept.get("description_hint", "Telegram bot")
         fallback = {
             "display_name": concept.get("display_name", "My Bot"),
-            "description": concept.get("description_hint", "Telegram bot"),
+            "description": hint,
+            "about_text": (hint[:120] if hint else "Telegram bot")[:120],
             "username": concept.get("username_hint", "my_helper_bot"),
             "avatar_prompt": f"minimal telegram bot icon, {concept.get('keyword', 'app')}",
         }

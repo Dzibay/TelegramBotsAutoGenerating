@@ -40,6 +40,11 @@ def _save_avatar_file(campaign_id: int, username: str, data: bytes) -> Path:
 
 def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
     bot_id = row["id"]
+    link_mode = bot_promo_service.normalize_link_mode(row.get("link_mode"))
+    target = row.get("target_url") or ""
+    slug = row.get("redirect_slug")
+    tracking_url = bot_promo_service.resolve_tracking_url(slug)
+    public_link = bot_promo_service.resolve_public_link(link_mode, target, slug)
     out = {
         "id": bot_id,
         "campaign_id": row["campaign_id"],
@@ -54,11 +59,11 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
         "status": row["status"],
         "has_token": bool(row.get("token_encrypted")),
         "telegram_url": telegram_bot_url(row.get("username")),
-        "target_url": row.get("target_url"),
-        "tracking_url": bot_promo_service.build_tracking_url(row["redirect_slug"])
-        if row.get("redirect_slug")
-        else None,
-        "redirect_slug": row.get("redirect_slug"),
+        "target_url": target or None,
+        "link_mode": link_mode,
+        "public_link": public_link,
+        "tracking_url": tracking_url,
+        "redirect_slug": slug,
         "click_count": int(row.get("click_count") or 0),
         "created_at": _iso(row.get("created_at")),
         "updated_at": _iso(row.get("updated_at")),
@@ -213,12 +218,20 @@ async def generate_bot_draft(
     target_url: str,
     keyword: Optional[str] = None,
     redirect_slug: Optional[str] = None,
+    link_mode: str = bot_promo_service.LINK_MODE_REDIRECT,
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     await _get_account_for_campaign(campaign_id, telegram_account_id)
-    target = bot_promo_service.normalize_target_url(target_url)
-    slug = redirect_slug or bot_promo_service.generate_redirect_slug()
-    tracking_url = bot_promo_service.build_tracking_url(slug)
+    links = bot_promo_service.prepare_bot_links(
+        link_mode=link_mode,
+        target_url=target_url,
+        redirect_slug=redirect_slug,
+    )
+    target = links["target_url"]
+    slug = links["redirect_slug"]
+    tracking_url = links["tracking_url"]
+    public_link = links["public_link"]
+    mode = links["link_mode"]
 
     kw = await campaign_service.suggest_keyword(campaign_id, keyword)
     if not kw:
@@ -244,10 +257,12 @@ async def generate_bot_draft(
             raise
         msg = getattr(exc, "message", str(exc))
         logger.warning("AI draft profile failed: %s — using templates", msg)
+        hint = concept["description_hint"]
         profile = {
             "display_name": concept["display_name"],
             "username": concept["username_hint"],
-            "description": concept["description_hint"],
+            "description": hint,
+            "about_text": (hint[:120] if hint else f"Бот — {kw}")[:120],
         }
         ai_fallback = True
 
@@ -258,26 +273,43 @@ async def generate_bot_draft(
         campaign_id=campaign_id,
     )
 
-    promo = bot_promo_service.build_promo_texts(
+    texts = bot_promo_service.finalize_bot_texts(
+        description=profile.get("description", ""),
+        about_text=profile.get("about_text", ""),
+        welcome_message=None,
+        public_link=public_link,
+        link_mode=mode,
+        target_url=target,
         tracking_url=tracking_url,
         display_name=display_name,
         keyword=kw,
+        use_promo_welcome=False,
     )
-    ai_desc = profile.get("description", "")[:512]
-    description = bot_promo_service.embed_tracking_in_description(
-        ai_desc or promo["description"], tracking_url, target
+    description = texts["description"] or ""
+    about_draft = texts["about_text"] or ""
+    promo = bot_promo_service.build_promo_texts(
+        public_link=public_link,
+        display_name=display_name,
+        keyword=kw,
+        link_mode=mode,
     )
     try:
         welcome = await ai.generate_welcome_message(
-            tracking_url,
+            public_link,
             kw,
             display_name,
             0,
             campaign_id=campaign_id,
             moved_notice=True,
         )
-        welcome = bot_promo_service.embed_tracking_in_welcome(welcome, tracking_url, target)
-        if not welcome.strip() or welcome.strip() == f"👉 {tracking_url}":
+        welcome = bot_promo_service.embed_link_in_welcome(
+            welcome,
+            public_link,
+            link_mode=mode,
+            target_url=target,
+            tracking_url=tracking_url,
+        )
+        if not welcome.strip() or welcome.strip() == f"👉 {public_link}":
             welcome = promo["welcome_message"]
             ai_fallback = True
     except Exception as exc:
@@ -292,6 +324,8 @@ async def generate_bot_draft(
         "campaign_id": campaign_id,
         "telegram_account_id": telegram_account_id,
         "target_url": target,
+        "link_mode": mode,
+        "public_link": public_link,
         "redirect_slug": slug,
         "tracking_url": tracking_url,
         "keyword": kw,
@@ -299,7 +333,7 @@ async def generate_bot_draft(
         "username": username,
         "description": description,
         "welcome_message": welcome,
-        "about_text": promo["about_text"],
+        "about_text": about_draft,
         "avatar_prompt": profile.get("avatar_prompt", promo["avatar_prompt"]),
         "ai_fallback": ai_fallback,
         "ai_hint": (
@@ -322,6 +356,7 @@ async def create_bot(
     about_text: str = "",
     keyword: Optional[str] = None,
     redirect_slug: Optional[str] = None,
+    link_mode: str = bot_promo_service.LINK_MODE_REDIRECT,
     create_via_botfather: bool = True,
     auto_start: bool = False,
     avatar_bytes: Optional[bytes] = None,
@@ -331,22 +366,31 @@ async def create_bot(
     account = await _get_account_for_campaign(campaign_id, telegram_account_id)
     account = await account_service.ensure_ready_for_bot_creation(account)
 
-    target = bot_promo_service.normalize_target_url(target_url)
-    slug = redirect_slug or bot_promo_service.generate_redirect_slug()
-    tracking_url = bot_promo_service.build_tracking_url(slug)
-    description = bot_promo_service.embed_tracking_in_description(description, tracking_url, target)
-    welcome_message = bot_promo_service.embed_tracking_in_welcome(
-        welcome_message, tracking_url, target
+    links = bot_promo_service.prepare_bot_links(
+        link_mode=link_mode,
+        target_url=target_url,
+        redirect_slug=redirect_slug,
     )
-    promo = bot_promo_service.build_promo_texts(
+    target = links["target_url"]
+    slug = links["redirect_slug"]
+    tracking_url = links["tracking_url"]
+    public_link = links["public_link"]
+    mode = links["link_mode"]
+
+    texts = bot_promo_service.finalize_bot_texts(
+        description=description,
+        about_text=about_text,
+        welcome_message=welcome_message,
+        public_link=public_link,
+        link_mode=mode,
+        target_url=target,
         tracking_url=tracking_url,
         display_name=display_name,
         keyword=keyword or "",
     )
-    about_final = (about_text or promo["about_text"]).strip()[:120]
-    about_final = bot_promo_service.embed_tracking_in_about(
-        about_final, tracking_url, target
-    )
+    description = texts["description"] or ""
+    welcome_message = texts["welcome_message"] or ""
+    about_final = texts["about_text"] or ""
 
     token = None
     kw_for_user = (keyword or "").strip() or display_name
@@ -402,9 +446,9 @@ async def create_bot(
             INSERT INTO bots (
                 campaign_id, telegram_account_id, keyword, username, display_name,
                 description, about_text, token_encrypted, avatar_path, welcome_message,
-                target_url, redirect_slug, status
+                target_url, link_mode, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING *
             """,
             campaign_id,
@@ -418,6 +462,7 @@ async def create_bot(
             str(avatar_path) if avatar_path else None,
             welcome_message,
             target,
+            mode,
             slug,
             status,
         )
@@ -443,18 +488,18 @@ async def create_bot(
 async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
     bot = await get_bot(bot_id)
     row_data = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
-    tracking_url = (
-        bot_promo_service.build_tracking_url(row_data["redirect_slug"])
-        if row_data.get("redirect_slug")
-        else None
+
+    link_mode = bot_promo_service.normalize_link_mode(
+        fields.get("link_mode") if fields.get("link_mode") is not None else row_data.get("link_mode")
     )
-    target = row_data.get("target_url")
+    target = fields.get("target_url") if fields.get("target_url") is not None else row_data.get("target_url")
+    slug = row_data.get("redirect_slug")
 
     if fields.get("target_url") is not None:
         target = bot_promo_service.normalize_target_url(fields["target_url"])
         fields["target_url"] = target
 
-    if fields.get("target_url") and not row_data.get("redirect_slug"):
+    if link_mode == bot_promo_service.LINK_MODE_REDIRECT and target and not slug:
         slug = bot_promo_service.generate_redirect_slug()
         await db.execute(
             "UPDATE bots SET redirect_slug = $1, updated_at = NOW() WHERE id = $2",
@@ -462,25 +507,47 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
             bot_id,
         )
         row_data["redirect_slug"] = slug
-        tracking_url = bot_promo_service.build_tracking_url(slug)
 
-    if tracking_url:
-        if fields.get("description") is not None:
-            fields["description"] = bot_promo_service.embed_tracking_in_description(
-                fields["description"], tracking_url, target
-            )
-        if fields.get("welcome_message") is not None:
-            fields["welcome_message"] = bot_promo_service.embed_tracking_in_welcome(
-                fields["welcome_message"], tracking_url, target
-            )
-        if fields.get("about_text") is not None:
-            fields["about_text"] = bot_promo_service.embed_tracking_in_about(
-                fields["about_text"], tracking_url, target
-            )
+    tracking_url = bot_promo_service.resolve_tracking_url(slug)
+    public_link = bot_promo_service.resolve_public_link(link_mode, target or "", slug)
+
+    if fields.get("link_mode") is not None:
+        fields["link_mode"] = link_mode
+
+    needs_reembed = fields.get("link_mode") is not None or fields.get("target_url") is not None
+    if needs_reembed or any(fields.get(k) is not None for k in ("description", "welcome_message", "about_text")):
+        texts = bot_promo_service.finalize_bot_texts(
+            description=fields.get("description")
+            if fields.get("description") is not None
+            else row_data.get("description"),
+            about_text=fields.get("about_text")
+            if fields.get("about_text") is not None
+            else row_data.get("about_text"),
+            welcome_message=fields.get("welcome_message")
+            if fields.get("welcome_message") is not None
+            else row_data.get("welcome_message"),
+            public_link=public_link,
+            link_mode=link_mode,
+            target_url=target or "",
+            tracking_url=tracking_url,
+            display_name=row_data.get("display_name") or "",
+            keyword=row_data.get("keyword") or "",
+        )
+        for k, v in texts.items():
+            if v is not None:
+                fields[k] = v
 
     updates = []
     params: list[Any] = []
-    for key in ("display_name", "target_url", "description", "about_text", "welcome_message", "keyword"):
+    for key in (
+        "display_name",
+        "target_url",
+        "link_mode",
+        "description",
+        "about_text",
+        "welcome_message",
+        "keyword",
+    ):
         if fields.get(key) is not None:
             params.append(fields[key])
             updates.append(f"{key} = ${len(params)}")
@@ -517,8 +584,13 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
                     / f"{account['id']}.session"
                 )
                 client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+                pl = bot_promo_service.resolve_public_link(
+                    row.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
+                    row.get("target_url") or "",
+                    row.get("redirect_slug"),
+                )
                 promo = bot_promo_service.build_promo_texts(
-                    tracking_url=tracking_url or "",
+                    public_link=pl,
                     display_name=row["display_name"],
                     keyword=row.get("keyword") or "",
                 )
@@ -562,11 +634,16 @@ async def _sync_botfather_promo(
     if not account or not row.get("username"):
         return
 
-    tracking_url = bot_promo_service.build_tracking_url(row["redirect_slug"])
+    link_mode = bot_promo_service.normalize_link_mode(row.get("link_mode"))
+    tracking_url = bot_promo_service.resolve_tracking_url(row.get("redirect_slug"))
+    public_link = bot_promo_service.resolve_public_link(
+        link_mode, row.get("target_url") or "", row.get("redirect_slug")
+    )
     promo = bot_promo_service.build_promo_texts(
-        tracking_url=tracking_url,
+        public_link=public_link,
         display_name=row["display_name"],
         keyword=row.get("keyword") or "",
+        link_mode=link_mode,
     )
     description = row.get("description") or promo["description"]
     about = (row.get("about_text") or promo["about_text"])[:120]

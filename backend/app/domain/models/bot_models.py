@@ -18,6 +18,7 @@ class BotGenerateRequest(BaseModel):
     target_url: str = Field(..., min_length=4, max_length=2048)
     keyword: Optional[str] = Field(None, max_length=100)
     redirect_slug: Optional[str] = Field(None, max_length=32)
+    link_mode: str = Field("redirect", pattern="^(redirect|direct)$")
 
 
 class BotCreateRequest(BaseModel):
@@ -31,6 +32,7 @@ class BotCreateRequest(BaseModel):
     welcome_message: str = Field(..., min_length=1, max_length=2000)
     keyword: Optional[str] = Field(None, max_length=100)
     redirect_slug: Optional[str] = Field(None, max_length=32)
+    link_mode: str = Field("redirect", pattern="^(redirect|direct)$")
     create_via_botfather: bool = True
     auto_start: bool = False
     generate_avatar: bool = Field(True, description="Сгенерировать аватар AI, если файл не загружен")
@@ -49,6 +51,7 @@ class GenerateAvatarPreviewRequest(BaseModel):
 class BotUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(None, min_length=1, max_length=64)
     target_url: Optional[str] = Field(None, min_length=4, max_length=2048)
+    link_mode: Optional[str] = Field(None, pattern="^(redirect|direct)$")
     description: Optional[str] = Field(None, max_length=512)
     about_text: Optional[str] = Field(None, max_length=120)
     welcome_message: Optional[str] = Field(None, min_length=1, max_length=2000)

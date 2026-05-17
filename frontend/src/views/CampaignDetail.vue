@@ -49,8 +49,20 @@
         />
       </div>
       <p v-if="job?.error_message" class="error-text">{{ job.error_message }}</p>
+      <p v-if="!campaign.resource_url && canStart" class="warn-banner">
+        Укажите
+        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ссылку на сервис</RouterLink>
+        в настройках кампании.
+      </p>
+      <p v-if="readyAccountsCount === 0 && accounts.length && canStart" class="warn-banner">
+        Нет готовых аккаунтов — нажмите «Проверить все» в блоке аккаунтов.
+      </p>
       <div v-if="canStart" class="actions">
-        <button type="button" :disabled="starting" @click="onStart">
+        <button
+          type="button"
+          :disabled="starting || !readyAccountsCount || !campaign.resource_url"
+          @click="onStart"
+        >
           {{ starting ? 'Запуск…' : 'Запустить создание ботов' }}
         </button>
       </div>
@@ -60,29 +72,20 @@
       <JobLogPanel :logs="logs" :loading="logsLoading" :polling="isPolling" />
 
       <div class="side">
-        <section class="card section">
-          <h3>Аккаунты Telegram</h3>
-          <p v-if="!accounts.length" class="muted">Нет загруженных аккаунтов</p>
-          <ul v-else class="mini-list">
-            <li v-for="a in accounts" :key="a.id">
-              <span>{{ a.label || `Аккаунт #${a.id}` }}</span>
-              <StatusBadge :status="a.status" />
-              <span class="mini-meta">{{ a.bots_created }}/{{ a.max_bots_limit }} ботов</span>
-            </li>
-          </ul>
-          <div v-if="canAddAccounts" class="add-prepared">
-            <p class="muted small">Добавить из пула подготовленных:</p>
-            <PreparedAccountPicker ref="pickerRef" v-model="selectedPreparedIds" />
-            <button
-              type="button"
-              class="btn btn-add"
-              :disabled="!selectedPreparedIds.length || attaching"
-              @click="onAttachPrepared"
-            >
-              {{ attaching ? 'Добавление…' : 'Добавить выбранные' }}
-            </button>
-          </div>
-        </section>
+        <CampaignAccountsPanel
+          ref="accountsPanelRef"
+          :accounts="accounts"
+          :can-add="canAddAccounts"
+          :attaching="attaching"
+          :verifying-all="verifyingAll"
+          :busy="accountBusy"
+          :busy-id="accountBusyId"
+          :attach-message="attachMessage"
+          @attach="onAttachPrepared"
+          @verify="onVerifyAccount"
+          @verify-all="onVerifyAllAccounts"
+          @remove="onRemoveAccount"
+        />
 
         <section class="card section">
           <div class="section-head">
@@ -139,8 +142,8 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
-import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
@@ -165,9 +168,16 @@ const logsLoading = ref(false);
 const lastLogId = ref(0);
 const starting = ref(false);
 const attaching = ref(false);
-const selectedPreparedIds = ref([]);
-const pickerRef = ref(null);
+const verifyingAll = ref(false);
+const accountBusy = ref(false);
+const accountBusyId = ref(null);
+const attachMessage = ref(null);
+const accountsPanelRef = ref(null);
 let pollTimer = null;
+
+const readyAccountsCount = computed(
+  () => accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots).length
+);
 
 const isPolling = computed(
   () => job.value && ['queued', 'running'].includes(job.value.status)
@@ -301,22 +311,71 @@ async function onBotDelete(b) {
   }
 }
 
-async function onAttachPrepared() {
-  if (!selectedPreparedIds.value.length) return;
+async function onAttachPrepared(ids) {
+  if (!ids?.length) return;
   attaching.value = true;
+  attachMessage.value = null;
+  loadError.value = null;
   try {
-    await campaignService.attachPreparedAccounts(
-      campaignId.value,
-      selectedPreparedIds.value
-    );
-    selectedPreparedIds.value = [];
+    const result = await campaignService.attachPreparedAccounts(campaignId.value, ids);
+    accounts.value = result.accounts ?? [];
+    const s = result.verifySummary;
+    if (s) {
+      attachMessage.value = `Добавлено и проверено: ${s.verified_ok} OK, ${s.verified_failed} с ошибкой`;
+    }
     await loadCampaign();
-    await loadExtras();
-    pickerRef.value?.reload?.();
+    accountsPanelRef.value?.reloadPicker?.();
   } catch (err) {
     loadError.value = err.response?.data?.error || 'Ошибка добавления аккаунтов';
   } finally {
     attaching.value = false;
+  }
+}
+
+async function onVerifyAccount(account) {
+  accountBusy.value = true;
+  accountBusyId.value = account.id;
+  loadError.value = null;
+  try {
+    const updated = await campaignService.verifyAccount(campaignId.value, account.id);
+    const idx = accounts.value.findIndex((a) => a.id === account.id);
+    if (idx >= 0) accounts.value[idx] = updated;
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Ошибка проверки';
+  } finally {
+    accountBusy.value = false;
+    accountBusyId.value = null;
+  }
+}
+
+async function onVerifyAllAccounts() {
+  verifyingAll.value = true;
+  loadError.value = null;
+  try {
+    const result = await campaignService.verifyAllAccounts(campaignId.value);
+    accounts.value = result.accounts ?? accounts.value;
+    attachMessage.value = `Проверка: ${result.verified_ok} OK, ${result.verified_failed} ошибок`;
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Ошибка проверки';
+  } finally {
+    verifyingAll.value = false;
+  }
+}
+
+async function onRemoveAccount(account) {
+  if (!confirm(`Убрать «${account.label || account.phone || account.id}» из кампании?`)) return;
+  accountBusy.value = true;
+  accountBusyId.value = account.id;
+  try {
+    await campaignService.removeAccount(campaignId.value, account.id);
+    await loadCampaign();
+    await loadExtras();
+    accountsPanelRef.value?.reloadPicker?.();
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Не удалось убрать аккаунт';
+  } finally {
+    accountBusy.value = false;
+    accountBusyId.value = null;
   }
 }
 
@@ -556,6 +615,20 @@ onUnmounted(stopPolling);
 .bot-li-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.warn-banner {
+  margin: 0.5rem 0 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  color: #fde047;
+}
+
+.warn-banner a {
+  color: var(--accent);
 }
 
 </style>

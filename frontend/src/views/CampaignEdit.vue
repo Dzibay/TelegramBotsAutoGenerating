@@ -12,6 +12,11 @@
         <label>Название</label>
         <input v-model="title" required placeholder="Название группы аккаунтов" />
       </div>
+      <div class="form-group">
+        <label>Ссылка на рекламируемый сервис</label>
+        <input v-model="resourceUrl" type="url" placeholder="https://..." />
+        <p class="field-hint">Нужна для массового создания ботов (трекинг /go/…)</p>
+      </div>
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <div class="actions">
         <RouterLink :to="{ name: 'campaign-detail', params: { id } }" class="btn-ghost">Отмена</RouterLink>
@@ -34,12 +39,14 @@ const loadError = ref(null);
 const saveError = ref(null);
 const saving = ref(false);
 const title = ref('');
+const resourceUrl = ref('');
 
 async function load() {
   loading.value = true;
   try {
     const { campaign } = await campaignService.get(id.value);
     title.value = campaign.title;
+    resourceUrl.value = campaign.resource_url || '';
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
@@ -51,7 +58,10 @@ async function onSave() {
   saving.value = true;
   saveError.value = null;
   try {
-    await campaignService.update(id.value, { title: title.value.trim() });
+    await campaignService.update(id.value, {
+      title: title.value.trim(),
+      resource_url: resourceUrl.value.trim() || null,
+    });
     router.push({ name: 'campaign-detail', params: { id: id.value } });
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка сохранения';
@@ -76,5 +86,11 @@ onMounted(load);
 
 .actions button {
   flex: 1;
+}
+
+.field-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
 }
 </style>

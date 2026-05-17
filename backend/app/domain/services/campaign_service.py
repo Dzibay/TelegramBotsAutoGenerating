@@ -82,14 +82,28 @@ async def get_campaign(campaign_id: int) -> dict[str, Any]:
     return _campaign_row(row)
 
 
-async def update_campaign(campaign_id: int, *, title: str | None = None) -> dict[str, Any]:
+async def update_campaign(
+    campaign_id: int,
+    *,
+    title: str | None = None,
+    resource_url: str | None = None,
+) -> dict[str, Any]:
     await get_campaign(campaign_id)
-    if title is None:
+    updates = []
+    params: list = []
+    if title is not None:
+        params.append(title.strip())
+        updates.append(f"title = ${len(params)}")
+    if resource_url is not None:
+        resource = resource_url.strip() or None
+        params.append(resource)
+        updates.append(f"resource_url = ${len(params)}")
+    if not updates:
         return await get_campaign(campaign_id)
+    params.append(campaign_id)
     await db.execute(
-        "UPDATE campaigns SET title = $2, updated_at = NOW() WHERE id = $1",
-        campaign_id,
-        title.strip(),
+        f"UPDATE campaigns SET {', '.join(updates)}, updated_at = NOW() WHERE id = ${len(params)}",
+        *params,
     )
     return await get_campaign(campaign_id)
 

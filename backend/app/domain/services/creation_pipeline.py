@@ -203,9 +203,19 @@ class CreationPipeline:
                         level="error",
                     )
 
-            acc_status = "ready" if created_count else "error"
+            acc_status = "ready"
             if created_count >= account["max_bots_limit"]:
                 acc_status = "exhausted"
+            elif created_count == 0:
+                await db.execute(
+                    """
+                    UPDATE telegram_accounts
+                    SET last_error = $2, updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    account_id,
+                    "Сессия OK, но боты не созданы (см. лог). Аккаунт готов для ручного создания.",
+                )
             await db.execute(
                 "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
                 account_id,

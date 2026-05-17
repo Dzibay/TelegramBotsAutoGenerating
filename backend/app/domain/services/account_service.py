@@ -75,10 +75,9 @@ async def add_tdata_archive(campaign_id: int, archive_path: Path, label: str | N
 
 
 def _tdata_path_valid(tdata_path: str | None) -> bool:
-    if not tdata_path or not str(tdata_path).strip():
-        return False
-    p = Path(tdata_path)
-    return p.is_dir() and any(p.rglob("*"))
+    from app.domain.services.account_health import tdata_exists
+
+    return tdata_exists(tdata_path)
 
 
 _STATUS_HINTS = {
@@ -153,27 +152,58 @@ async def ensure_ready_for_bot_creation(account: dict[str, Any]) -> dict[str, An
 
 
 async def list_accounts(campaign_id: int) -> list[dict[str, Any]]:
+    from app.domain.services.account_health import _serialize_account
+
     await campaign_service.get_campaign(campaign_id)
     rows = await db.fetch_all(
         """
-        SELECT id, campaign_id, label, phone, status, max_bots_limit, bots_created, last_error, created_at
+        SELECT id, campaign_id, label, phone, status, max_bots_limit, bots_created,
+               last_error, prepared_account_id, tdata_path, created_at
         FROM telegram_accounts
         WHERE campaign_id = $1
         ORDER BY created_at
         """,
         campaign_id,
     )
-    return [
-        {
-            "id": r["id"],
-            "campaign_id": r["campaign_id"],
-            "label": r.get("label"),
-            "phone": r.get("phone"),
-            "status": r["status"],
-            "max_bots_limit": r["max_bots_limit"],
-            "bots_created": r["bots_created"],
-            "last_error": r.get("last_error"),
-            "created_at": r["created_at"].isoformat() if r.get("created_at") else None,
-        }
-        for r in rows
-    ]
+    return [_serialize_account(r) for r in rows]
+
+
+async def remove_from_campaign(campaign_id: int, account_id: int) -> None:
+    import shutil
+
+    row = await db.fetch_one(
+        "SELECT * FROM telegram_accounts WHERE id = $1 AND campaign_id = $2",
+        account_id,
+        campaign_id,
+    )
+    if not row:
+        raise NotFoundError("Аккаунт не найден в кампании")
+
+    bots_count = await db.fetch_val(
+        "SELECT COUNT(*)::int FROM bots WHERE telegram_account_id = $1",
+        account_id,
+    )
+    if bots_count and int(bots_count) > 0:
+        raise BadRequestError(
+            f"На аккаунте есть {bots_count} бот(ов). Сначала удалите ботов, затем уберите аккаунт."
+        )
+
+    prepared_id = row.get("prepared_account_id")
+    tdata_path = row.get("tdata_path")
+
+    await db.execute("DELETE FROM telegram_accounts WHERE id = $1", account_id)
+
+    if prepared_id:
+        await db.execute(
+            """
+            UPDATE prepared_accounts
+            SET status = 'available', updated_at = NOW()
+            WHERE id = $1
+            """,
+            prepared_id,
+        )
+
+    if tdata_path:
+        p = Path(tdata_path)
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)

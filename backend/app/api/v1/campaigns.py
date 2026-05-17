@@ -8,7 +8,7 @@ from app.core.dependencies import get_current_user
 from app.core.exceptions import BadRequestError
 from app.domain.models.bot_models import CampaignUpdateRequest
 from app.domain.models.campaign_models import CampaignCreateRequest
-from app.domain.services import account_service, campaign_service, job_service, prepared_account_service
+from app.domain.services import account_health, account_service, campaign_service, job_service, prepared_account_service
 from app.utils.response import success_response
 
 _PREP_ONLY_MSG = (
@@ -68,6 +68,7 @@ async def create_campaign_full(
     campaign_id = campaign["id"]
 
     uploaded = await prepared_account_service.attach_to_campaign(campaign_id, prepared_ids)
+    await account_health.verify_all_accounts(campaign_id)
 
     job = None
     if auto_start.lower() in ("1", "true", "yes", "on"):
@@ -86,7 +87,11 @@ async def update_campaign(
     body: CampaignUpdateRequest,
     _user: dict = Depends(get_current_user),
 ):
-    campaign = await campaign_service.update_campaign(campaign_id, title=body.title)
+    campaign = await campaign_service.update_campaign(
+        campaign_id,
+        title=body.title,
+        resource_url=body.resource_url,
+    )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
 
 
@@ -130,7 +135,18 @@ async def attach_prepared_accounts(
         raise BadRequestError("Выберите хотя бы один подготовленный аккаунт")
 
     accounts = await prepared_account_service.attach_to_campaign(campaign_id, prepared_ids)
-    return success_response(data={"accounts": accounts}, message=SuccessMessages.ACCOUNT_UPLOADED)
+    verify_result = await account_health.verify_all_accounts(campaign_id)
+    return success_response(
+        data={
+            "accounts": verify_result["accounts"],
+            "verify_summary": {
+                "total": verify_result["total"],
+                "verified_ok": verify_result["verified_ok"],
+                "verified_failed": verify_result["verified_failed"],
+            },
+        },
+        message=SuccessMessages.ACCOUNT_UPLOADED,
+    )
 
 
 @router.post("/{campaign_id}/accounts", status_code=HTTPStatus.CREATED)
@@ -150,6 +166,32 @@ async def upload_accounts_batch(
     _user: dict = Depends(get_current_user),
 ):
     raise BadRequestError(_PREP_ONLY_MSG)
+
+
+@router.post("/{campaign_id}/accounts/verify-all")
+async def verify_all_accounts(campaign_id: int, _user: dict = Depends(get_current_user)):
+    result = await account_health.verify_all_accounts(campaign_id)
+    return success_response(data=result)
+
+
+@router.post("/{campaign_id}/accounts/{account_id}/verify")
+async def verify_account(
+    campaign_id: int,
+    account_id: int,
+    _user: dict = Depends(get_current_user),
+):
+    account = await account_health.verify_account(campaign_id, account_id)
+    return success_response(data={"account": account})
+
+
+@router.delete("/{campaign_id}/accounts/{account_id}")
+async def remove_account(
+    campaign_id: int,
+    account_id: int,
+    _user: dict = Depends(get_current_user),
+):
+    await account_service.remove_from_campaign(campaign_id, account_id)
+    return success_response(message="Аккаунт удалён из кампании")
 
 
 @router.post("/{campaign_id}/start")

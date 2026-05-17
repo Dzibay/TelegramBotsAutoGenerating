@@ -48,9 +48,32 @@ export const campaignService = {
     const res = await apiClient.post(
       API_ENDPOINTS.PREPARED_ACCOUNTS.ATTACH(campaignId),
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } }
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 300000 }
     );
-    return res.data?.accounts ?? [];
+    return {
+      accounts: res.data?.accounts ?? [],
+      verifySummary: res.data?.verify_summary,
+    };
+  },
+
+  async verifyAllAccounts(campaignId) {
+    const res = await apiClient.post(API_ENDPOINTS.CAMPAIGNS.VERIFY_ACCOUNTS(campaignId), null, {
+      timeout: 300000,
+    });
+    return res.data;
+  },
+
+  async verifyAccount(campaignId, accountId) {
+    const res = await apiClient.post(
+      API_ENDPOINTS.CAMPAIGNS.VERIFY_ACCOUNT(campaignId, accountId),
+      null,
+      { timeout: 120000 }
+    );
+    return res.data?.account;
+  },
+
+  async removeAccount(campaignId, accountId) {
+    await apiClient.delete(API_ENDPOINTS.CAMPAIGNS.REMOVE_ACCOUNT(campaignId, accountId));
   },
 
   async start(campaignId) {

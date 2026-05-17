@@ -32,7 +32,41 @@ def _job_row(row: dict[str, Any]) -> dict[str, Any]:
 async def start_creation_job(campaign_id: int) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     if campaign["accounts_count"] < 1:
-        raise ConflictError("Добавьте хотя бы один Telegram-аккаунт (tdata)")
+        raise ConflictError("Добавьте хотя бы один Telegram-аккаунт из пула подготовленных")
+
+    ready_count = await db.fetch_val(
+        """
+        SELECT COUNT(*)::int FROM telegram_accounts
+        WHERE campaign_id = $1 AND status IN ('ready', 'creating')
+          AND tdata_path IS NOT NULL AND tdata_path != ''
+        """,
+        campaign_id,
+    )
+    if not ready_count:
+        error_accounts = await db.fetch_all(
+            """
+            SELECT id, status, last_error FROM telegram_accounts
+            WHERE campaign_id = $1
+            """,
+            campaign_id,
+        )
+        if error_accounts:
+            sample = error_accounts[0]
+            hint = sample.get("last_error") or sample.get("status")
+            raise ConflictError(
+                "Нет готовых аккаунтов для массового создания. "
+                f"Откройте блок «Аккаунты» и нажмите «Проверить все». "
+                f"Пример: аккаунт #{sample['id']} — {hint}"
+            )
+        raise ConflictError(
+            "Нет готовых аккаунтов. Добавьте подготовленные аккаунты и нажмите «Проверить все»."
+        )
+
+    if not campaign.get("resource_url"):
+        raise ConflictError(
+            "Укажите ссылку на сервис (resource_url) в настройках кампании — "
+            "она нужна для трекинг-ссылок ботов при массовом создании"
+        )
 
     running = await db.fetch_one(
         """

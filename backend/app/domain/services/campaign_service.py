@@ -82,11 +82,28 @@ async def get_campaign(campaign_id: int) -> dict[str, Any]:
     return _campaign_row(row)
 
 
+def _clean_keywords(keywords: list[str] | None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for k in keywords or []:
+        text = (k or "").strip()
+        if not text or len(text) < 2:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(text[:100])
+    return out
+
+
 async def update_campaign(
     campaign_id: int,
     *,
     title: str | None = None,
     resource_url: str | None = None,
+    niche_description: str | None = None,
+    keywords: list[str] | None = None,
 ) -> dict[str, Any]:
     await get_campaign(campaign_id)
     updates = []
@@ -98,6 +115,14 @@ async def update_campaign(
         resource = resource_url.strip() or None
         params.append(resource)
         updates.append(f"resource_url = ${len(params)}")
+    if niche_description is not None:
+        niche = niche_description.strip() or None
+        params.append(niche)
+        updates.append(f"niche_description = ${len(params)}")
+    if keywords is not None:
+        cleaned = _clean_keywords(keywords)
+        params.append(cleaned)
+        updates.append(f"keywords = ${len(params)}::text[]")
     if not updates:
         return await get_campaign(campaign_id)
     params.append(campaign_id)
@@ -106,6 +131,52 @@ async def update_campaign(
         *params,
     )
     return await get_campaign(campaign_id)
+
+
+async def get_used_keywords(campaign_id: int) -> set[str]:
+    rows = await db.fetch_all(
+        "SELECT DISTINCT LOWER(TRIM(keyword)) AS kw FROM bots WHERE campaign_id = $1 AND keyword IS NOT NULL",
+        campaign_id,
+    )
+    return {r["kw"] for r in rows if r.get("kw")}
+
+
+async def suggest_keyword(campaign_id: int, preferred: str | None = None) -> str | None:
+    """Предлагает ключевое слово: preferred, иначе первое неиспользованное из кампании."""
+    if preferred and preferred.strip():
+        return preferred.strip()
+    campaign = await get_campaign(campaign_id)
+    used = await get_used_keywords(campaign_id)
+    for kw in campaign.get("keywords") or []:
+        if kw.strip().lower() not in used:
+            return kw.strip()
+    keywords = campaign.get("keywords") or []
+    return keywords[0].strip() if keywords else None
+
+
+async def generate_and_save_keywords(
+    campaign_id: int,
+    *,
+    count: int = 10,
+    merge: bool = True,
+) -> dict[str, Any]:
+    from app.infrastructure.ai.provider import AIService
+
+    campaign = await get_campaign(campaign_id)
+    ai = AIService()
+    existing = list(campaign.get("keywords") or []) if merge else []
+    generated = await ai.generate_campaign_keywords(
+        niche_description=campaign.get("niche_description"),
+        resource_url=campaign.get("resource_url"),
+        count=count,
+        existing=existing,
+        campaign_id=campaign_id,
+    )
+    if merge:
+        combined = _clean_keywords(existing + generated)
+    else:
+        combined = _clean_keywords(generated)
+    return await update_campaign(campaign_id, keywords=combined)
 
 
 async def delete_campaign(campaign_id: int) -> None:

@@ -17,6 +17,19 @@
           </button>
         </div>
       </div>
+      <p v-if="campaign.resource_url" class="resource">
+        Сервис:
+        <a :href="campaign.resource_url" target="_blank" rel="noopener noreferrer">{{ campaign.resource_url }}</a>
+      </p>
+      <p v-if="campaign.keywords?.length" class="keywords">
+        Ключевые слова ({{ campaign.keywords.length }}):
+        <span v-for="kw in campaign.keywords.slice(0, 8)" :key="kw" class="kw-chip">{{ kw }}</span>
+        <span v-if="campaign.keywords.length > 8" class="kw-more">+{{ campaign.keywords.length - 8 }}</span>
+      </p>
+      <p v-else class="keywords warn-keywords">
+        Нет ключевых слов —
+        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">добавьте или сгенерируйте</RouterLink>
+      </p>
     </header>
 
     <div class="stats">
@@ -49,6 +62,11 @@
         />
       </div>
       <p v-if="job?.error_message" class="error-text">{{ job.error_message }}</p>
+      <p v-if="!campaign.keywords?.length && canStart" class="warn-banner">
+        Добавьте
+        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ключевые слова кампании</RouterLink>
+        — каждый бот создаётся под своё слово.
+      </p>
       <p v-if="!campaign.resource_url && canStart" class="warn-banner">
         Укажите
         <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ссылку на сервис</RouterLink>
@@ -60,7 +78,7 @@
       <div v-if="canStart" class="actions">
         <button
           type="button"
-          :disabled="starting || !readyAccountsCount || !campaign.resource_url"
+          :disabled="starting || !readyAccountsCount || !campaign.resource_url || !campaign.keywords?.length"
           @click="onStart"
         >
           {{ starting ? 'Запуск…' : 'Запустить создание ботов' }}
@@ -102,6 +120,7 @@
             <li v-for="b in bots" :key="b.id" class="bot-li">
               <div class="bot-li-main">
                 <strong>@{{ b.username || '—' }}</strong>
+                <span v-if="b.keyword" class="bot-kw" :title="'Ключевое слово'">«{{ b.keyword }}»</span>
                 <span>{{ b.display_name }}</span>
                 <span v-if="b.click_count != null" class="clicks">{{ b.click_count }} кл.</span>
                 <StatusBadge :status="b.status" />
@@ -429,6 +448,30 @@ onUnmounted(stopPolling);
   margin: 0.35rem 0 0;
   font-size: 0.875rem;
   color: var(--muted);
+}
+
+.warn-keywords {
+  color: #fbbf24;
+}
+
+.kw-chip {
+  display: inline-block;
+  margin: 0.15rem 0.25rem 0 0;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.kw-more {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.bot-kw {
+  font-size: 0.75rem;
+  color: var(--accent);
 }
 
 .stats {

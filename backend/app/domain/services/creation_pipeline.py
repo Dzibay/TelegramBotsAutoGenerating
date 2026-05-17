@@ -14,6 +14,7 @@ from app.infrastructure.telegram.botfather_client import (
 )
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 from app.utils.crypto import encrypt_token
+from app.utils.telegram_username import normalize_bot_username
 
 
 class CreationPipeline:
@@ -160,11 +161,21 @@ class CreationPipeline:
             )
             await self.log(f"{label}: сессия OK ({phone})", context={"account_id": account_id})
 
-            keywords = list(campaign["keywords"] or [])
+            keywords = [k.strip() for k in (campaign.get("keywords") or []) if k and k.strip()]
             if not keywords:
-                keywords = ["bot", "helper", "telegram"]
+                await self.log(
+                    f"{label}: пропуск — у кампании нет ключевых слов",
+                    level="warn",
+                )
+                await db.execute(
+                    "UPDATE telegram_accounts SET status = 'ready', updated_at = NOW() WHERE id = $1",
+                    account_id,
+                )
+                return 0
             resource_url = campaign.get("resource_url") or ""
-            await self.log(f"{label}: анализ ниши AI ({slots} ботов)…")
+            await self.log(
+                f"{label}: AI — {slots} ботов по ключевым словам ({len(keywords)} в кампании)…"
+            )
             concepts = await self.ai.analyze_niche(
                 keywords,
                 campaign.get("niche_description"),
@@ -179,6 +190,8 @@ class CreationPipeline:
             await self.log(f"{label}: получено {len(concepts)} концептов")
 
             for idx, concept in enumerate(concepts):
+                kw = concept.get("keyword", "?")
+                await self.log(f"{label}: бот #{idx + 1} — ключевое слово «{kw}»")
                 try:
                     bot_id = await self._create_single_bot(
                         client,
@@ -244,7 +257,9 @@ class CreationPipeline:
             campaign_id=self.campaign_id,
         )
         display_name = profile.get("display_name", "Bot")[:64]
-        username = profile.get("username", concept.get("username_hint", "my_bot"))
+        username = normalize_bot_username(
+            profile.get("username", concept.get("username_hint", "my_bot"))
+        )
 
         target_url = (campaign.get("resource_url") or "").strip()
         if not target_url:

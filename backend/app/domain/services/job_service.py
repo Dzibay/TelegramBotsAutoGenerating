@@ -68,6 +68,12 @@ async def start_creation_job(campaign_id: int) -> dict[str, Any]:
             "она нужна для трекинг-ссылок ботов при массовом создании"
         )
 
+    if not campaign.get("keywords"):
+        raise ConflictError(
+            "Добавьте ключевые слова кампании (каждый бот — своё слово). "
+            "Откройте настройки кампании → «Сгенерировать ключевые слова» или введите вручную."
+        )
+
     running = await db.fetch_one(
         """
         SELECT id FROM creation_jobs

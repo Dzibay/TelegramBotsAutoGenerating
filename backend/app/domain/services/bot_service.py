@@ -18,6 +18,7 @@ from app.infrastructure.telegram.botfather_client import (
     set_bot_photo,
 )
 from app.utils.crypto import decrypt_token, encrypt_token
+from app.utils.telegram_username import normalize_bot_username
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 
 
@@ -159,8 +160,12 @@ async def generate_bot_draft(
     slug = redirect_slug or bot_promo_service.generate_redirect_slug()
     tracking_url = bot_promo_service.build_tracking_url(slug)
 
-    keywords = list(campaign["keywords"] or [])
-    kw = (keyword or "").strip() or (keywords[0] if keywords else "бот")
+    kw = await campaign_service.suggest_keyword(campaign_id, keyword)
+    if not kw:
+        raise BadRequestError(
+            "У кампании нет ключевых слов. Добавьте их в настройках кампании "
+            "или сгенерируйте через AI."
+        )
     concept = {
         "keyword": kw,
         "display_name": f"{kw.title()} Bot",
@@ -187,7 +192,7 @@ async def generate_bot_draft(
         ai_fallback = True
 
     display_name = profile.get("display_name", concept["display_name"])[:64]
-    username = profile.get("username", concept["username_hint"])[:32]
+    username = normalize_bot_username(profile.get("username", concept["username_hint"]))
 
     promo = bot_promo_service.build_promo_texts(
         tracking_url=tracking_url,
@@ -274,7 +279,7 @@ async def create_bot(
     about_text = promo["about_text"]
 
     token = None
-    final_username = username.lower().strip().lstrip("@")
+    final_username = normalize_bot_username(username)
     avatar_path = None
     client = None
 

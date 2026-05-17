@@ -86,6 +86,24 @@ export const campaignService = {
     return res.data?.campaign;
   },
 
+  async generateKeywords(campaignId, { count = 10, merge = true } = {}) {
+    const res = await apiClient.post(API_ENDPOINTS.CAMPAIGNS.GENERATE_KEYWORDS(campaignId), {
+      count,
+      merge,
+    });
+    return {
+      campaign: res.data?.campaign,
+      keywords: res.data?.keywords ?? res.data?.campaign?.keywords ?? [],
+    };
+  },
+
+  async suggestKeyword(campaignId, preferred = null) {
+    const res = await apiClient.get(API_ENDPOINTS.CAMPAIGNS.SUGGEST_KEYWORD(campaignId), {
+      params: preferred ? { preferred } : {},
+    });
+    return res.data;
+  },
+
   async remove(id) {
     await apiClient.delete(API_ENDPOINTS.CAMPAIGNS.GET(id));
   },

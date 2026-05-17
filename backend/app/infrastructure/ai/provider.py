@@ -8,6 +8,12 @@ from app.config import Config
 from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
 from app.infrastructure.ai.json_utils import extract_json_array, extract_json_object
+from app.infrastructure.ai.prompts import (
+    BOT_PROFILE_SYSTEM,
+    KEYWORDS_SYSTEM,
+    NICHE_ANALYSIS_SYSTEM,
+    WELCOME_SYSTEM,
+)
 from app.infrastructure.database import repository as db
 
 logger = get_logger(__name__)
@@ -130,6 +136,92 @@ class AIService:
         except Exception as exc:
             logger.warning("ai_generations insert failed: %s", exc)
 
+    async def generate_campaign_keywords(
+        self,
+        *,
+        niche_description: str | None,
+        resource_url: str | None,
+        count: int = 10,
+        existing: list[str] | None = None,
+        campaign_id: Optional[int] = None,
+    ) -> list[str]:
+        """Генерирует список ключевых слов кампании (поисковые фразы для ботов)."""
+        count = max(3, min(count, 50))
+        existing_clean = [k.strip() for k in (existing or []) if k and k.strip()]
+
+        user = (
+            f"Ниша / тематика: {niche_description or 'Telegram-боты и сервисы'}\n"
+            f"Рекламируемый сервис: {resource_url or 'не указан'}\n"
+            f"Нужно сгенерировать ровно {count} ключевых слов.\n"
+        )
+        if existing_clean:
+            user += f"Уже есть (не повторять): {', '.join(existing_clean)}\n"
+
+        if not self._ai_enabled():
+            return self._fallback_keywords(niche_description, count, existing_clean)
+
+        try:
+            raw = await self._text.complete(KEYWORDS_SYSTEM, user)
+            await self._audit("campaign_keywords", f"{KEYWORDS_SYSTEM}\n---\n{user}", raw, campaign_id=campaign_id)
+            items = extract_json_array(raw)
+            cleaned = self._clean_keyword_list(items, existing_clean)
+            if len(cleaned) >= 3:
+                return cleaned[:count]
+        except Exception as exc:
+            logger.warning("AI campaign keywords failed, fallback: %s", exc)
+
+        return self._fallback_keywords(niche_description, count, existing_clean)
+
+    def _clean_keyword_list(self, items: list, existing: list[str]) -> list[str]:
+        seen = {k.lower() for k in existing}
+        out: list[str] = []
+        for item in items:
+            if isinstance(item, dict):
+                text = str(item.get("keyword") or item.get("text") or "").strip()
+            else:
+                text = str(item).strip()
+            if not text or len(text) < 2:
+                continue
+            key = text.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(text[:100])
+        return out
+
+    def _fallback_keywords(
+        self,
+        niche_description: str | None,
+        count: int,
+        existing: list[str],
+    ) -> list[str]:
+        base_words = []
+        for part in (niche_description or "telegram бот помощник").replace(",", " ").split():
+            w = part.strip()
+            if len(w) > 2:
+                base_words.append(w.lower())
+        if not base_words:
+            base_words = ["бот", "telegram", "помощник", "сервис", "чат"]
+        templates = [
+            "{w} бот",
+            "бот {w}",
+            "{w} telegram",
+            "найти {w}",
+            "{w} онлайн",
+        ]
+        out = list(existing)
+        seen = {k.lower() for k in out}
+        i = 0
+        while len(out) < count and i < 200:
+            w = base_words[i % len(base_words)]
+            tpl = templates[i % len(templates)]
+            phrase = tpl.format(w=w).strip()
+            if phrase.lower() not in seen:
+                seen.add(phrase.lower())
+                out.append(phrase[:100])
+            i += 1
+        return out[:count]
+
     async def analyze_niche(
         self,
         keywords: list[str],
@@ -138,30 +230,68 @@ class AIService:
         max_bots: int,
         campaign_id: Optional[int] = None,
     ) -> list[dict[str, Any]]:
-        system = (
-            "Ты маркетолог Telegram. Верни ТОЛЬКО JSON-массив без пояснений. "
-            "Каждый объект: keyword, display_name (до 64 символов), "
-            "description_hint (до 120 символов), username_hint (латиница, оканчивается на bot, 5-32 символа)."
-        )
+        kw_list = [k.strip() for k in keywords if k and k.strip()]
         user = (
-            f"Ниша: {niche_description or 'общая'}\n"
-            f"Ключевые слова: {', '.join(keywords)}\n"
-            f"Ресурс: {resource_url}\n"
-            f"Сгенерируй ровно {max_bots} уникальных концептов ботов."
+            f"Ниша кампании: {niche_description or 'общая'}\n"
+            f"Ссылка на сервис: {resource_url or 'не указана'}\n"
+            f"Ключевые слова кампании (каждый бот — своё слово): {', '.join(kw_list) or 'не заданы'}\n"
+            f"Сгенерируй ровно {max_bots} концептов ботов. "
+            "Каждый концепт обязан иметь поле keyword из списка или близкую вариацию."
         )
         if not self._ai_enabled():
-            return self._fallback_concepts(keywords, max_bots)
+            return self._fallback_concepts(kw_list, max_bots)
         try:
-            raw = await self._text.complete(system, user)
+            raw = await self._text.complete(NICHE_ANALYSIS_SYSTEM, user)
         except Exception as exc:
             logger.warning("AI niche analysis failed, fallback: %s", exc)
-            return self._fallback_concepts(keywords, max_bots)
-        await self._audit("niche_analysis", f"{system}\n---\n{user}", raw, campaign_id=campaign_id)
+            return self._fallback_concepts(kw_list, max_bots)
+        await self._audit("niche_analysis", f"{NICHE_ANALYSIS_SYSTEM}\n---\n{user}", raw, campaign_id=campaign_id)
         try:
-            return extract_json_array(raw)
+            concepts = extract_json_array(raw)
+            return self._normalize_concepts(concepts, kw_list, max_bots)
         except Exception as exc:
             logger.warning("AI niche parse failed, fallback: %s", exc)
-            return self._fallback_concepts(keywords, max_bots)
+            return self._fallback_concepts(kw_list, max_bots)
+
+    def _normalize_concepts(
+        self,
+        concepts: list[dict[str, Any]],
+        keywords: list[str],
+        max_bots: int,
+    ) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        used_kw: set[str] = set()
+        for i, c in enumerate(concepts):
+            if len(out) >= max_bots:
+                break
+            if not isinstance(c, dict):
+                continue
+            kw = str(c.get("keyword") or "").strip()
+            if not kw and keywords:
+                kw = keywords[i % len(keywords)]
+            if not kw:
+                kw = f"бот {i + 1}"
+            used_kw.add(kw.lower())
+            slug = "".join(ch for ch in kw.lower() if ch.isalnum())[:12] or f"kw{i}"
+            out.append(
+                {
+                    "keyword": kw,
+                    "display_name": (c.get("display_name") or f"{kw.title()} Bot")[:64],
+                    "description_hint": (c.get("description_hint") or f"Бот по запросу «{kw}»")[:120],
+                    "username_hint": c.get("username_hint") or f"{slug}_{i}_bot",
+                }
+            )
+        while len(out) < max_bots:
+            fallback = self._fallback_concepts(keywords, max_bots - len(out))
+            for c in fallback:
+                if c["keyword"].lower() not in used_kw:
+                    out.append(c)
+                    used_kw.add(c["keyword"].lower())
+                if len(out) >= max_bots:
+                    break
+            if not fallback:
+                break
+        return out[:max_bots]
 
     def _fallback_concepts(self, keywords: list[str], max_bots: int) -> list[dict[str, Any]]:
         concepts = []
@@ -197,11 +327,13 @@ class AIService:
         niche_description: str | None,
         campaign_id: Optional[int] = None,
     ) -> dict[str, Any]:
-        system = (
-            "Верни ТОЛЬКО JSON-объект: display_name, description (до 512 символов), "
-            "username (латиница, уникальный, 5-32 символа, оканчивается на bot), avatar_prompt (англ., для генерации иконки)."
+        kw = concept.get("keyword", "")
+        user = (
+            f"Ниша кампании: {niche_description or 'общая'}\n"
+            f"Ключевое слово бота (главная тема): {kw}\n"
+            f"Концепт: {concept}\n"
+            "Весь текст бота должен быть заточен под это ключевое слово."
         )
-        user = f"Ниша: {niche_description or 'общая'}\nКонцепт: {concept}"
         fallback = {
             "display_name": concept.get("display_name", "My Bot"),
             "description": concept.get("description_hint", "Telegram bot"),
@@ -211,8 +343,8 @@ class AIService:
         if not self._ai_enabled():
             return fallback
         try:
-            raw = await self._text.complete(system, user)
-            await self._audit("bot_profile", f"{system}\n---\n{user}", raw, campaign_id=campaign_id)
+            raw = await self._text.complete(BOT_PROFILE_SYSTEM, user)
+            await self._audit("bot_profile", f"{BOT_PROFILE_SYSTEM}\n---\n{user}", raw, campaign_id=campaign_id)
             try:
                 return extract_json_object(raw)
             except Exception:
@@ -236,15 +368,12 @@ class AIService:
             if moved_notice
             else ""
         )
-        system = (
-            "Напиши одно приветственное сообщение для Telegram-бота на русском, до 400 символов. "
-            f"{moved}"
-            "Обязательно включи ТОЛЬКО эту ссылку (не меняй её): URL из поля «Ссылка». "
-            "Без markdown-заголовков."
-        )
+        system = f"{WELCOME_SYSTEM} {moved}Сообщение должно естественно использовать ключевое слово."
         user = (
-            f"Бот: {display_name}\nКлючевое слово: {keyword}\nСсылка: {resource_url}\n"
-            f"Вариант #{variant_index + 1}."
+            f"Имя бота: {display_name}\n"
+            f"Ключевое слово (поисковый запрос пользователя): {keyword}\n"
+            f"Ссылка: {resource_url}\n"
+            f"Вариант текста #{variant_index + 1}."
         )
         if not self._ai_enabled():
             raw = ""

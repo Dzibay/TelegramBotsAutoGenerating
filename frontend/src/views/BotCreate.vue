@@ -49,14 +49,26 @@
       </div>
 
       <div class="form-group">
-        <label>Ключевое слово (для AI)</label>
-        <input v-model="keyword" placeholder="Необязательно" />
+        <label>Ключевое слово бота *</label>
+        <select v-model="keyword" required :disabled="!campaignKeywords.length">
+          <option value="" disabled>Выберите ключевое слово</option>
+          <option v-for="kw in campaignKeywords" :key="kw" :value="kw">
+            {{ kw }}{{ usedKeywords.has(kw.toLowerCase()) ? ' (уже есть бот)' : '' }}
+          </option>
+        </select>
+        <p v-if="campaignId && !campaignKeywords.length" class="field-hint error-text">
+          В кампании нет ключевых слов.
+          <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">Сгенерируйте в настройках</RouterLink>
+        </p>
+        <p v-else class="field-hint">
+          Каждый бот заточен под одно поисковое слово. Тексты AI строятся вокруг выбранной фразы.
+        </p>
       </div>
 
       <button
         type="button"
         class="btn-ai"
-        :disabled="!campaignId || !accountId || !targetUrl.trim() || generating"
+        :disabled="!campaignId || !accountId || !targetUrl.trim() || !keyword || generating"
         @click="onGenerate"
       >
         {{ generating ? 'Генерация…' : '✨ Сгенерировать поля (переезд + ссылка)' }}
@@ -68,7 +80,11 @@
       </div>
       <div class="form-group">
         <label>Username (@)</label>
-        <input v-model="form.username" required placeholder="my_bot" />
+        <input v-model="form.username" required placeholder="my_service_bot" />
+        <p class="field-hint">
+          Только латиница, цифры и _, 5–32 символа, обязательно окончание <code>bot</code>
+          (например: promo_shop_bot). После сохранения будет нормализован автоматически.
+        </p>
       </div>
       <div class="form-group">
         <label>Описание (до старта чата)</label>
@@ -111,6 +127,8 @@ const campaignId = ref(route.query.campaign_id ? Number(route.query.campaign_id)
 const accountId = ref(null);
 const targetUrl = ref('');
 const keyword = ref('');
+const campaignKeywords = ref([]);
+const usedKeywords = ref(new Set());
 const redirectSlug = ref(null);
 const draftTrackingUrl = ref(null);
 const generating = ref(false);
@@ -168,11 +186,34 @@ async function loadAccounts() {
   accountId.value = pick?.id ?? null;
 }
 
-function onCampaignChange() {
+async function loadKeywordContext() {
+  if (!campaignId.value) {
+    campaignKeywords.value = [];
+    usedKeywords.value = new Set();
+    keyword.value = '';
+    return;
+  }
+  const c = campaigns.value.find((x) => x.id === campaignId.value);
+  campaignKeywords.value = c?.keywords || [];
+  try {
+    const data = await campaignService.suggestKeyword(campaignId.value);
+    usedKeywords.value = new Set((data.used_keywords || []).map((k) => k.toLowerCase()));
+    if (data.keyword) keyword.value = data.keyword;
+    if (data.keywords?.length) campaignKeywords.value = data.keywords;
+  } catch {
+    if (campaignKeywords.value.length && !keyword.value) {
+      keyword.value = campaignKeywords.value[0];
+    }
+  }
+}
+
+async function onCampaignChange() {
   accountId.value = null;
+  keyword.value = '';
   const c = campaigns.value.find((x) => x.id === campaignId.value);
   if (c?.resource_url) targetUrl.value = c.resource_url;
-  loadAccounts();
+  await loadAccounts();
+  await loadKeywordContext();
 }
 
 async function onGenerate() {
@@ -233,6 +274,7 @@ watch(campaignId, loadAccounts);
 onMounted(async () => {
   await loadCampaigns();
   await loadAccounts();
+  await loadKeywordContext();
 });
 </script>
 

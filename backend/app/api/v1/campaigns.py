@@ -7,7 +7,7 @@ from app.constants import HTTPStatus, SuccessMessages
 from app.core.dependencies import get_current_user
 from app.core.exceptions import BadRequestError
 from app.domain.models.bot_models import CampaignUpdateRequest
-from app.domain.models.campaign_models import CampaignCreateRequest
+from app.domain.models.campaign_models import CampaignCreateRequest, GenerateKeywordsRequest
 from app.domain.services import account_health, account_service, campaign_service, job_service, prepared_account_service
 from app.utils.response import success_response
 
@@ -91,8 +91,45 @@ async def update_campaign(
         campaign_id,
         title=body.title,
         resource_url=body.resource_url,
+        niche_description=body.niche_description,
+        keywords=body.keywords,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
+
+
+@router.post("/{campaign_id}/generate-keywords")
+async def generate_campaign_keywords(
+    campaign_id: int,
+    body: GenerateKeywordsRequest,
+    _user: dict = Depends(get_current_user),
+):
+    campaign = await campaign_service.generate_and_save_keywords(
+        campaign_id,
+        count=body.count,
+        merge=body.merge,
+    )
+    return success_response(
+        data={"campaign": campaign, "keywords": campaign.get("keywords", [])},
+        message="Ключевые слова сгенерированы",
+    )
+
+
+@router.get("/{campaign_id}/suggest-keyword")
+async def suggest_keyword(
+    campaign_id: int,
+    preferred: Optional[str] = None,
+    _user: dict = Depends(get_current_user),
+):
+    keyword = await campaign_service.suggest_keyword(campaign_id, preferred)
+    used = await campaign_service.get_used_keywords(campaign_id)
+    campaign = await campaign_service.get_campaign(campaign_id)
+    return success_response(
+        data={
+            "keyword": keyword,
+            "keywords": campaign.get("keywords", []),
+            "used_keywords": sorted(used),
+        }
+    )
 
 
 @router.delete("/{campaign_id}")

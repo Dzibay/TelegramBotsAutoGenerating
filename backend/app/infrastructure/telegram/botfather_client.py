@@ -3,7 +3,9 @@ import asyncio
 import re
 from pathlib import Path
 
+from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
+from app.utils.telegram_username import normalize_bot_username
 
 logger = get_logger(__name__)
 
@@ -14,7 +16,24 @@ async def _wait_reply(conv, timeout: float = 25.0):
     try:
         return await asyncio.wait_for(conv.get_response(), timeout=timeout)
     except asyncio.TimeoutError:
-        raise TimeoutError("BotFather не ответил вовремя")
+        raise BadRequestError("BotFather не ответил вовремя. Попробуйте ещё раз.")
+
+
+def _raise_botfather_error(text: str, *, field: str, username: str = "") -> None:
+    low = (text or "").lower()
+    if "username is invalid" in low or "invalid username" in low:
+        raise BadRequestError(
+            f"Username «@{username}» отклонён BotFather. "
+            "Допустимо: латиница, цифры, _, длина 5–32, обязательно окончание bot "
+            "(например: promo_shop_bot). Кириллица и дефисы не допускаются."
+        )
+    if field == "display_name" and ("invalid" in low or "sorry" in low):
+        raise BadRequestError(f"Имя бота отклонено BotFather: {text[:120]}")
+    if "already taken" in low or "occupied" in low or "is already" in low:
+        raise BadRequestError(f"Username @{username} уже занят. Укажите другой.")
+    if "too many" in low:
+        raise BadRequestError("Лимит BotFather: слишком много запросов. Подождите и повторите.")
+    raise BadRequestError(f"BotFather: {text[:200]}")
 
 
 async def create_bot_via_botfather(
@@ -23,11 +42,7 @@ async def create_bot_via_botfather(
     username: str,
 ) -> dict[str, str]:
     """Возвращает {token, username} после диалога с BotFather."""
-    username = username.lower().strip()
-    if not username.endswith("bot"):
-        username = f"{username}_bot" if len(username) < 28 else username[:32]
-    if len(username) < 5:
-        username = f"tg_{username}_bot"
+    username = normalize_bot_username(username)
 
     async with client.conversation("BotFather", timeout=30) as conv:
         await conv.send_message("/newbot")
@@ -37,23 +52,29 @@ async def create_bot_via_botfather(
         reply = await _wait_reply(conv)
         text = reply.raw_text or ""
 
-        if "invalid" in text.lower() or "sorry" in text.lower():
-            raise ValueError(f"BotFather отклонил имя: {text}")
+        if "invalid" in text.lower() and "username" not in text.lower():
+            _raise_botfather_error(text, field="display_name")
 
         await conv.send_message(username[:32])
         reply = await _wait_reply(conv)
         text = reply.raw_text or ""
 
+        if "invalid" in text.lower() or "sorry" in text.lower():
+            _raise_botfather_error(text, field="username", username=username)
+
         if "already taken" in text.lower() or "occupied" in text.lower():
-            raise ValueError(f"Username занят: {username}")
+            _raise_botfather_error(text, field="username", username=username)
 
         match = TOKEN_RE.search(text)
         if not match:
-            raise ValueError(f"Токен не найден в ответе BotFather: {text[:200]}")
+            _raise_botfather_error(text, field="username", username=username)
 
         token = match.group(1)
-        logger.info("Bot created @%s", username)
-        return {"token": token, "username": username}
+        # BotFather может вернуть фактический username в ответе
+        m_user = re.search(r"@([a-zA-Z0-9_]{5,32})", text)
+        final_username = normalize_bot_username(m_user.group(1)) if m_user else username
+        logger.info("Bot created @%s", final_username)
+        return {"token": token, "username": final_username}
 
 
 async def set_bot_description(client, username: str, description: str) -> None:

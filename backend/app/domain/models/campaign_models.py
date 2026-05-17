@@ -10,6 +10,16 @@ class CampaignCreateRequest(BaseModel):
     resource_url: Optional[str] = Field(None, max_length=2048)
 
 
+class CampaignKeywordsUpdateRequest(BaseModel):
+    keywords: list[str] = Field(default_factory=list)
+    niche_description: Optional[str] = Field(None, max_length=2000)
+
+
+class GenerateKeywordsRequest(BaseModel):
+    count: int = Field(10, ge=3, le=50)
+    merge: bool = Field(True, description="Добавить к существующим, не заменять")
+
+
 class CampaignResponse(BaseModel):
     id: int
     title: str

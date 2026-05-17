@@ -17,6 +17,15 @@
         <input v-model="resourceUrl" type="url" placeholder="https://..." />
         <p class="field-hint">Нужна для массового создания ботов (трекинг /go/…)</p>
       </div>
+
+      <CampaignKeywordsEditor
+        :campaign-id="id"
+        :keywords="keywords"
+        :niche-description="nicheDescription"
+        @update:keywords="keywords = $event"
+        @update:niche-description="nicheDescription = $event"
+      />
+
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <div class="actions">
         <RouterLink :to="{ name: 'campaign-detail', params: { id } }" class="btn-ghost">Отмена</RouterLink>
@@ -29,6 +38,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import CampaignKeywordsEditor from '../components/CampaignKeywordsEditor.vue';
 import { campaignService } from '../services/campaignService';
 
 const route = useRoute();
@@ -40,6 +50,8 @@ const saveError = ref(null);
 const saving = ref(false);
 const title = ref('');
 const resourceUrl = ref('');
+const nicheDescription = ref('');
+const keywords = ref([]);
 
 async function load() {
   loading.value = true;
@@ -47,6 +59,8 @@ async function load() {
     const { campaign } = await campaignService.get(id.value);
     title.value = campaign.title;
     resourceUrl.value = campaign.resource_url || '';
+    nicheDescription.value = campaign.niche_description || '';
+    keywords.value = campaign.keywords || [];
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
@@ -61,6 +75,8 @@ async function onSave() {
     await campaignService.update(id.value, {
       title: title.value.trim(),
       resource_url: resourceUrl.value.trim() || null,
+      niche_description: nicheDescription.value.trim() || null,
+      keywords: keywords.value,
     });
     router.push({ name: 'campaign-detail', params: { id: id.value } });
   } catch (e) {
@@ -75,7 +91,7 @@ onMounted(load);
 
 <style scoped>
 .edit-page {
-  max-width: 480px;
+  max-width: 640px;
 }
 
 .actions {

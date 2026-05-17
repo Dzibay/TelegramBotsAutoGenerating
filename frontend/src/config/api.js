@@ -18,6 +18,8 @@ export const API_ENDPOINTS = {
     UPLOAD_ACCOUNT: (id) => `/campaigns/${id}/accounts`,
     UPLOAD_BATCH: (id) => `/campaigns/${id}/accounts/batch`,
     START: (id) => `/campaigns/${id}/start`,
+    GENERATE_KEYWORDS: (id) => `/campaigns/${id}/generate-keywords`,
+    SUGGEST_KEYWORD: (id) => `/campaigns/${id}/suggest-keyword`,
   },
   JOBS: {
     GET: (id) => `/jobs/${id}`,

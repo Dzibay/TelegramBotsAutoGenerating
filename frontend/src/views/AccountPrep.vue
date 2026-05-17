@@ -20,6 +20,10 @@
         <div class="options-block">
           <h3>Меры безопасности</h3>
           <label class="check">
+            <input v-model="options.delete_bots" type="checkbox" />
+            Удалить всех ботов, привязанных к аккаунту (BotFather)
+          </label>
+          <label class="check">
             <input v-model="options.terminate_sessions" type="checkbox" />
             Завершить все другие сессии (кроме текущей из tdata)
           </label>
@@ -135,6 +139,7 @@ const newPassword = ref('');
 const currentPassword = ref('');
 const passwordHint = ref('');
 const options = ref({
+  delete_bots: true,
   terminate_sessions: true,
   change_password: true,
   privacy_restrictions: true,

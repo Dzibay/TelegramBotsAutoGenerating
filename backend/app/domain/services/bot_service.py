@@ -13,6 +13,7 @@ from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.bot_api import telegram_bot_url, verify_bot_token
 from app.infrastructure.telegram.botfather_client import (
     create_bot_via_botfather,
+    delete_bot_via_botfather,
     set_bot_about,
     set_bot_description,
     set_bot_name,
@@ -698,12 +699,87 @@ async def _sync_botfather_promo(
             await client.disconnect()
 
 
+async def cleanup_bots_for_phone(phone: str) -> int:
+    """Удаляет записи ботов из БД для всех telegram_accounts с этим номером."""
+    if not phone or not str(phone).strip():
+        return 0
+    accounts = await db.fetch_all(
+        "SELECT id FROM telegram_accounts WHERE phone = $1",
+        str(phone).strip(),
+    )
+    total = 0
+    for acc in accounts:
+        count_row = await db.fetch_one(
+            "SELECT COUNT(*)::int AS c FROM bots WHERE telegram_account_id = $1",
+            acc["id"],
+        )
+        n = int(count_row["c"] if count_row else 0)
+        if n:
+            await db.execute("DELETE FROM bots WHERE telegram_account_id = $1", acc["id"])
+            await db.execute(
+                """
+                UPDATE telegram_accounts
+                SET bots_created = 0,
+                    status = CASE
+                        WHEN status = 'exhausted' THEN 'ready'
+                        ELSE status
+                    END,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                acc["id"],
+            )
+            total += n
+    return total
+
+
+async def _delete_bot_from_telegram(
+    *,
+    campaign_id: int,
+    account_id: int,
+    username: str,
+) -> None:
+    account = await db.fetch_one(
+        "SELECT * FROM telegram_accounts WHERE id = $1 AND campaign_id = $2",
+        account_id,
+        campaign_id,
+    )
+    if not account or not account.get("tdata_path"):
+        raise BadRequestError(
+            "Файлы tdata аккаунта не найдены — невозможно удалить бота в Telegram"
+        )
+
+    client = None
+    try:
+        session_file = (
+            Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{account_id}.session"
+        )
+        client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+        await delete_bot_via_botfather(client, username)
+    finally:
+        if client:
+            await client.disconnect()
+
+
 async def delete_bot(bot_id: int) -> None:
     row = await db.fetch_one(
-        "SELECT id, telegram_account_id, status FROM bots WHERE id = $1", bot_id
+        """
+        SELECT id, campaign_id, telegram_account_id, username
+        FROM bots WHERE id = $1
+        """,
+        bot_id,
     )
     if not row:
         raise NotFoundError("Бот не найден")
+
+    username = (row.get("username") or "").strip()
+    account_id = row.get("telegram_account_id")
+    if username and account_id:
+        await _delete_bot_from_telegram(
+            campaign_id=row["campaign_id"],
+            account_id=account_id,
+            username=username,
+        )
 
     await db.execute("DELETE FROM bots WHERE id = $1", bot_id)
     if row.get("telegram_account_id"):

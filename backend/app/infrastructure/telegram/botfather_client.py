@@ -11,6 +11,8 @@ from app.utils.telegram_username import normalize_bot_username
 logger = get_logger(__name__)
 
 TOKEN_RE = re.compile(r"(\d{8,10}:[A-Za-z0-9_-]{30,})")
+BOT_USER_RE = re.compile(r"@?([a-z][a-z0-9_]{2,28}bot)\b", re.IGNORECASE)
+_SKIP_BOT_USERNAMES = frozenset({"botfather"})
 
 
 async def _wait_reply(conv, timeout: float = 25.0):
@@ -149,6 +151,207 @@ async def set_bot_about(client, username: str, about: str) -> None:
             await _wait_reply(conv)
     except Exception as exc:
         logger.warning("setabouttext failed for @%s: %s", username, exc)
+
+
+def _is_delete_success(text: str) -> bool:
+    low = (text or "").lower()
+    return any(
+        p in low
+        for p in (
+            "success",
+            "deleted",
+            "done.",
+            " was deleted",
+            "has been deleted",
+            "удалён",
+            "удален",
+        )
+    )
+
+
+def _is_bot_not_found(text: str) -> bool:
+    low = (text or "").lower()
+    return any(
+        p in low
+        for p in (
+            "not found",
+            "no bot",
+            "can't find",
+            "cannot find",
+            "does not exist",
+            "не найден",
+            "unknown bot",
+        )
+    )
+
+
+async def _try_confirm_delete(conv, reply, username: str) -> str:
+    """Подтверждение удаления: кнопка, повтор username или Yes."""
+    uname = username.lstrip("@")
+
+    if reply.buttons:
+        for row in reply.buttons:
+            for btn in row:
+                label = (getattr(btn, "text", None) or str(btn)).lower()
+                if "delete" in label or "удал" in label:
+                    try:
+                        await reply.click(text=btn.text)
+                        confirm = await _wait_reply(conv)
+                        return confirm.raw_text or ""
+                    except Exception as exc:
+                        logger.debug("click delete button failed: %s", exc)
+
+    text = (reply.raw_text or "").lower()
+    if "confirm" in text or "sure" in text or "yes" in text or "удал" in text:
+        for candidate in (f"@{uname}", uname, "Yes"):
+            await conv.send_message(candidate)
+            confirm = await _wait_reply(conv)
+            body = confirm.raw_text or ""
+            if _is_delete_success(body) or _is_bot_not_found(body):
+                return body
+
+    return text
+
+
+def _extract_bot_usernames_from_reply(reply) -> list[str]:
+    text = reply.raw_text or ""
+    found: list[str] = []
+    for match in BOT_USER_RE.finditer(text):
+        name = normalize_bot_username(match.group(1))
+        if name and name not in _SKIP_BOT_USERNAMES:
+            found.append(name)
+    if reply.buttons:
+        for row in reply.buttons:
+            for btn in row:
+                label = getattr(btn, "text", None) or str(btn)
+                for match in BOT_USER_RE.finditer(label):
+                    name = normalize_bot_username(match.group(1))
+                    if name and name not in _SKIP_BOT_USERNAMES:
+                        found.append(name)
+    return list(dict.fromkeys(found))
+
+
+def _is_no_bots_reply(text: str) -> bool:
+    low = (text or "").lower()
+    return any(
+        p in low
+        for p in (
+            "no bots",
+            "don't have any bots",
+            "you have no",
+            "you do not have",
+            "нет ботов",
+            "no bot yet",
+        )
+    )
+
+
+def _has_next_page(reply) -> bool:
+    if not reply.buttons:
+        return False
+    for row in reply.buttons:
+        for btn in row:
+            label = (getattr(btn, "text", None) or str(btn)).strip()
+            if label in (">", "»", ">>", "Next", "Далее"):
+                return True
+    return False
+
+
+async def list_bots_via_botfather(client) -> list[str]:
+    """Список username ботов аккаунта через /mybots."""
+    found: list[str] = []
+    seen_pages: set[int] = set()
+
+    async with client.conversation("BotFather", timeout=30) as conv:
+        await conv.send_message("/mybots")
+        reply = await _wait_reply(conv)
+
+        if _is_no_bots_reply(reply.raw_text or ""):
+            return []
+
+        while True:
+            found.extend(_extract_bot_usernames_from_reply(reply))
+            found = list(dict.fromkeys(found))
+
+            if not _has_next_page(reply) or reply.id in seen_pages:
+                break
+            seen_pages.add(reply.id)
+            try:
+                for label in (">", "»", ">>", "Next", "Далее"):
+                    try:
+                        await reply.click(text=label)
+                        break
+                    except Exception:
+                        continue
+                else:
+                    break
+                reply = await _wait_reply(conv)
+            except Exception as exc:
+                logger.debug("mybots pagination failed: %s", exc)
+                break
+
+    return found
+
+
+async def delete_all_bots_via_botfather(client, *, max_rounds: int = 25) -> int:
+    """
+    Удаляет всех ботов аккаунта в BotFather.
+    Возвращает число успешно удалённых.
+    """
+    deleted = 0
+    for _ in range(max_rounds):
+        bots = await list_bots_via_botfather(client)
+        if not bots:
+            break
+        round_deleted = 0
+        for username in bots:
+            try:
+                await delete_bot_via_botfather(client, username)
+                deleted += 1
+                round_deleted += 1
+            except BadRequestError as exc:
+                logger.warning("delete @%s skipped: %s", username, exc)
+            await asyncio.sleep(1.0)
+        if round_deleted == 0:
+            break
+    return deleted
+
+
+async def delete_bot_via_botfather(client, username: str) -> None:
+    """
+    Удаляет бота через /deletebot в BotFather.
+    Если бот уже отсутствует в аккаунте — считается успехом.
+    """
+    uname = normalize_bot_username(username)
+    if not uname:
+        raise BadRequestError("У бота нет username для удаления в Telegram")
+
+    async with client.conversation("BotFather", timeout=30) as conv:
+        await conv.send_message("/deletebot")
+        await _wait_reply(conv)
+
+        await conv.send_message(f"@{uname}")
+        reply = await _wait_reply(conv)
+        text = reply.raw_text or ""
+
+        if _is_delete_success(text):
+            logger.info("Bot @%s deleted via BotFather", uname)
+            return
+        if _is_bot_not_found(text):
+            logger.info("Bot @%s already absent in BotFather", uname)
+            return
+
+        low = text.lower()
+        if "are you sure" in low or "confirm" in low or reply.buttons:
+            text = await _try_confirm_delete(conv, reply, uname)
+            if _is_delete_success(text) or _is_bot_not_found(text):
+                logger.info("Bot @%s deleted via BotFather (confirmed)", uname)
+                return
+
+        if "invalid" in low and "bot" in low:
+            raise BadRequestError(f"BotFather не нашёл бота @{uname}")
+
+        raise BadRequestError(f"BotFather не подтвердил удаление @{uname}: {text[:200]}")
 
 
 async def set_bot_photo(client, username: str, image_path: Path) -> None:

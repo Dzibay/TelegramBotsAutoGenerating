@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.config import Config
-from app.domain.services import prep_log_service, prepared_account_service
+from app.domain.services import bot_service, prep_log_service, prepared_account_service
+from app.infrastructure.telegram.botfather_client import delete_all_bots_via_botfather
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.security_hardening import run_security_steps
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
@@ -168,6 +169,23 @@ class AccountPrepPipeline:
             )
             await self.log(f"{label}: сессия OK ({phone})", account_id=account_id)
 
+            steps: list[str] = []
+            if options.get("delete_bots", True):
+                await self.log(f"{label}: удаление ботов в Telegram…", account_id=account_id)
+                deleted = await delete_all_bots_via_botfather(client)
+                steps.append(f"delete_bots_telegram:{deleted}")
+                await self.log(
+                    f"{label}: удалено ботов в Telegram: {deleted}",
+                    account_id=account_id,
+                )
+                db_removed = await bot_service.cleanup_bots_for_phone(phone)
+                if db_removed:
+                    steps.append(f"delete_bots_db:{db_removed}")
+                    await self.log(
+                        f"{label}: удалено записей ботов в БД: {db_removed}",
+                        account_id=account_id,
+                    )
+
             if options.get("terminate_sessions", True):
                 await self.log(f"{label}: завершение других сессий…", account_id=account_id)
 
@@ -177,13 +195,14 @@ class AccountPrepPipeline:
             if options.get("privacy_restrictions", True):
                 await self.log(f"{label}: настройка приватности…", account_id=account_id)
 
-            steps = await run_security_steps(
+            security_steps = await run_security_steps(
                 client,
                 options,
                 new_password=self.new_password,
                 current_password=self.current_password,
                 password_hint=self.password_hint,
             )
+            steps.extend(security_steps)
             return steps
         finally:
             if client:

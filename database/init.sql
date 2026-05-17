@@ -84,7 +84,9 @@ CREATE TABLE IF NOT EXISTS ai_generations (
     campaign_id BIGINT REFERENCES campaigns (id) ON DELETE SET NULL,
     bot_id BIGINT REFERENCES bots (id) ON DELETE SET NULL,
     kind TEXT NOT NULL
-        CHECK (kind IN ('niche_analysis', 'bot_profile', 'welcome_message', 'avatar_prompt')),
+        CHECK (kind IN (
+            'niche_analysis', 'bot_profile', 'welcome_message', 'avatar_prompt', 'campaign_keywords'
+        )),
     provider TEXT NOT NULL,
     prompt TEXT,
     response TEXT,

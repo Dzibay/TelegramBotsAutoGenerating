@@ -1,7 +1,6 @@
 """Создание бота через @BotFather (user-клиент Telethon)."""
 import asyncio
 import re
-import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -24,61 +23,67 @@ async def _prepare_botfather_chat(client) -> None:
         logger.debug("BotFather read acknowledge: %s", exc)
 
 
-async def _collect_burst_responses(conv, timeout: float) -> list:
-    """Забирает пачку сообщений из очереди conversation (после Too many incoming messages)."""
-    messages = []
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            remaining = deadline - time.monotonic()
-            msg = await asyncio.wait_for(conv.get_response(), timeout=min(remaining, 0.3))
-            messages.append(msg)
-        except ValueError:
-            continue
-        except asyncio.TimeoutError:
-            break
-    return messages
+def _abandon_pending_response(conv) -> None:
+    """Убирает зависший future после timeout (иначе Telethon: InvalidStateError)."""
+    target_id = conv._last_outgoing
+    conv._pending_responses.pop(target_id, None)
+    conv._pending_replies.pop(target_id, None)
 
 
-async def _drain_pending_responses(conv, timeout: float = 1.5) -> None:
-    """Сбрасывает старые ответы BotFather перед новым диалогом."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            remaining = deadline - time.monotonic()
-            await asyncio.wait_for(conv.get_response(), timeout=min(remaining, 0.2))
-        except ValueError:
-            await _collect_burst_responses(conv, timeout=min(deadline - time.monotonic(), 1.0))
-        except asyncio.TimeoutError:
-            break
+def _abandon_all_pending(conv) -> None:
+    for pending in (conv._pending_responses, conv._pending_replies, conv._pending_edits):
+        for msg_id in list(pending):
+            pending.pop(msg_id, None)
+
+
+def _latest_incoming(conv):
+    incoming = conv._incoming
+    return incoming[-1] if incoming else None
+
+
+async def _reset_botfather(conv) -> None:
+    """Сбрасывает незавершённый диалог BotFather и очищает буфер сообщений."""
+    await conv.send_message("/cancel")
+    try:
+        await asyncio.wait_for(conv.get_response(), timeout=4.0)
+    except (asyncio.TimeoutError, ValueError):
+        _abandon_all_pending(conv)
+    conv._incoming.clear()
+    conv._response_indices.clear()
+    conv._reply_indices.clear()
 
 
 @asynccontextmanager
-async def _botfather_conv(client, timeout: float = 30) -> AsyncIterator:
+async def _botfather_conv(client, timeout: float = 60) -> AsyncIterator:
     await _prepare_botfather_chat(client)
-    async with client.conversation("BotFather", timeout=timeout) as conv:
-        await _drain_pending_responses(conv)
+    async with client.conversation("BotFather", timeout=timeout, total_timeout=180) as conv:
+        await _reset_botfather(conv)
         yield conv
 
 
-async def _wait_reply(conv, timeout: float = 25.0):
+async def _wait_reply(conv, timeout: float = 45.0):
+    target_id = conv._last_outgoing
     try:
-        reply = await asyncio.wait_for(conv.get_response(), timeout=timeout)
+        await asyncio.wait_for(conv.get_response(), timeout=timeout)
     except ValueError as exc:
+        _abandon_pending_response(conv)
         if "Too many incoming messages" not in str(exc):
             raise
-        burst = await _collect_burst_responses(conv, timeout=min(2.0, timeout))
-        if not burst:
+        reply = _latest_incoming(conv)
+        if not reply:
             raise BadRequestError(
                 "BotFather прислал несколько ответов сразу. Подождите минуту и повторите."
             ) from exc
-        reply = burst[-1]
+        conv._response_indices[target_id] = len(conv._incoming)
+        return reply
     except asyncio.TimeoutError:
+        _abandon_pending_response(conv)
         raise BadRequestError("BotFather не ответил вовремя. Попробуйте ещё раз.")
 
-    tail = await _collect_burst_responses(conv, timeout=0.8)
-    if tail:
-        reply = tail[-1]
+    reply = _latest_incoming(conv)
+    if not reply:
+        raise BadRequestError("BotFather не ответил. Попробуйте ещё раз.")
+    conv._response_indices[target_id] = len(conv._incoming)
     return reply
 
 
@@ -128,7 +133,7 @@ async def create_bot_via_botfather(
     attempt = 0
     current = normalize_bot_username(username)
 
-    async with _botfather_conv(client, timeout=30) as conv:
+    async with _botfather_conv(client) as conv:
         await conv.send_message("/newbot")
         await _wait_reply(conv)
 

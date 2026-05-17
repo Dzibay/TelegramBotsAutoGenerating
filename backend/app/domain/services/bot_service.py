@@ -1,4 +1,5 @@
 """CRUD ботов, AI-черновики, создание через BotFather."""
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
@@ -431,12 +432,18 @@ async def create_bot(
                 campaign_id=campaign_id,
                 reserved=reserved,
             )
-            result = await create_bot_via_botfather(
-                client,
-                display_name,
-                final_username,
-                username_factory=username_factory,
-            )
+            try:
+                result = await create_bot_via_botfather(
+                    client,
+                    display_name,
+                    final_username,
+                    username_factory=username_factory,
+                )
+            except asyncio.InvalidStateError as exc:
+                logger.warning("BotFather conversation race: %s", exc)
+                raise BadRequestError(
+                    "Сбой диалога с BotFather. Подождите минуту и создайте бота снова."
+                ) from exc
             token = result["token"]
             final_username = result["username"]
             avatar_path = await _apply_bot_avatar(

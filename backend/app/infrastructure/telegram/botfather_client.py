@@ -1,7 +1,9 @@
 """Создание бота через @BotFather (user-клиент Telethon)."""
 import asyncio
 import re
-from collections.abc import Callable
+import time
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from app.core.exceptions import BadRequestError
@@ -15,11 +17,69 @@ BOT_USER_RE = re.compile(r"@?([a-z][a-z0-9_]{2,28}bot)\b", re.IGNORECASE)
 _SKIP_BOT_USERNAMES = frozenset({"botfather"})
 
 
+async def _prepare_botfather_chat(client) -> None:
+    try:
+        await client.send_read_acknowledge("BotFather")
+    except Exception as exc:
+        logger.debug("BotFather read acknowledge: %s", exc)
+
+
+async def _collect_burst_responses(conv, timeout: float) -> list:
+    """Забирает пачку сообщений из очереди conversation (после Too many incoming messages)."""
+    messages = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            remaining = deadline - time.monotonic()
+            msg = await asyncio.wait_for(conv.get_response(), timeout=min(remaining, 0.3))
+            messages.append(msg)
+        except ValueError:
+            continue
+        except asyncio.TimeoutError:
+            break
+    return messages
+
+
+async def _drain_pending_responses(conv, timeout: float = 1.5) -> None:
+    """Сбрасывает старые ответы BotFather перед новым диалогом."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            remaining = deadline - time.monotonic()
+            await asyncio.wait_for(conv.get_response(), timeout=min(remaining, 0.2))
+        except ValueError:
+            await _collect_burst_responses(conv, timeout=min(deadline - time.monotonic(), 1.0))
+        except asyncio.TimeoutError:
+            break
+
+
+@asynccontextmanager
+async def _botfather_conv(client, timeout: float = 30) -> AsyncIterator:
+    await _prepare_botfather_chat(client)
+    async with client.conversation("BotFather", timeout=timeout) as conv:
+        await _drain_pending_responses(conv)
+        yield conv
+
+
 async def _wait_reply(conv, timeout: float = 25.0):
     try:
-        return await asyncio.wait_for(conv.get_response(), timeout=timeout)
+        reply = await asyncio.wait_for(conv.get_response(), timeout=timeout)
+    except ValueError as exc:
+        if "Too many incoming messages" not in str(exc):
+            raise
+        burst = await _collect_burst_responses(conv, timeout=min(2.0, timeout))
+        if not burst:
+            raise BadRequestError(
+                "BotFather прислал несколько ответов сразу. Подождите минуту и повторите."
+            ) from exc
+        reply = burst[-1]
     except asyncio.TimeoutError:
         raise BadRequestError("BotFather не ответил вовремя. Попробуйте ещё раз.")
+
+    tail = await _collect_burst_responses(conv, timeout=0.8)
+    if tail:
+        reply = tail[-1]
+    return reply
 
 
 def _is_username_taken_reply(text: str) -> bool:
@@ -68,7 +128,7 @@ async def create_bot_via_botfather(
     attempt = 0
     current = normalize_bot_username(username)
 
-    async with client.conversation("BotFather", timeout=30) as conv:
+    async with _botfather_conv(client, timeout=30) as conv:
         await conv.send_message("/newbot")
         await _wait_reply(conv)
 
@@ -113,7 +173,7 @@ async def set_bot_name(client, username: str, display_name: str) -> None:
     if not name:
         return
     try:
-        async with client.conversation("BotFather", timeout=20) as conv:
+        async with _botfather_conv(client, timeout=20) as conv:
             await conv.send_message("/setname")
             await _wait_reply(conv)
             await conv.send_message(f"@{username.lstrip('@')}")
@@ -126,7 +186,7 @@ async def set_bot_name(client, username: str, display_name: str) -> None:
 
 async def set_bot_description(client, username: str, description: str) -> None:
     try:
-        async with client.conversation("BotFather", timeout=20) as conv:
+        async with _botfather_conv(client, timeout=20) as conv:
             await conv.send_message("/setdescription")
             await _wait_reply(conv)
             await conv.send_message(f"@{username.lstrip('@')}")
@@ -142,7 +202,7 @@ async def set_bot_about(client, username: str, about: str) -> None:
     if not text:
         return
     try:
-        async with client.conversation("BotFather", timeout=20) as conv:
+        async with _botfather_conv(client, timeout=20) as conv:
             await conv.send_message("/setabouttext")
             await _wait_reply(conv)
             await conv.send_message(f"@{username.lstrip('@')}")
@@ -262,7 +322,7 @@ async def list_bots_via_botfather(client) -> list[str]:
     found: list[str] = []
     seen_pages: set[int] = set()
 
-    async with client.conversation("BotFather", timeout=30) as conv:
+    async with _botfather_conv(client, timeout=30) as conv:
         await conv.send_message("/mybots")
         reply = await _wait_reply(conv)
 
@@ -326,7 +386,7 @@ async def delete_bot_via_botfather(client, username: str) -> None:
     if not uname:
         raise BadRequestError("У бота нет username для удаления в Telegram")
 
-    async with client.conversation("BotFather", timeout=30) as conv:
+    async with _botfather_conv(client, timeout=30) as conv:
         await conv.send_message("/deletebot")
         await _wait_reply(conv)
 
@@ -359,7 +419,7 @@ async def set_bot_photo(client, username: str, image_path: Path) -> None:
     if not path.is_file():
         return
     try:
-        async with client.conversation("BotFather", timeout=30) as conv:
+        async with _botfather_conv(client, timeout=30) as conv:
             await conv.send_message("/setuserpic")
             await _wait_reply(conv)
             await conv.send_message(f"@{username.lstrip('@')}")

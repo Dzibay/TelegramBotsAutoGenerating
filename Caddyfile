@@ -4,6 +4,8 @@
 
 {
 	email {$ACME_EMAIL}
+	# Только Let's Encrypt (ZeroSSL часто отклоняет .ru-домены при fallback)
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
 }
 
 {$SITE_DOMAIN}, www.{$SITE_DOMAIN} {

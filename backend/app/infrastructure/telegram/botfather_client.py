@@ -250,7 +250,7 @@ def _is_bot_not_found(text: str) -> bool:
     )
 
 
-_DELETE_CONFIRM_PHRASE = "yes, i am totally sure."
+_DELETE_CONFIRM_PHRASE = "Yes, I am totally sure."
 
 
 async def _try_confirm_delete(conv, reply, username: str) -> str:
@@ -273,11 +273,16 @@ async def _try_confirm_delete(conv, reply, username: str) -> str:
                         logger.debug("click delete button failed: %s", exc)
 
     text = (reply.raw_text or "").lower()
+    needs_exact_phrase = (
+        "totally sure" in text
+        or "confirmation text exactly" in text
+        or _DELETE_CONFIRM_PHRASE.lower() in text
+    )
     candidates: list[str] = []
-    if "totally sure" in text or _DELETE_CONFIRM_PHRASE in text:
+    if needs_exact_phrase:
         candidates.append(_DELETE_CONFIRM_PHRASE)
-    if "confirm" in text or "sure" in text or "yes" in text or "удал" in text:
-        candidates.extend((f"@{uname}", uname, "Yes"))
+    elif "confirm" in text or "sure" in text or "yes" in text or "удал" in text:
+        candidates.extend((f"@{uname}", uname, "Yes", _DELETE_CONFIRM_PHRASE))
 
     seen: set[str] = set()
     for candidate in candidates:
@@ -426,6 +431,7 @@ async def delete_bot_via_botfather(client, username: str) -> None:
         if (
             "are you sure" in low
             or "totally sure" in low
+            or "confirmation text exactly" in low
             or "confirm" in low
             or reply.buttons
         ):
@@ -433,6 +439,13 @@ async def delete_bot_via_botfather(client, username: str) -> None:
             if _is_delete_success(text) or _is_bot_not_found(text):
                 logger.info("Bot @%s deleted via BotFather (confirmed)", uname)
                 return
+            retry_low = (text or "").lower()
+            if "confirmation text exactly" in retry_low or "totally sure" in retry_low:
+                await conv.send_message(_DELETE_CONFIRM_PHRASE)
+                text = (await _wait_reply(conv)).raw_text or ""
+                if _is_delete_success(text) or _is_bot_not_found(text):
+                    logger.info("Bot @%s deleted via BotFather (exact confirm)", uname)
+                    return
 
         if "invalid" in low and "bot" in low:
             raise BadRequestError(f"BotFather не нашёл бота @{uname}")

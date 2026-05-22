@@ -250,9 +250,13 @@ def _is_bot_not_found(text: str) -> bool:
     )
 
 
+_DELETE_CONFIRM_PHRASE = "yes, i am totally sure."
+
+
 async def _try_confirm_delete(conv, reply, username: str) -> str:
-    """Подтверждение удаления: кнопка, повтор username или Yes."""
+    """Подтверждение удаления: кнопка, фраза BotFather, username или Yes."""
     uname = username.lstrip("@")
+    last_body = reply.raw_text or ""
 
     if reply.buttons:
         for row in reply.buttons:
@@ -262,20 +266,32 @@ async def _try_confirm_delete(conv, reply, username: str) -> str:
                     try:
                         await reply.click(text=btn.text)
                         confirm = await _wait_reply(conv)
-                        return confirm.raw_text or ""
+                        last_body = confirm.raw_text or ""
+                        if _is_delete_success(last_body) or _is_bot_not_found(last_body):
+                            return last_body
                     except Exception as exc:
                         logger.debug("click delete button failed: %s", exc)
 
     text = (reply.raw_text or "").lower()
+    candidates: list[str] = []
+    if "totally sure" in text or _DELETE_CONFIRM_PHRASE in text:
+        candidates.append(_DELETE_CONFIRM_PHRASE)
     if "confirm" in text or "sure" in text or "yes" in text or "удал" in text:
-        for candidate in (f"@{uname}", uname, "Yes"):
-            await conv.send_message(candidate)
-            confirm = await _wait_reply(conv)
-            body = confirm.raw_text or ""
-            if _is_delete_success(body) or _is_bot_not_found(body):
-                return body
+        candidates.extend((f"@{uname}", uname, "Yes"))
 
-    return text
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = candidate.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        await conv.send_message(candidate)
+        confirm = await _wait_reply(conv)
+        last_body = confirm.raw_text or ""
+        if _is_delete_success(last_body) or _is_bot_not_found(last_body):
+            return last_body
+
+    return last_body
 
 
 def _extract_bot_usernames_from_reply(reply) -> list[str]:
@@ -407,7 +423,12 @@ async def delete_bot_via_botfather(client, username: str) -> None:
             return
 
         low = text.lower()
-        if "are you sure" in low or "confirm" in low or reply.buttons:
+        if (
+            "are you sure" in low
+            or "totally sure" in low
+            or "confirm" in low
+            or reply.buttons
+        ):
             text = await _try_confirm_delete(conv, reply, uname)
             if _is_delete_success(text) or _is_bot_not_found(text):
                 logger.info("Bot @%s deleted via BotFather (confirmed)", uname)

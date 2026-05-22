@@ -683,13 +683,18 @@ onMounted(async () => {
   }
 }
 
-:deep(.preview-compact .tg-phone) {
-  min-height: 280px;
-  transform: scale(0.92);
-  transform-origin: top center;
-}
-
 :deep(.preview-compact .tg-preview) {
   position: static;
+}
+
+:deep(.preview-compact .tg-phone) {
+  min-height: 320px;
+  max-width: 280px;
+  margin: 0 auto;
+}
+
+:deep(.preview-compact .tg-preview-title),
+:deep(.preview-compact .tg-map) {
+  display: none;
 }
 </style>

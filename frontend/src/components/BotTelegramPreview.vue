@@ -16,96 +16,147 @@
           {{ t.label }}
         </button>
       </div>
+      <p class="tg-map muted">
+        <template v-if="activeTab === 'profile'">Поле: «О себе в профиле» + @username</template>
+        <template v-else-if="activeTab === 'prestart'">Поле: «Описание в чате» (до Start)</template>
+        <template v-else>Поле: «Приветствие» + кнопка со ссылкой</template>
+      </p>
     </div>
 
     <div class="tg-phone">
-      <!-- Профиль бота (страница Info) -->
+      <!-- 1. Страница профиля бота (Info) -->
       <div v-show="activeTab === 'profile'" class="tg-screen tg-screen--profile">
-        <div class="tg-profile-hero">
-          <div class="tg-avatar-lg">
-            <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-            <span v-else class="tg-avatar-ph">{{ avatarInitial }}</span>
+        <div class="tg-modal">
+          <span class="tg-modal-close" aria-hidden="true">×</span>
+          <div class="tg-profile-top">
+            <div class="tg-avatar-lg">
+              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+              <span v-else class="tg-avatar-ph">{{ avatarInitial }}</span>
+            </div>
+            <p class="tg-profile-name">{{ displayName || 'Имя бота' }}</p>
+            <p class="tg-profile-kind">бот</p>
+            <div class="tg-profile-actions">
+              <div class="tg-action-pill">
+                <span class="tg-action-icon" aria-hidden="true">💬</span>
+                <span>Чат</span>
+              </div>
+              <div class="tg-action-pill">
+                <span class="tg-action-icon" aria-hidden="true">🔔</span>
+                <span>Звук</span>
+              </div>
+              <div class="tg-action-pill">
+                <span class="tg-action-icon" aria-hidden="true">⋯</span>
+                <span>Ещё</span>
+              </div>
+            </div>
           </div>
-          <p class="tg-name">{{ displayName || 'Имя бота' }}</p>
-          <p class="tg-username">{{ usernameLine }}</p>
+
+          <div class="tg-profile-section">
+            <p class="tg-section-text">{{ aboutDisplay }}</p>
+            <p class="tg-section-label">Информация</p>
+          </div>
+
+          <div class="tg-profile-section tg-profile-section--row">
+            <div class="tg-username-row">
+              <span class="tg-username-link">{{ usernameLine }}</span>
+              <span class="tg-qr-placeholder" aria-hidden="true">▦</span>
+            </div>
+            <p class="tg-section-label">Имя пользователя</p>
+          </div>
+
+          <div v-if="publicLink" class="tg-profile-section tg-profile-section--links">
+            <span class="tg-link-icon" aria-hidden="true">🔗</span>
+            <span>1 ссылка</span>
+          </div>
         </div>
-        <div class="tg-profile-block">
-          <p class="tg-block-label">О себе</p>
-          <p class="tg-block-text">{{ aboutDisplay }}</p>
-        </div>
-        <p class="tg-profile-hint muted">Экран профиля — «О себе» (до 120 символов).</p>
       </div>
 
-      <!-- Пустой чат до Start: описание + кнопка -->
+      <!-- 2. Чат до Start -->
       <div v-show="activeTab === 'prestart'" class="tg-screen tg-screen--chat">
-        <header class="tg-chat-header">
-          <span class="tg-back">‹</span>
+        <header class="tg-chat-header tg-chat-header--light">
+          <span class="tg-back" aria-hidden="true">‹</span>
           <div class="tg-chat-header-main">
-            <div class="tg-avatar-sm">
-              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-              <span v-else>{{ avatarInitial }}</span>
-            </div>
             <div>
               <p class="tg-chat-name">{{ displayName || 'Бот' }}</p>
               <p class="tg-chat-sub">бот</p>
             </div>
           </div>
-        </header>
-        <div class="tg-prestart-body">
-          <div class="tg-prestart-card">
-            <div class="tg-avatar-md">
-              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-              <span v-else>{{ avatarInitial }}</span>
-            </div>
-            <p class="tg-prestart-name">{{ displayName || 'Имя бота' }}</p>
-            <p class="tg-prestart-desc">{{ descriptionDisplay }}</p>
+          <div class="tg-header-icons" aria-hidden="true">
+            <span>⌕</span>
+            <span>⋮</span>
           </div>
+        </header>
+
+        <div class="tg-chat-bg tg-chat-bg--doodle">
+          <div class="tg-what-card">
+            <p class="tg-what-title">Что может делать этот бот?</p>
+            <p class="tg-what-text">{{ descriptionDisplay }}</p>
+          </div>
+        </div>
+
+        <div class="tg-compose-bar">
+          <span class="tg-compose-icon" aria-hidden="true">😊</span>
+          <span class="tg-compose-input">Сообщение</span>
+          <span class="tg-compose-icon" aria-hidden="true">📎</span>
         </div>
         <div class="tg-start-bar">
           <button type="button" class="tg-start-btn" disabled>НАЧАТЬ</button>
         </div>
-        <p class="tg-screen-hint muted">Плакат в пустом чате — «Описание в чате» (до Start).</p>
       </div>
 
-      <!-- После Start: приветствие -->
+      <!-- 3. Чат после /start -->
       <div v-show="activeTab === 'afterstart'" class="tg-screen tg-screen--chat">
-        <header class="tg-chat-header">
-          <span class="tg-back">‹</span>
+        <header class="tg-chat-header tg-chat-header--light">
+          <span class="tg-back" aria-hidden="true">‹</span>
           <div class="tg-chat-header-main">
-            <div class="tg-avatar-sm">
-              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-              <span v-else>{{ avatarInitial }}</span>
-            </div>
             <div>
               <p class="tg-chat-name">{{ displayName || 'Бот' }}</p>
               <p class="tg-chat-sub">бот</p>
             </div>
           </div>
+          <div class="tg-header-icons" aria-hidden="true">
+            <span>⌕</span>
+            <span>⋮</span>
+          </div>
         </header>
-        <div class="tg-messages">
-          <p class="tg-date">сегодня</p>
-          <div class="tg-bubble-wrap">
-            <div class="tg-avatar-xs">
-              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
-              <span v-else>{{ avatarInitial }}</span>
-            </div>
-            <div class="tg-bubble">
+
+        <div class="tg-chat-bg tg-chat-bg--doodle tg-messages-area">
+          <div class="tg-user-cmd">
+            <span class="tg-cmd-bubble">/start</span>
+          </div>
+
+          <div class="tg-msg-incoming">
+            <div class="tg-in-bubble">
               <p class="tg-bubble-text">{{ welcomeDisplay }}</p>
+              <p v-if="publicLink && linkInWelcome" class="tg-bubble-link">{{ publicLink }}</p>
+
+              <div v-if="showLinkPreview" class="tg-link-preview">
+                <div class="tg-link-preview-body">
+                  <p class="tg-lp-site">Telegram</p>
+                  <p class="tg-lp-title">{{ displayName || 'Бот' }}</p>
+                  <p class="tg-lp-desc">{{ linkPreviewDesc }}</p>
+                </div>
+                <div v-if="avatarUrl" class="tg-lp-thumb">
+                  <img :src="avatarUrl" alt="" />
+                </div>
+                <div v-else class="tg-lp-thumb tg-lp-thumb--ph">{{ avatarInitial }}</div>
+              </div>
+
               <span class="tg-bubble-time">12:00</span>
             </div>
           </div>
-          <a
-            v-if="showButton"
-            :href="publicLink || '#'"
-            class="tg-inline-btn"
-            target="_blank"
-            rel="noopener noreferrer"
-            @click.prevent
-          >
-            {{ buttonText }}
-          </a>
+
+          <button v-if="showButton" type="button" class="tg-inline-keyboard" disabled>
+            <span>{{ buttonText }}</span>
+            <span class="tg-inline-arrow" aria-hidden="true">↗</span>
+          </button>
         </div>
-        <p class="tg-screen-hint muted">Первое сообщение после нажатия «Начать».</p>
+
+        <div class="tg-compose-bar">
+          <span class="tg-compose-icon" aria-hidden="true">😊</span>
+          <span class="tg-compose-input">Сообщение</span>
+          <span class="tg-compose-icon" aria-hidden="true">📎</span>
+        </div>
       </div>
     </div>
   </aside>
@@ -135,6 +186,7 @@ const tabs = [
 const activeTab = ref('prestart');
 
 const displayName = computed(() => props.displayName?.trim() || '');
+
 const usernameLine = computed(() => {
   const u = (props.username || '').replace(/^@/, '').trim();
   return u ? `@${u}` : '@username_bot';
@@ -148,19 +200,25 @@ const avatarInitial = computed(() => {
 const aboutDisplay = computed(() => {
   const t = props.aboutText?.trim();
   if (t) return t;
-  return 'Здесь будет короткий текст «О себе» в профиле бота.';
+  return 'Краткий текст в профиле бота (поле «О себе в профиле»).';
 });
 
 const descriptionDisplay = computed(() => {
   const t = props.description?.trim();
   if (t) return t;
-  return 'Здесь будет описание в пустом чате — пользователь увидит его до кнопки «Начать».';
+  return 'Текст в блоке «Что может делать этот бот?» — поле «Описание в чате».';
 });
 
 const welcomeDisplay = computed(() => {
   const t = props.welcomeMessage?.trim();
   if (t) return t;
-  return 'Здесь будет приветствие после нажатия Start.';
+  return 'Приветствие после нажатия Start (поле «Приветствие»).';
+});
+
+const linkInWelcome = computed(() => {
+  const link = props.publicLink?.trim();
+  if (!link) return false;
+  return welcomeDisplay.value.includes(link);
 });
 
 const showButton = computed(
@@ -168,6 +226,16 @@ const showButton = computed(
 );
 
 const buttonText = computed(() => props.welcomeButtonText?.trim() || 'Перейти по ссылке');
+
+const showLinkPreview = computed(() => !!props.publicLink?.trim() && !linkInWelcome.value);
+
+const linkPreviewDesc = computed(() => {
+  const d = props.description?.trim();
+  if (d) return d.length > 80 ? `${d.slice(0, 80)}…` : d;
+  const w = props.welcomeMessage?.trim();
+  if (w) return w.length > 80 ? `${w.slice(0, 80)}…` : w;
+  return 'Превью ссылки';
+});
 </script>
 
 <style scoped>
@@ -178,13 +246,19 @@ const buttonText = computed(() => props.welcomeButtonText?.trim() || 'Перей
 }
 
 .tg-preview-head {
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.5rem;
 }
 
 .tg-preview-title {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.4rem;
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+.tg-map {
+  margin: 0.35rem 0 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
 }
 
 .tg-tabs {
@@ -212,16 +286,16 @@ const buttonText = computed(() => props.welcomeButtonText?.trim() || 'Перей
 .tg-tab.active {
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
+/* Phone frame */
 .tg-phone {
   border-radius: 14px;
   overflow: hidden;
-  border: 1px solid #2a3544;
-  background: #0e1621;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
-  min-height: 380px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  min-height: 420px;
   display: flex;
   flex-direction: column;
 }
@@ -230,31 +304,50 @@ const buttonText = computed(() => props.welcomeButtonText?.trim() || 'Перей
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 360px;
+  min-height: 400px;
+  background: #fff;
 }
 
-.tg-screen-hint {
-  margin: 0;
-  padding: 0.4rem 0.65rem 0.5rem;
-  font-size: 0.65rem;
-  text-align: center;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+/* ——— Profile modal ——— */
+.tg-screen--profile {
+  background: #f4f4f5;
 }
 
-/* Profile */
-.tg-profile-hero {
-  padding: 1.5rem 1rem 1rem;
+.tg-modal {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin: 0.5rem;
+  background: #fff;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.tg-modal-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.65rem;
+  font-size: 1.25rem;
+  color: #8e8e93;
+  line-height: 1;
+  z-index: 1;
+}
+
+.tg-profile-top {
+  padding: 1.75rem 1rem 1rem;
   text-align: center;
-  background: linear-gradient(180deg, #17212b 0%, #0e1621 100%);
+  border-bottom: 1px solid #e8e8ed;
 }
 
 .tg-avatar-lg {
-  width: 88px;
-  height: 88px;
-  margin: 0 auto 0.75rem;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 0.65rem;
   border-radius: 50%;
   overflow: hidden;
-  background: #2481cc;
+  background: linear-gradient(135deg, #64b5f6, #42a5f5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -267,102 +360,128 @@ const buttonText = computed(() => props.welcomeButtonText?.trim() || 'Перей
 }
 
 .tg-avatar-ph {
-  font-size: 2rem;
+  font-size: 2.25rem;
   font-weight: 600;
   color: #fff;
 }
 
-.tg-name {
+.tg-profile-name {
   margin: 0;
-  font-size: 1.05rem;
-  font-weight: 600;
-  color: #fff;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #000;
+  line-height: 1.25;
 }
 
-.tg-username {
-  margin: 0.2rem 0 0;
+.tg-profile-kind {
+  margin: 0.15rem 0 0.85rem;
   font-size: 0.8rem;
-  color: #6ab2f2;
+  color: #8e8e93;
 }
 
-.tg-profile-block {
-  margin: 0.75rem 1rem;
-  padding: 0.65rem 0.75rem;
-  background: #17212b;
-  border-radius: 10px;
+.tg-profile-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
 }
 
-.tg-block-label {
-  margin: 0 0 0.25rem;
-  font-size: 0.7rem;
-  color: #6d7f8f;
+.tg-action-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 4.5rem;
+  padding: 0.45rem 0.35rem;
+  background: #f2f2f7;
+  border-radius: 8px;
+  font-size: 0.65rem;
+  color: #2481cc;
 }
 
-.tg-block-text {
+.tg-action-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.tg-profile-section {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e8e8ed;
+}
+
+.tg-section-text {
   margin: 0;
   font-size: 0.82rem;
-  color: #e4ecf2;
+  color: #000;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-.tg-profile-hint {
-  margin: auto 0 0;
-  padding: 0.5rem;
-  font-size: 0.65rem;
-  text-align: center;
+.tg-section-label {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  color: #8e8e93;
 }
 
-/* Chat header */
-.tg-chat-header {
+.tg-username-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.tg-username-link {
+  font-size: 0.88rem;
+  color: #2481cc;
+  font-weight: 500;
+}
+
+.tg-qr-placeholder {
+  font-size: 1.1rem;
+  color: #8e8e93;
+}
+
+.tg-profile-section--links {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.45rem 0.65rem;
-  background: #17212b;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.tg-back {
-  font-size: 1.4rem;
-  color: #6ab2f2;
-  line-height: 1;
-}
-
-.tg-chat-header-main {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.tg-avatar-sm {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #2481cc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   font-size: 0.85rem;
-  font-weight: 600;
-  color: #fff;
+  color: #2481cc;
+  border-bottom: none;
+}
+
+.tg-link-icon {
+  font-size: 0.9rem;
+}
+
+/* ——— Chat screens ——— */
+.tg-chat-header--light {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.55rem;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
   flex-shrink: 0;
 }
 
-.tg-avatar-sm img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.tg-back {
+  font-size: 1.5rem;
+  color: #2481cc;
+  line-height: 1;
+  font-weight: 300;
+}
+
+.tg-chat-header-main {
+  flex: 1;
+  min-width: 0;
 }
 
 .tg-chat-name {
   margin: 0;
   font-size: 0.88rem;
   font-weight: 600;
-  color: #fff;
+  color: #000;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -371,166 +490,247 @@ const buttonText = computed(() => props.welcomeButtonText?.trim() || 'Перей
 .tg-chat-sub {
   margin: 0;
   font-size: 0.72rem;
-  color: #6d7f8f;
+  color: #8e8e93;
 }
 
-/* Pre-start */
-.tg-prestart-body {
+.tg-header-icons {
+  display: flex;
+  gap: 0.65rem;
+  font-size: 1rem;
+  color: #8e8e93;
+}
+
+.tg-chat-bg {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  background: #0e1621;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
 }
 
-.tg-prestart-card {
-  text-align: center;
-  max-width: 240px;
+.tg-chat-bg--doodle {
+  background-color: #9ecda8;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cg fill='%237ab889' fill-opacity='0.25'%3E%3Ccircle cx='20' cy='25' r='4'/%3E%3Ccircle cx='80' cy='40' r='3'/%3E%3Ccircle cx='55' cy='90' r='5'/%3E%3Cpath d='M95 15h8v8h-8z'/%3E%3Cpath d='M10 70h6v6h-6z'/%3E%3C/g%3E%3C/svg%3E");
 }
 
-.tg-avatar-md {
-  width: 72px;
-  height: 72px;
-  margin: 0 auto 0.65rem;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #2481cc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #fff;
+.tg-what-card {
+  margin: auto 0.75rem;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  max-width: 92%;
+  align-self: center;
 }
 
-.tg-avatar-md img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.tg-what-title {
+  margin: 0 0 0.65rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #000;
 }
 
-.tg-prestart-name {
-  margin: 0 0 0.5rem;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: #fff;
-}
-
-.tg-prestart-desc {
+.tg-what-text {
   margin: 0;
   font-size: 0.8rem;
-  color: #8b9cb3;
+  color: #000;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .tg-start-bar {
-  padding: 0.65rem 1rem 0.85rem;
-  background: #17212b;
+  padding: 0.5rem 0.75rem 0.65rem;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+  flex-shrink: 0;
 }
 
 .tg-start-btn {
   width: 100%;
-  padding: 0.55rem;
+  padding: 0.5rem;
   border: none;
   border-radius: 8px;
   background: #2481cc;
   color: #fff;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   cursor: default;
-  opacity: 0.95;
+}
+
+.tg-compose-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  background: #fff;
+  border-top: 1px solid #e0e0e0;
+  flex-shrink: 0;
+}
+
+.tg-compose-input {
+  flex: 1;
+  font-size: 0.78rem;
+  color: #8e8e93;
+}
+
+.tg-compose-icon {
+  font-size: 1rem;
+  opacity: 0.7;
 }
 
 /* Messages */
-.tg-messages {
-  flex: 1;
-  padding: 0.65rem 0.75rem 1rem;
-  background: #0e1621;
-  overflow-y: auto;
-}
-
-.tg-date {
-  margin: 0 0 0.5rem;
-  text-align: center;
-  font-size: 0.68rem;
-  color: #6d7f8f;
-}
-
-.tg-bubble-wrap {
-  display: flex;
-  align-items: flex-end;
+.tg-messages-area {
+  padding: 0.5rem 0.55rem 0.35rem;
   gap: 0.35rem;
-  max-width: 92%;
 }
 
-.tg-avatar-xs {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: #2481cc;
-  flex-shrink: 0;
+.tg-user-cmd {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.65rem;
-  font-weight: 600;
-  color: #fff;
+  justify-content: flex-end;
+  margin-bottom: 0.25rem;
 }
 
-.tg-avatar-xs img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.tg-cmd-bubble {
+  padding: 0.35rem 0.55rem;
+  background: #eeffde;
+  border-radius: 10px 10px 4px 10px;
+  font-size: 0.8rem;
+  color: #000;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.08);
 }
 
-.tg-bubble {
+.tg-msg-incoming {
+  display: flex;
+  justify-content: flex-start;
+  max-width: 95%;
+}
+
+.tg-in-bubble {
   position: relative;
-  padding: 0.45rem 0.55rem 0.35rem;
-  background: #182533;
-  border-radius: 12px 12px 12px 4px;
+  padding: 0.45rem 0.55rem 0.3rem;
+  background: #fff;
+  border-radius: 4px 12px 12px 12px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
   max-width: 100%;
 }
 
 .tg-bubble-text {
   margin: 0;
-  font-size: 0.82rem;
-  color: #e4ecf2;
+  font-size: 0.8rem;
+  color: #000;
   line-height: 1.45;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
+.tg-bubble-link {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: #2481cc;
+  word-break: break-all;
+}
+
+.tg-link-preview {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  padding: 0.4rem 0.45rem 0.4rem 0.5rem;
+  border-left: 3px solid #4fae4e;
+  background: #f5f9f4;
+  border-radius: 0 6px 6px 0;
+  overflow: hidden;
+}
+
+.tg-link-preview-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.tg-lp-site {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #4fae4e;
+  font-weight: 500;
+}
+
+.tg-lp-title {
+  margin: 0.1rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #000;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tg-lp-desc {
+  margin: 0.15rem 0 0;
+  font-size: 0.68rem;
+  color: #8e8e93;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tg-lp-thumb {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #e0e0e0;
+}
+
+.tg-lp-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tg-lp-thumb--ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #fff;
+  background: #4fae4e;
+}
+
 .tg-bubble-time {
   display: block;
-  margin-top: 0.15rem;
+  margin-top: 0.2rem;
   font-size: 0.62rem;
-  color: #6d7f8f;
+  color: #8e8e93;
   text-align: right;
 }
 
-.tg-inline-btn {
-  display: block;
-  margin: 0.35rem 0 0 2rem;
-  padding: 0.45rem 0.75rem;
-  max-width: calc(100% - 2rem);
-  text-align: center;
+.tg-inline-keyboard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 95%;
+  margin-top: 0.15rem;
+  padding: 0.45rem 0.65rem;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.75);
   font-size: 0.8rem;
   font-weight: 500;
-  color: #6ab2f2;
-  background: rgba(36, 129, 204, 0.15);
-  border: 1px solid rgba(106, 178, 242, 0.35);
-  border-radius: 8px;
-  text-decoration: none;
+  color: #2481cc;
   cursor: default;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
 }
 
-.tg-inline-btn:hover {
-  text-decoration: none;
+.tg-inline-arrow {
+  font-size: 0.75rem;
+  opacity: 0.8;
 }
 
 @media (max-width: 960px) {

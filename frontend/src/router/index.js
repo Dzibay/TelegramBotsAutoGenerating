@@ -23,7 +23,9 @@ const routes = [
     children: [
       { path: '', name: 'dashboard', component: Dashboard },
       { path: 'campaigns/new', name: 'campaign-create', component: CampaignCreate },
-      { path: 'campaigns/:id', name: 'campaign-detail', component: CampaignDetail },
+      { path: 'campaigns/:id', name: 'campaign-workspace', component: CampaignDetail },
+      { path: 'campaigns/:id/bots/bulk', name: 'bulk-bot-create', component: () => import('../views/BulkBotCreate.vue') },
+      { path: 'campaigns/:id/bots/new', name: 'campaign-bot-create', component: BotCreate },
       { path: 'campaigns/:id/edit', name: 'campaign-edit', component: CampaignEdit },
       { path: 'bots', name: 'bots-hub', component: BotsHub },
       { path: 'bots/new', name: 'bot-create', component: BotCreate },

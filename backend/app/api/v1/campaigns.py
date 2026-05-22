@@ -7,7 +7,11 @@ from app.constants import HTTPStatus, SuccessMessages
 from app.core.dependencies import get_current_user
 from app.core.exceptions import BadRequestError
 from app.domain.models.bot_models import CampaignUpdateRequest
-from app.domain.models.campaign_models import CampaignCreateRequest, GenerateKeywordsRequest
+from app.domain.models.campaign_models import (
+    CampaignCreateRequest,
+    GenerateKeywordsRequest,
+    StartCreationJobRequest,
+)
 from app.domain.services import account_health, account_service, campaign_service, job_service, prepared_account_service
 from app.utils.response import success_response
 
@@ -253,6 +257,13 @@ async def remove_account(
 
 
 @router.post("/{campaign_id}/start")
-async def start_campaign(campaign_id: int, _user: dict = Depends(get_current_user)):
-    job = await job_service.start_creation_job(campaign_id)
+async def start_campaign(
+    campaign_id: int,
+    body: StartCreationJobRequest | None = None,
+    _user: dict = Depends(get_current_user),
+):
+    plans = None
+    if body and body.plans:
+        plans = [p.model_dump() for p in body.plans]
+    job = await job_service.start_creation_job(campaign_id, plans=plans)
     return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)

@@ -2,16 +2,11 @@
   <div class="layout">
     <header class="header">
       <RouterLink to="/app" class="logo">TG Bots Generator</RouterLink>
-      <nav>
-        <RouterLink to="/app" class="nav-link">Кампании</RouterLink>
-        <RouterLink to="/app/bots" class="nav-link">Боты</RouterLink>
-        <RouterLink to="/app/accounts/prepare" class="nav-link">Подготовка</RouterLink>
-        <span class="user">Админ</span>
-        <button type="button" class="btn-ghost" @click="onLogout">Выйти</button>
-      </nav>
+      <button type="button" class="btn-ghost btn-sm" @click="onLogout">Выйти</button>
     </header>
     <main class="main">
       <TaskProgressBanner />
+      <WorkflowNav />
       <RouterView />
     </main>
   </div>
@@ -20,6 +15,7 @@
 <script setup>
 import { RouterLink, RouterView, useRouter } from 'vue-router';
 import TaskProgressBanner from '../components/TaskProgressBanner.vue';
+import WorkflowNav from '../components/WorkflowNav.vue';
 import { useAuthStore } from '../stores/authStore';
 
 const auth = useAuthStore();
@@ -72,7 +68,7 @@ nav {
 .main {
   flex: 1;
   padding: 1.5rem;
-  max-width: 1100px;
+  max-width: 1200px;
   margin: 0 auto;
   width: 100%;
 }

@@ -29,7 +29,10 @@ def _job_row(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def start_creation_job(campaign_id: int) -> dict[str, Any]:
+async def start_creation_job(
+    campaign_id: int,
+    plans: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     if campaign["accounts_count"] < 1:
         raise ConflictError("Добавьте хотя бы один Telegram-аккаунт из пула подготовленных")
@@ -64,15 +67,22 @@ async def start_creation_job(campaign_id: int) -> dict[str, Any]:
 
     if not campaign.get("resource_url"):
         raise ConflictError(
-            "Укажите ссылку на сервис (resource_url) в настройках кампании — "
-            "она нужна для трекинг-ссылок ботов при массовом создании"
+            "Укажите ссылку на сервис в настройках кампании — "
+            "она нужна для ссылок в ботах"
         )
 
-    if not campaign.get("keywords"):
+    plan_list = plans or []
+    if not plan_list and not campaign.get("keywords"):
         raise ConflictError(
-            "Добавьте ключевые слова кампании (каждый бот — своё слово). "
-            "Откройте настройки кампании → «Сгенерировать ключевые слова» или введите вручную."
+            "Добавьте план ботов с ключевыми фразами на вкладке «Массово» "
+            "или укажите ключевые слова в настройках кампании."
         )
+    if plan_list:
+        for p in plan_list:
+            kw = (p.get("keyword") or "").strip()
+            acc_id = p.get("telegram_account_id")
+            if not acc_id or not kw:
+                raise ConflictError("В плане каждый бот должен иметь аккаунт и ключевую фразу")
 
     running = await db.fetch_one(
         """
@@ -85,19 +95,26 @@ async def start_creation_job(campaign_id: int) -> dict[str, Any]:
     if running:
         raise ConflictError("Задача для этой кампании уже выполняется")
 
-    total_accounts = await db.fetch_val(
-        "SELECT COUNT(*)::int FROM telegram_accounts WHERE campaign_id = $1",
-        campaign_id,
-    )
+    if plan_list:
+        account_ids = {int(p["telegram_account_id"]) for p in plan_list}
+        total_accounts = len(account_ids)
+        progress = f"В очереди: {len(plan_list)} бот(ов) по плану"
+    else:
+        total_accounts = await db.fetch_val(
+            "SELECT COUNT(*)::int FROM telegram_accounts WHERE campaign_id = $1",
+            campaign_id,
+        )
+        progress = "В очереди"
 
     row = await db.fetch_one(
         """
         INSERT INTO creation_jobs (campaign_id, status, total_accounts, progress_message)
-        VALUES ($1, 'queued', $2, 'В очереди')
+        VALUES ($1, 'queued', $2, $3)
         RETURNING *
         """,
         campaign_id,
         total_accounts or 0,
+        progress,
     )
 
     await db.execute(
@@ -116,7 +133,10 @@ async def start_creation_job(campaign_id: int) -> dict[str, Any]:
             "Redis недоступен — worker не получит задачу",
         )
         raise ConflictError("Redis недоступен. Запустите redis или docker compose up redis")
-    await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps({"job_id": row["id"], "campaign_id": campaign_id}))
+    payload: dict[str, Any] = {"job_id": row["id"], "campaign_id": campaign_id}
+    if plan_list:
+        payload["plans"] = plan_list
+    await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps(payload))
 
     return _job_row(row)
 

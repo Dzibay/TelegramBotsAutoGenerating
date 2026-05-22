@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 from app.constants import HTTPStatus, SuccessMessages
 from app.core.dependencies import get_current_user
 from app.domain.models.bot_models import (
+    BotBatchCreateRequest,
     BotCreateRequest,
     BotGenerateRequest,
     BotUpdateRequest,
@@ -87,6 +88,16 @@ async def get_bot_avatar(bot_id: int, _user: dict = Depends(get_current_user)):
 async def get_bot(bot_id: int, _user: dict = Depends(get_current_user)):
     bot = await bot_service.get_bot(bot_id)
     return success_response(data={"bot": bot})
+
+
+@router.post("/batch-create", status_code=HTTPStatus.CREATED)
+async def create_bots_batch(
+    body: BotBatchCreateRequest,
+    _user: dict = Depends(get_current_user),
+):
+    specs = [b.model_dump() for b in body.bots]
+    result = await bot_service.create_bots_batch(specs)
+    return success_response(data=result, message="Пакетное создание завершено")
 
 
 @router.post("", status_code=HTTPStatus.CREATED)

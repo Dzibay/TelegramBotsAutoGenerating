@@ -4,7 +4,7 @@
 
   <div v-else class="detail">
     <header class="detail-header">
-      <RouterLink to="/app" class="back">← Кампании</RouterLink>
+      <RouterLink to="/app" class="back">← Все кампании</RouterLink>
       <div class="title-row">
         <h1>{{ campaign.title }}</h1>
         <StatusBadge :status="campaign.status" />
@@ -21,18 +21,32 @@
         Сервис:
         <a :href="campaign.resource_url" target="_blank" rel="noopener noreferrer">{{ campaign.resource_url }}</a>
       </p>
-      <p v-if="campaign.keywords?.length" class="keywords">
-        Ключевые слова ({{ campaign.keywords.length }}):
-        <span v-for="kw in campaign.keywords.slice(0, 8)" :key="kw" class="kw-chip">{{ kw }}</span>
-        <span v-if="campaign.keywords.length > 8" class="kw-more">+{{ campaign.keywords.length - 8 }}</span>
-      </p>
-      <p v-else class="keywords warn-keywords">
-        Нет ключевых слов —
-        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">добавьте или сгенерируйте</RouterLink>
-      </p>
     </header>
 
-    <div class="stats">
+    <WorkspaceTabs v-model="activeTab" :tabs="workspaceTabs" />
+
+    <section v-show="activeTab === 'guide'" class="guide card">
+      <h2>Что делать дальше</h2>
+      <ol class="checklist">
+        <li :class="{ ok: campaign.resource_url }">
+          <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">Ссылка на сервис</RouterLink>
+          {{ campaign.resource_url ? '— указана' : '— укажите в настройках' }}
+        </li>
+        <li :class="{ ok: campaign.accounts_count > 0 }">
+          <a href="#" @click.prevent="activeTab = 'accounts'">Аккаунты в кампании</a>
+          — {{ campaign.accounts_count ? `${campaign.accounts_count} добавлено` : 'добавьте из подготовленных' }}
+        </li>
+        <li :class="{ ok: readyAccountsCount > 0 }">
+          Готовых к созданию ботов: {{ readyAccountsCount }}
+        </li>
+        <li :class="{ ok: campaign.bots_count > 0 }">
+          <a href="#" @click.prevent="activeTab = 'list'">Боты</a>
+          — {{ campaign.bots_count }} шт.
+        </li>
+      </ol>
+    </section>
+
+    <div v-show="activeTab !== 'accounts'" class="stats">
       <div class="stat card">
         <span class="stat-val">{{ campaign.accounts_count }}</span>
         <span class="stat-label">аккаунтов</span>
@@ -47,49 +61,36 @@
       </div>
     </div>
 
-    <section v-if="job || canStart" class="progress-section card">
-      <div class="progress-top">
-        <h2>Массовое создание ботов</h2>
-        <StatusBadge v-if="job" :status="job.status" />
-        <StatusBadge v-else status="draft" />
-      </div>
-      <p v-if="job" class="progress-msg">{{ job.progress_message || '—' }}</p>
-      <p v-else class="progress-msg muted">Ещё не запускали автоматическое создание</p>
-      <div v-if="job && job.total_accounts" class="progress-bar-wrap">
-        <div
-          class="progress-bar"
-          :style="{ width: progressPercent + '%' }"
-        />
-      </div>
-      <p v-if="job?.error_message" class="error-text">{{ job.error_message }}</p>
-      <p v-if="!campaign.keywords?.length && canStart" class="warn-banner">
-        Добавьте
-        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ключевые слова кампании</RouterLink>
-        — каждый бот создаётся под своё слово.
-      </p>
-      <p v-if="!campaign.resource_url && canStart" class="warn-banner">
-        Укажите
-        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ссылку на сервис</RouterLink>
-        в настройках кампании.
-      </p>
-      <p v-if="readyAccountsCount === 0 && accounts.length && canStart" class="warn-banner">
-        Нет готовых аккаунтов — нажмите «Проверить все» в блоке аккаунтов.
-      </p>
-      <div v-if="canStart" class="actions">
-        <button
-          type="button"
-          :disabled="starting || !readyAccountsCount || !campaign.resource_url || !campaign.keywords?.length"
-          @click="onStart"
+    <section v-show="activeTab === 'create'" class="create-hub card">
+      <h2>Создание ботов</h2>
+      <p class="muted intro">У каждого бота — своя ключевая фраза. Выберите удобный способ.</p>
+      <div class="create-cards">
+        <RouterLink
+          :to="{ name: 'campaign-bot-create', params: { id: campaignId } }"
+          class="create-card create-card--primary"
         >
-          {{ starting ? 'Запуск…' : 'Запустить создание ботов' }}
-        </button>
+          <span class="cc-title">Один бот</span>
+          <span class="cc-desc">Пошагово: фраза → тексты → создание в Telegram. Основной способ.</span>
+        </RouterLink>
+        <RouterLink
+          :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
+          class="create-card"
+        >
+          <span class="cc-title">Несколько ботов</span>
+          <span class="cc-desc">Список фраз, генерация всех текстов, правка и пакетное создание.</span>
+        </RouterLink>
       </div>
+      <p v-if="!campaign.resource_url" class="warn-banner">
+        Сначала укажите
+        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ссылку на сервис</RouterLink>.
+      </p>
+      <p v-if="readyAccountsCount === 0" class="warn-banner">
+        Нет готовых аккаунтов — перейдите на вкладку «Аккаунты» и нажмите «Проверить все».
+      </p>
     </section>
 
-    <div class="grid-2">
-      <JobLogPanel :logs="logs" :loading="logsLoading" :polling="isPolling" />
-
-      <div class="side">
+    <div v-show="activeTab === 'accounts'" class="grid-2">
+      <div class="side side--full">
         <CampaignAccountsPanel
           ref="accountsPanelRef"
           :accounts="accounts"
@@ -110,57 +111,60 @@
           @load-bots="onLoadAccountBots"
           @delete-bot="onDeleteAccountBot"
         />
-
-        <section class="card section">
-          <div class="section-head">
-            <h3>Боты</h3>
-            <RouterLink
-              :to="{ name: 'bot-create', query: { campaign_id: campaignId } }"
-              class="btn btn-sm"
-            >
-              + Создать бота
-            </RouterLink>
-          </div>
-          <p v-if="!bots.length" class="muted">Создайте бота вручную или запустите массовое создание</p>
-          <ul v-else class="mini-list bots">
-            <li v-for="b in bots" :key="b.id" class="bot-li">
-              <div class="bot-li-main">
-                <strong>@{{ b.username || '—' }}</strong>
-                <span v-if="b.keyword" class="bot-kw" :title="'Ключевое слово'">«{{ b.keyword }}»</span>
-                <span>{{ b.display_name }}</span>
-                <span v-if="b.click_count != null" class="clicks">{{ b.click_count }} кл.</span>
-                <StatusBadge :status="b.status" />
-                <a
-                  v-if="botLink(b)"
-                  :href="botLink(b)"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="tg-open"
-                >
-                  Telegram ↗
-                </a>
-              </div>
-              <div class="bot-li-actions">
-                <button
-                  v-if="b.status !== 'active'"
-                  type="button"
-                  class="link-btn"
-                  @click="onBotStart(b)"
-                >
-                  Запустить
-                </button>
-                <button v-else type="button" class="link-btn" @click="onBotStop(b)">Стоп</button>
-                <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="link-btn">
-                  Изменить
-                </RouterLink>
-                <button type="button" class="link-btn danger" @click="onBotDelete(b)">Удалить</button>
-              </div>
-            </li>
-          </ul>
-          <RouterLink to="/app/bots" class="all-bots-link">Все боты →</RouterLink>
-        </section>
       </div>
     </div>
+
+    <section v-show="activeTab === 'list'" class="bots-list card">
+      <div class="section-head">
+        <h2>Боты кампании</h2>
+        <RouterLink :to="{ name: 'campaign-bot-create', params: { id: campaignId } }" class="btn btn-sm">
+          + Один бот
+        </RouterLink>
+        <RouterLink :to="{ name: 'bulk-bot-create', params: { id: campaignId } }" class="btn btn-sm btn-ghost">
+          + Несколько
+        </RouterLink>
+      </div>
+      <p v-if="!bots.length" class="muted empty-bots">
+        Пока нет ботов. Перейдите на вкладку «Создание».
+      </p>
+      <ul v-else class="mini-list bots">
+        <li v-for="b in bots" :key="b.id" class="bot-li">
+          <div class="bot-li-main">
+            <strong>@{{ b.username || '—' }}</strong>
+            <span v-if="b.keyword" class="bot-kw">«{{ b.keyword }}»</span>
+            <span>{{ b.display_name }}</span>
+            <StatusBadge :status="b.status" />
+            <a
+              v-if="botLink(b)"
+              :href="botLink(b)"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="tg-open"
+            >
+              Telegram ↗
+            </a>
+          </div>
+          <div class="bot-li-actions">
+            <button
+              v-if="b.status !== 'active'"
+              type="button"
+              class="link-btn"
+              @click="onBotStart(b)"
+            >
+              Запустить
+            </button>
+            <button v-else type="button" class="link-btn" @click="onBotStop(b)">Стоп</button>
+            <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="link-btn">
+              Изменить
+            </RouterLink>
+            <button type="button" class="link-btn danger" @click="onBotDelete(b)">Удалить</button>
+          </div>
+        </li>
+      </ul>
+      <div v-if="job && isPolling" class="job-inline">
+        <JobLogPanel :logs="logs" :loading="logsLoading" :polling="isPolling" />
+      </div>
+    </section>
   </div>
 </template>
 
@@ -170,6 +174,8 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
+import WorkspaceTabs from '../components/WorkspaceTabs.vue';
+import { useWorkflowStore } from '../stores/workflowStore';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
@@ -187,7 +193,27 @@ function botLink(b) {
 
 const route = useRoute();
 const router = useRouter();
+const workflow = useWorkflowStore();
 const campaignId = computed(() => Number(route.params.id));
+
+const activeTab = ref(route.query.tab || 'guide');
+const workspaceTabs = computed(() => [
+  { id: 'guide', label: 'Обзор' },
+  { id: 'accounts', label: 'Аккаунты', badge: campaign.value.accounts_count || null },
+  { id: 'create', label: 'Создание' },
+  { id: 'list', label: 'Список ботов', badge: campaign.value.bots_count || null },
+]);
+
+watch(
+  () => route.query.tab,
+  (t) => {
+    if (t && ['guide', 'accounts', 'create', 'list'].includes(t)) activeTab.value = t;
+  }
+);
+
+watch(activeTab, (t) => {
+  router.replace({ query: { ...route.query, tab: t } });
+});
 
 const loading = ref(true);
 const loadError = ref(null);
@@ -242,6 +268,7 @@ async function loadCampaign() {
   const data = await campaignService.get(campaignId.value);
   campaign.value = data.campaign;
   job.value = data.activeJob;
+  workflow.setCampaign(campaignId.value, data.campaign.title);
 }
 
 async function loadExtras() {
@@ -649,9 +676,89 @@ onUnmounted(stopPolling);
   margin-top: 1rem;
 }
 
-.grid-2 {
+.guide {
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.guide h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+}
+
+.checklist {
+  margin: 0;
+  padding-left: 1.2rem;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.checklist li.ok {
+  color: #86efac;
+}
+
+.create-hub {
+  padding: 1.25rem;
+}
+
+.create-cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.create-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  text-decoration: none;
+  color: inherit;
+}
+
+.create-card:hover {
+  text-decoration: none;
+  border-color: var(--accent);
+}
+
+.create-card--primary {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.cc-title {
+  font-weight: 600;
+}
+
+.cc-desc {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.bots-list {
+  padding: 1rem;
+}
+
+.bots-list .section-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.bots-list h2 {
+  margin: 0;
+  flex: 1;
+  font-size: 1rem;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1rem;
   align-items: start;
 }

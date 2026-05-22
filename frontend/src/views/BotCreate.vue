@@ -1,14 +1,23 @@
 <template>
   <div class="bot-create">
     <header class="page-header">
-      <RouterLink to="/app/bots" class="back">← Боты</RouterLink>
-      <h1>Создание бота</h1>
-      <p class="subtitle">
-        Укажите ссылку на сайт, выберите кампанию и аккаунт — остальное можно сгенерировать автоматически.
-      </p>
+      <RouterLink v-if="campaignId" :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'create' } }" class="back">
+        ← Создание ботов
+      </RouterLink>
+      <RouterLink v-else to="/app/bots" class="back">← Боты</RouterLink>
+      <h1>Один бот</h1>
+      <p class="subtitle">Пошагово: ссылка и аккаунт → ключевая фраза → тексты → создание в Telegram.</p>
     </header>
 
+    <div class="wizard-steps">
+      <span :class="{ active: wizardStep >= 1, done: wizardStep > 1 }">1. Основное</span>
+      <span :class="{ active: wizardStep >= 2, done: wizardStep > 2 }">2. Фраза</span>
+      <span :class="{ active: wizardStep >= 3, done: wizardStep > 3 }">3. Тексты</span>
+      <span :class="{ active: wizardStep >= 4 }">4. Создание</span>
+    </div>
+
     <form class="card form" @submit.prevent="onSubmit">
+      <div v-show="wizardStep === 1" class="wizard-pane">
       <div class="form-group">
         <label>Ссылка на рекламируемый сервис *</label>
         <input
@@ -22,7 +31,7 @@
 
       <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
 
-      <div class="form-group">
+      <div v-if="!routeCampaignId" class="form-group">
         <label>Кампания</label>
         <select v-model.number="campaignId" required @change="onCampaignChange">
           <option :value="null" disabled>Выберите кампанию</option>
@@ -39,36 +48,46 @@
           </option>
         </select>
         <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
-          Нет готовых аккаунтов. Добавьте подготовленные в
-          <RouterLink :to="{ name: 'campaign-detail', params: { id: campaignId } }">кампанию</RouterLink>
-          (статус должен быть «готов»).
+          Нет готовых аккаунтов.
+          <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'accounts' } }">
+            Добавьте и проверьте аккаунты
+          </RouterLink>.
         </p>
       </div>
+      <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="wizardStep = 2">
+        Далее: ключевая фраза →
+      </button>
+      </div>
 
+      <div v-show="wizardStep === 2" class="wizard-pane">
       <div class="form-group">
-        <label>Ключевое слово бота *</label>
-        <select v-model="keyword" required :disabled="!campaignKeywords.length">
-          <option value="" disabled>Выберите ключевое слово</option>
-          <option v-for="kw in campaignKeywords" :key="kw" :value="kw">
-            {{ kw }}{{ usedKeywords.has(kw.toLowerCase()) ? ' (уже есть бот)' : '' }}
-          </option>
-        </select>
-        <p v-if="campaignId && !campaignKeywords.length" class="field-hint error-text">
-          В кампании нет ключевых слов.
-          <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">Сгенерируйте в настройках</RouterLink>
-        </p>
-        <p v-else class="field-hint">
-          Каждый бот заточен под одно поисковое слово. Тексты AI строятся вокруг выбранной фразы.
+        <label>Ключевая фраза для этого бота *</label>
+        <input
+          v-model="keyword"
+          type="text"
+          required
+          placeholder="например: vpn бот бесплатно"
+        />
+        <p class="field-hint">
+          По этой фразе подберутся имя, описание и приветствие. У каждого бота — своя фраза.
         </p>
       </div>
+      <div class="wizard-nav">
+        <button type="button" class="btn-ghost" @click="wizardStep = 1">← Назад</button>
+        <button type="button" class="btn btn-next" :disabled="!keyword.trim()" @click="wizardStep = 3">
+          Далее: тексты →
+        </button>
+      </div>
+      </div>
 
+      <div v-show="wizardStep === 3" class="wizard-pane">
       <button
         type="button"
         class="btn-ai"
-        :disabled="!campaignId || !accountId || !targetUrl.trim() || !keyword || generating"
+        :disabled="!campaignId || !accountId || !targetUrl.trim() || !keyword.trim() || generating"
         @click="onGenerate"
       >
-        {{ generating ? 'Генерация…' : '✨ Заполнить тексты автоматически' }}
+        {{ generating ? 'Генерация…' : '✨ Заполнить тексты по фразе' }}
       </button>
 
       <BotProfileFields
@@ -85,14 +104,23 @@
         <input v-model="autoStart" type="checkbox" />
         Запустить бота сразу после создания
       </label>
+      <div class="wizard-nav">
+        <button type="button" class="btn-ghost" @click="wizardStep = 2">← Назад</button>
+        <button type="button" class="btn btn-next" :disabled="!form.display_name || !form.username" @click="wizardStep = 4">
+          Далее: создание →
+        </button>
+      </div>
+      </div>
 
+      <div v-show="wizardStep === 4" class="wizard-pane">
       <p v-if="submitError" class="error-text">{{ submitError }}</p>
       <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
       <div class="actions">
-        <RouterLink to="/app/bots" class="btn-ghost">Отмена</RouterLink>
-        <button type="submit" class="btn" :disabled="submitting || !targetUrl.trim()">
-          {{ submitting ? 'Создание…' : 'Создать бота' }}
+        <button type="button" class="btn-ghost" @click="wizardStep = 3">← К текстам</button>
+        <button type="submit" class="btn" :disabled="submitting || !targetUrl.trim() || !keyword.trim()">
+          {{ submitting ? 'Создание…' : 'Создать бота в Telegram' }}
         </button>
+      </div>
       </div>
     </form>
   </div>
@@ -113,14 +141,18 @@ const taskStore = useAsyncTaskStore();
 const route = useRoute();
 const router = useRouter();
 
+const routeCampaignId = route.params.id ? Number(route.params.id) : null;
+const wizardStep = ref(1);
 const campaigns = ref([]);
 const accounts = ref([]);
-const campaignId = ref(route.query.campaign_id ? Number(route.query.campaign_id) : null);
+const campaignId = ref(routeCampaignId || (route.query.campaign_id ? Number(route.query.campaign_id) : null));
+
+const canGoStep2 = computed(
+  () => campaignId.value && accountId.value && targetUrl.value.trim() && usableAccounts.value.length
+);
 const accountId = ref(null);
 const targetUrl = ref('');
 const keyword = ref('');
-const campaignKeywords = ref([]);
-const usedKeywords = ref(new Set());
 const linkMode = ref('redirect');
 const redirectSlug = ref(null);
 const draftPublicLink = ref(null);
@@ -193,23 +225,10 @@ async function loadAccounts() {
 
 async function loadKeywordContext() {
   if (!campaignId.value) {
-    campaignKeywords.value = [];
-    usedKeywords.value = new Set();
     keyword.value = '';
     return;
   }
-  const c = campaigns.value.find((x) => x.id === campaignId.value);
-  campaignKeywords.value = c?.keywords || [];
-  try {
-    const data = await campaignService.suggestKeyword(campaignId.value);
-    usedKeywords.value = new Set((data.used_keywords || []).map((k) => k.toLowerCase()));
-    if (data.keyword) keyword.value = data.keyword;
-    if (data.keywords?.length) campaignKeywords.value = data.keywords;
-  } catch {
-    if (campaignKeywords.value.length && !keyword.value) {
-      keyword.value = campaignKeywords.value[0];
-    }
-  }
+  /* keyword вводится вручную для каждого бота */
 }
 
 async function onCampaignChange() {
@@ -306,6 +325,45 @@ onMounted(async () => {
 <style scoped>
 .bot-create {
   max-width: 560px;
+}
+
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+}
+
+.wizard-steps span {
+  flex: 1;
+  min-width: 5rem;
+  text-align: center;
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.wizard-steps span.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.wizard-steps span.done {
+  color: #86efac;
+  border-color: rgba(34, 197, 94, 0.35);
+}
+
+.wizard-nav {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.wizard-nav .btn-next {
+  flex: 1;
 }
 
 .page-header {

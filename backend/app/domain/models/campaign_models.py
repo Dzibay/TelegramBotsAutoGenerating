@@ -20,6 +20,19 @@ class GenerateKeywordsRequest(BaseModel):
     merge: bool = Field(True, description="Добавить к существующим, не заменять")
 
 
+class BotCreationPlanItem(BaseModel):
+    """Один бот в плане массового создания: аккаунт + ключевая фраза."""
+
+    telegram_account_id: int
+    keyword: str = Field(..., min_length=1, max_length=100)
+
+
+class StartCreationJobRequest(BaseModel):
+    """Опциональный план: только указанные боты с заданными ключевыми словами."""
+
+    plans: list[BotCreationPlanItem] = Field(default_factory=list, max_length=200)
+
+
 class CampaignResponse(BaseModel):
     id: int
     title: str

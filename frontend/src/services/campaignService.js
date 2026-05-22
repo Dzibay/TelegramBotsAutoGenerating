@@ -97,6 +97,15 @@ export const campaignService = {
     return res.data?.job;
   },
 
+  async startPlanned(campaignId, plans) {
+    const res = await apiClient.post(
+      API_ENDPOINTS.CAMPAIGNS.START(campaignId),
+      { plans },
+      { timeout: 120000 }
+    );
+    return res.data?.job;
+  },
+
   async update(id, payload) {
     const res = await apiClient.patch(API_ENDPOINTS.CAMPAIGNS.GET(id), payload);
     return res.data?.campaign;

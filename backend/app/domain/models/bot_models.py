@@ -50,6 +50,12 @@ class GenerateAvatarPreviewRequest(BaseModel):
     keyword: Optional[str] = Field(None, max_length=100)
 
 
+class BotBatchCreateRequest(BaseModel):
+    """Пакетное создание ботов после предпросмотра текстов."""
+
+    bots: list[BotCreateRequest] = Field(..., min_length=1, max_length=50)
+
+
 class BotUpdateRequest(BaseModel):
     display_name: Optional[str] = Field(None, min_length=1, max_length=64)
     target_url: Optional[str] = Field(None, min_length=4, max_length=2048)

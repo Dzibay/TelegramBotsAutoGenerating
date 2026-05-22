@@ -24,6 +24,16 @@
           />
           <p class="field-hint">Удобное имя для вашей группы аккаунтов и ботов</p>
         </div>
+        <div class="form-group">
+          <label for="resource_url">Ссылка на ваш сервис</label>
+          <input
+            id="resource_url"
+            v-model="form.resource_url"
+            type="url"
+            placeholder="https://example.com"
+          />
+          <p class="field-hint">Куда будут вести боты. Можно изменить позже.</p>
+        </div>
         <button type="button" class="btn btn-next" :disabled="!form.title.trim()" @click="step = 2">
           Далее: аккаунты →
         </button>
@@ -77,8 +87,10 @@ import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { useWorkflowStore } from '../stores/workflowStore';
 
 const taskStore = useAsyncTaskStore();
+const workflow = useWorkflowStore();
 
 const router = useRouter();
 const step = ref(1);
@@ -86,7 +98,7 @@ const submitting = ref(false);
 const submitError = ref(null);
 const selectedPreparedIds = ref([]);
 const autoStart = ref(false);
-const form = ref({ title: '' });
+const form = ref({ title: '', resource_url: '' });
 
 async function onSubmit() {
   if (!selectedPreparedIds.value.length) {
@@ -101,13 +113,17 @@ async function onSubmit() {
       'CREATE_CAMPAIGN_FULL',
       () =>
         campaignService.createFull({
-          payload: { title: form.value.title.trim() },
+          payload: {
+            title: form.value.title.trim(),
+            resource_url: form.value.resource_url.trim() || null,
+          },
           preparedAccountIds: selectedPreparedIds.value,
-          autoStart: autoStart.value,
+          autoStart: false,
         }),
       { count: selectedPreparedIds.value.length }
     );
-    router.push({ name: 'campaign-detail', params: { id: data.campaign?.id } });
+    workflow.setCampaign(data.campaign?.id, data.campaign?.title);
+    router.push({ name: 'campaign-workspace', params: { id: data.campaign?.id }, query: { tab: 'accounts' } });
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Не удалось создать кампанию';
   } finally {

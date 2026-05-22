@@ -2,26 +2,37 @@
   <div>
     <header class="dash-header">
       <div>
-        <h1>Кампании</h1>
-        <p class="subtitle">Группы аккаунтов и ботов</p>
+        <h1>Шаг 1 — Кампания</h1>
+        <p class="subtitle">Создайте группу для аккаунтов и ботов. Ключевые фразы задаются при создании каждого бота.</p>
       </div>
-      <div class="header-actions">
-        <RouterLink to="/app/accounts/prepare" class="btn-ghost">Подготовка</RouterLink>
-        <RouterLink to="/app/bots" class="btn-ghost">Боты</RouterLink>
-        <RouterLink to="/app/campaigns/new" class="btn">+ Кампания</RouterLink>
-      </div>
+      <RouterLink to="/app/campaigns/new" class="btn">+ Новая кампания</RouterLink>
     </header>
+
+    <ol class="steps-guide card">
+      <li :class="{ done: campaigns.length }">
+        <strong>Кампания</strong> — название и ссылка на ваш сервис
+      </li>
+      <li>
+        <strong>Аккаунты</strong> —
+        <RouterLink to="/app/accounts/prepare">подготовьте Telegram</RouterLink>
+        и добавьте в кампанию
+      </li>
+      <li>
+        <strong>Боты</strong> — по одному или списком: у каждого бота своя ключевая фраза
+      </li>
+    </ol>
 
     <p v-if="loadError" class="error-text">{{ loadError }}</p>
     <p v-else-if="loading" class="muted">Загрузка…</p>
     <p v-else-if="!campaigns.length" class="muted card empty">
       Пока нет кампаний.
       <RouterLink to="/app/campaigns/new">Создайте первую</RouterLink>
+      — это займёт минуту.
     </p>
 
     <ul v-else class="list">
       <li v-for="c in campaigns" :key="c.id" class="card item">
-        <RouterLink :to="{ name: 'campaign-detail', params: { id: c.id } }" class="item-link">
+        <button type="button" class="item-link" @click="openCampaign(c)">
           <div class="item-main">
             <div class="item-title">
               <strong>{{ c.title }}</strong>
@@ -29,14 +40,14 @@
             </div>
             <p class="meta">
               {{ c.bots_count }} ботов · {{ c.accounts_count }} аккаунтов
-              <span v-if="c.active_bots_count"> · {{ c.active_bots_count }} активных</span>
             </p>
           </div>
           <span class="chevron">→</span>
-        </RouterLink>
-        <div class="item-actions" @click.stop>
+        </button>
+        <div class="item-actions">
+          <button type="button" class="btn-ghost btn-xs" @click="openCampaign(c)">Открыть</button>
           <RouterLink :to="{ name: 'campaign-edit', params: { id: c.id } }" class="btn-ghost btn-xs">
-            Изменить
+            Настройки
           </RouterLink>
           <button type="button" class="btn-ghost btn-xs danger" @click="onDelete(c)">Удалить</button>
         </div>
@@ -50,16 +61,24 @@ import { onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import StatusBadge from '../components/StatusBadge.vue';
 import { campaignService } from '../services/campaignService';
+import { useWorkflowStore } from '../stores/workflowStore';
 
 const router = useRouter();
+const workflow = useWorkflowStore();
 const campaigns = ref([]);
 const loading = ref(true);
 const loadError = ref(null);
+
+function openCampaign(c) {
+  workflow.setCampaign(c.id, c.title);
+  router.push({ name: 'campaign-workspace', params: { id: c.id }, query: { tab: 'guide' } });
+}
 
 async function onDelete(c) {
   if (!confirm(`Удалить кампанию «${c.title}»?`)) return;
   try {
     await campaignService.remove(c.id);
+    if (workflow.activeCampaignId === c.id) workflow.setCampaign(null);
     await load();
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Ошибка удаления';
@@ -87,14 +106,7 @@ onMounted(load);
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-shrink: 0;
+  margin-bottom: 1rem;
 }
 
 .dash-header h1 {
@@ -106,6 +118,23 @@ onMounted(load);
   margin: 0.25rem 0 0;
   font-size: 0.875rem;
   color: var(--muted);
+  max-width: 32rem;
+}
+
+.steps-guide {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.25rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.steps-guide li {
+  margin: 0.35rem 0;
+}
+
+.steps-guide li.done {
+  color: #86efac;
 }
 
 .empty {
@@ -131,13 +160,14 @@ onMounted(load);
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 1rem;
-  text-decoration: none;
+  border: none;
+  background: transparent;
+  text-align: left;
   color: inherit;
-}
-
-.item-link:hover {
-  text-decoration: none;
+  font: inherit;
+  cursor: pointer;
 }
 
 .item-actions {
@@ -153,12 +183,6 @@ onMounted(load);
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
-}
-
-.desc {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
 }
 
 .meta {

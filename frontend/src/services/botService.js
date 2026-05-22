@@ -81,4 +81,9 @@ export const botService = {
     const res = await apiClient.post(`/bots/${id}/verify`);
     return res.data;
   },
+
+  async batchCreate(bots) {
+    const res = await apiClient.post('/bots/batch-create', { bots }, { timeout: 600000 });
+    return res.data;
+  },
 };

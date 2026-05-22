@@ -3,8 +3,8 @@
   <div v-else-if="loadError" class="error-text">{{ loadError }}</div>
   <div v-else class="edit-page">
     <header class="page-header">
-      <RouterLink :to="{ name: 'campaign-detail', params: { id } }" class="back">← Кампания</RouterLink>
-      <h1>Редактирование кампании</h1>
+      <RouterLink :to="{ name: 'campaign-workspace', params: { id } }" class="back">← Кампания</RouterLink>
+      <h1>Настройки кампании</h1>
     </header>
 
     <form class="card form" @submit.prevent="onSave">
@@ -18,17 +18,21 @@
         <p class="field-hint">Используется при массовом и ручном создании ботов</p>
       </div>
 
-      <CampaignKeywordsEditor
-        :campaign-id="id"
-        :keywords="keywords"
-        :niche-description="nicheDescription"
-        @update:keywords="keywords = $event"
-        @update:niche-description="nicheDescription = $event"
-      />
+      <div class="form-group">
+        <label>Тематика (для AI, необязательно)</label>
+        <textarea
+          v-model="nicheDescription"
+          rows="3"
+          placeholder="Например: VPN и обход блокировок — помогает при генерации текстов"
+        />
+        <p class="field-hint">
+          Ключевые фразы задаются при создании каждого бота, не здесь.
+        </p>
+      </div>
 
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <div class="actions">
-        <RouterLink :to="{ name: 'campaign-detail', params: { id } }" class="btn-ghost">Отмена</RouterLink>
+        <RouterLink :to="{ name: 'campaign-workspace', params: { id } }" class="btn-ghost">Отмена</RouterLink>
         <button type="submit" :disabled="saving">{{ saving ? 'Сохранение…' : 'Сохранить' }}</button>
       </div>
     </form>
@@ -38,7 +42,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
-import CampaignKeywordsEditor from '../components/CampaignKeywordsEditor.vue';
 import { campaignService } from '../services/campaignService';
 
 const route = useRoute();
@@ -51,7 +54,6 @@ const saving = ref(false);
 const title = ref('');
 const resourceUrl = ref('');
 const nicheDescription = ref('');
-const keywords = ref([]);
 
 async function load() {
   loading.value = true;
@@ -60,7 +62,6 @@ async function load() {
     title.value = campaign.title;
     resourceUrl.value = campaign.resource_url || '';
     nicheDescription.value = campaign.niche_description || '';
-    keywords.value = campaign.keywords || [];
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
@@ -76,9 +77,8 @@ async function onSave() {
       title: title.value.trim(),
       resource_url: resourceUrl.value.trim() || null,
       niche_description: nicheDescription.value.trim() || null,
-      keywords: keywords.value,
     });
-    router.push({ name: 'campaign-detail', params: { id: id.value } });
+    router.push({ name: 'campaign-workspace', params: { id: id.value } });
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка сохранения';
   } finally {

@@ -239,12 +239,11 @@ async def generate_bot_draft(
     public_link = links["public_link"]
     mode = links["link_mode"]
 
-    kw = await campaign_service.suggest_keyword(campaign_id, keyword)
+    kw = (keyword or "").strip()
     if not kw:
-        raise BadRequestError(
-            "У кампании нет ключевых слов. Добавьте их в настройках кампании "
-            "или сгенерируйте через AI."
-        )
+        kw = await campaign_service.suggest_keyword(campaign_id, None)
+    if not kw:
+        raise BadRequestError("Укажите ключевую фразу для этого бота.")
     concept = {
         "keyword": kw,
         "display_name": f"{kw.title()} Bot",
@@ -508,6 +507,25 @@ async def create_bot(
     finally:
         if client:
             await client.disconnect()
+
+
+async def create_bots_batch(specs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Последовательное создание ботов (после предпросмотра в UI)."""
+    created: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for i, spec in enumerate(specs):
+        try:
+            bot = await create_bot(**spec)
+            created.append(bot)
+        except Exception as exc:
+            err = getattr(exc, "message", None) or str(exc)
+            errors.append({"index": i, "keyword": spec.get("keyword"), "error": err[:300]})
+    return {
+        "created_count": len(created),
+        "failed_count": len(errors),
+        "bots": created,
+        "errors": errors,
+    }
 
 
 async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:

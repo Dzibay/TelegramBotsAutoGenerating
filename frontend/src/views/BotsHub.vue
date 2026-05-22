@@ -18,7 +18,7 @@
     <div v-else class="campaigns">
       <section v-for="camp in campaigns" :key="camp.campaign_id" class="card camp-block">
         <div class="camp-head">
-          <RouterLink :to="{ name: 'campaign-detail', params: { id: camp.campaign_id } }">
+          <RouterLink :to="{ name: 'campaign-workspace', params: { id: camp.campaign_id } }">
             {{ camp.campaign_title }}
           </RouterLink>
         </div>

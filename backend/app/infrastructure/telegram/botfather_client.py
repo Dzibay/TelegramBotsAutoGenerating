@@ -225,7 +225,10 @@ def _is_delete_success(text: str) -> bool:
         for p in (
             "success",
             "deleted",
+            "done!",
             "done.",
+            "the bot is gone",
+            "bot is gone",
             " was deleted",
             "has been deleted",
             "удалён",

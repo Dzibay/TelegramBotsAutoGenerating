@@ -73,6 +73,7 @@
           class="create-card create-card--primary"
           :class="{ 'create-card--disabled': !canOpenCreate }"
           :title="createBlockedReason || undefined"
+          :aria-disabled="!canOpenCreate ? 'true' : undefined"
         >
           <span class="cc-title">Один бот</span>
           <span class="cc-desc">Пошагово: тексты вручную или через AI → создание в Telegram.</span>
@@ -83,6 +84,7 @@
           class="create-card"
           :class="{ 'create-card--disabled': !canOpenCreate }"
           :title="createBlockedReason || undefined"
+          :aria-disabled="!canOpenCreate ? 'true' : undefined"
         >
           <span class="cc-title">Несколько ботов</span>
           <span class="cc-desc">Таблица: аккаунт, фраза для AI, имя и username, пакетное создание.</span>
@@ -652,30 +654,10 @@ onUnmounted(stopPolling);
   font-size: 1.35rem;
 }
 
-.resource,
-.keywords {
+.resource {
   margin: 0.35rem 0 0;
   font-size: 0.875rem;
   color: var(--muted);
-}
-
-.warn-keywords {
-  color: #fbbf24;
-}
-
-.kw-chip {
-  display: inline-block;
-  margin: 0.15rem 0.25rem 0 0;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  font-size: 0.75rem;
-}
-
-.kw-more {
-  font-size: 0.75rem;
-  opacity: 0.8;
 }
 
 .bot-kw {
@@ -774,6 +756,12 @@ onUnmounted(stopPolling);
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .create-cards {
+    grid-template-columns: 1fr;
+  }
 }
 
 .create-card {
@@ -982,18 +970,5 @@ onUnmounted(stopPolling);
   gap: 0.5rem;
 }
 
-.warn-banner {
-  margin: 0.5rem 0 0;
-  padding: 0.6rem 0.75rem;
-  font-size: 0.85rem;
-  background: rgba(234, 179, 8, 0.1);
-  border: 1px solid rgba(234, 179, 8, 0.35);
-  border-radius: 8px;
-  color: #fde047;
-}
-
-.warn-banner a {
-  color: var(--accent);
-}
 
 </style>

@@ -75,71 +75,67 @@
       </p>
     </div>
 
-    <div class="form-group">
-      <label>Короткое описание в профиле</label>
-      <textarea
-        :value="modelValue.about_text"
-        rows="2"
-        maxlength="120"
-        placeholder="Текст под именем бота, до открытия чата"
-        @input="patch('about_text', $event.target.value)"
-      />
-      <p class="field-hint">
-        До 120 символов. Видно в профиле бота до начала диалога. Если пусто — подставится шаблон при создании.
-      </p>
-    </div>
+    <details class="field-details" :open="!collapseLongFields">
+      <summary>О себе в профиле (до 120 символов)</summary>
+      <div class="form-group">
+        <textarea
+          :value="modelValue.about_text"
+          rows="2"
+          maxlength="120"
+          placeholder="Текст в профиле бота"
+          @input="patch('about_text', $event.target.value)"
+        />
+        <p class="field-hint">Вкладка «Профиль» в предпросмотре справа.</p>
+      </div>
+    </details>
 
-    <div class="form-group">
-      <label>Описание в чате</label>
-      <textarea
-        :value="modelValue.description"
-        rows="4"
-        maxlength="512"
-        placeholder="Текст в пустом чате с ботом, до нажатия Start"
-        @input="patch('description', $event.target.value)"
-      />
-      <p class="field-hint">
-        До 512 символов. Показывается в пустом чате до кнопки «Старт». Можно заполнить кнопкой «Заполнить тексты автоматически».
-      </p>
-    </div>
+    <details class="field-details" open>
+      <summary>Описание в чате до Start (до 512 символов)</summary>
+      <div class="form-group">
+        <textarea
+          :value="modelValue.description"
+          rows="4"
+          maxlength="512"
+          placeholder="Плакат в пустом чате"
+          @input="patch('description', $event.target.value)"
+        />
+        <p class="field-hint">Вкладка «До Start» в предпросмотре.</p>
+      </div>
+    </details>
 
-    <div class="form-group">
-      <label>Приветствие после «Старт»</label>
-      <textarea
-        :value="modelValue.welcome_message"
-        rows="5"
-        required
-        maxlength="2000"
-        placeholder="Первое сообщение после нажатия Start"
-        @input="patch('welcome_message', $event.target.value)"
-      />
-    </div>
-
-    <label class="checkbox-row">
-      <input
-        type="checkbox"
-        :checked="modelValue.welcome_button_enabled !== false"
-        @change="patch('welcome_button_enabled', $event.target.checked)"
-      />
-      Кнопка со ссылкой на сервис под сообщением
-    </label>
-    <div v-if="modelValue.welcome_button_enabled !== false" class="form-group button-text-group">
-      <label>Текст кнопки</label>
-      <input
-        :value="modelValue.welcome_button_text || 'Перейти по ссылке'"
-        type="text"
-        maxlength="64"
-        placeholder="Перейти по ссылке"
-        @input="patch('welcome_button_text', $event.target.value)"
-      />
-      <p v-if="publicLink" class="field-hint">
-        Ссылка кнопки: <code>{{ publicLink }}</code>
-        (со счётчиком или прямая — как выбрано выше).
-      </p>
-      <p v-else class="field-hint">
-        Ссылка кнопки — публичная ссылка бота (появится после генерации или создания).
-      </p>
-    </div>
+    <details class="field-details" open>
+      <summary>Приветствие после Start *</summary>
+      <div class="form-group">
+        <textarea
+          :value="modelValue.welcome_message"
+          rows="5"
+          required
+          maxlength="2000"
+          placeholder="Первое сообщение в чате"
+          @input="patch('welcome_message', $event.target.value)"
+        />
+      </div>
+      <label class="checkbox-row">
+        <input
+          type="checkbox"
+          :checked="modelValue.welcome_button_enabled !== false"
+          @change="patch('welcome_button_enabled', $event.target.checked)"
+        />
+        Кнопка со ссылкой под сообщением
+      </label>
+      <div v-if="modelValue.welcome_button_enabled !== false" class="form-group button-text-group">
+        <label>Текст кнопки</label>
+        <input
+          :value="modelValue.welcome_button_text || 'Перейти по ссылке'"
+          type="text"
+          maxlength="64"
+          placeholder="Перейти по ссылке"
+          @input="patch('welcome_button_text', $event.target.value)"
+        />
+        <p v-if="publicLink" class="field-hint">Ссылка: <code>{{ publicLink }}</code></p>
+      </div>
+      <p class="field-hint">Вкладка «Чат» в предпросмотре.</p>
+    </details>
   </section>
 </template>
 
@@ -155,6 +151,7 @@ const props = defineProps({
   showTitle: { type: Boolean, default: true },
   usernameReadonly: { type: Boolean, default: false },
   showGenerateOnCreate: { type: Boolean, default: false },
+  collapseLongFields: { type: Boolean, default: false },
   generateAvatar: { type: Boolean, default: true },
   avatarUrl: { type: String, default: null },
   keyword: { type: String, default: '' },
@@ -201,6 +198,10 @@ function onFileChange(e) {
   emit('update:avatarPreview', avatarObjectUrl.value);
 }
 
+watch(avatarPreviewUrl, (url) => {
+  if (url && !avatarFile.value) emit('update:avatarPreview', url);
+});
+
 function clearAvatar() {
   if (avatarObjectUrl.value) URL.revokeObjectURL(avatarObjectUrl.value);
   avatarFile.value = null;
@@ -242,6 +243,7 @@ async function loadAvatarFromApi(url) {
     const res = await apiClient.get(path, { responseType: 'blob' });
     if (avatarObjectUrl.value) URL.revokeObjectURL(avatarObjectUrl.value);
     avatarObjectUrl.value = URL.createObjectURL(res.data);
+    emit('update:avatarPreview', avatarObjectUrl.value);
   } catch {
     /* ignore */
   }
@@ -332,5 +334,24 @@ defineExpose({ avatarFile, clearAvatar });
 .button-text-group code {
   word-break: break-all;
   font-size: 0.75rem;
+}
+
+.field-details {
+  margin: 0.65rem 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.field-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.field-details[open] summary {
+  margin-bottom: 0.5rem;
 }
 </style>

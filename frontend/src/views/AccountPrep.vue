@@ -1,7 +1,6 @@
 <template>
   <div class="prep-page">
     <header class="page-header">
-      <RouterLink to="/app" class="back">← Кампании</RouterLink>
       <h1>Подготовка аккаунтов</h1>
       <p class="subtitle">
         Загрузите экспорт аккаунтов из Telegram Desktop, настройте безопасность и очистите старых ботов перед кампаниями.

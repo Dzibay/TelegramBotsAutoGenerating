@@ -1,7 +1,6 @@
 <template>
   <div class="create-page">
     <header class="page-header">
-      <RouterLink to="/app" class="back">← Кампании</RouterLink>
       <h1>Новая кампания</h1>
       <p class="subtitle">Название, ссылка на сервис и аккаунты. Ботов добавите на шаге «Боты» в кампании.</p>
     </header>

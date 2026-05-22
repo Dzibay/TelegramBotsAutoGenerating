@@ -1,9 +1,6 @@
 <template>
   <div class="bulk-create">
     <header class="page-header">
-      <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'create' } }" class="back">
-        ← Создание ботов
-      </RouterLink>
       <h1>Массовое создание</h1>
       <p class="subtitle">
         Таблица ботов: аккаунт, фраза для AI (необязательно), имя и username. Фраза нужна только для генерации
@@ -56,6 +53,7 @@
         </div>
       </div>
 
+      <div class="bulk-table-scroll">
       <div class="bulk-table">
         <div class="bulk-head bulk-grid">
           <span>#</span>
@@ -99,7 +97,8 @@
               <button
                 type="button"
                 class="btn btn-xs btn-ghost"
-                title="Заполнить поля вручную"
+                aria-label="Заполнить вручную"
+                title="Заполнить вручную"
                 @click="ensureDraft(row)"
               >
                 ✎
@@ -108,6 +107,7 @@
                 type="button"
                 class="btn btn-xs btn-ghost"
                 :disabled="!row.accountId || !row.keyword.trim() || generating"
+                aria-label="Сгенерировать AI"
                 title="Сгенерировать по фразе"
                 @click="generateOne(row)"
               >
@@ -124,20 +124,34 @@
             </div>
           </div>
           <details v-if="row.draft" class="bulk-expand">
-            <summary>Описание и приветствие</summary>
-            <div class="expand-fields">
-              <div class="form-group">
-                <label>Описание</label>
-                <textarea v-model="row.draft.description" rows="2" />
+            <summary>Тексты и предпросмотр</summary>
+            <div class="expand-layout">
+              <div class="expand-fields">
+                <div class="form-group">
+                  <label>Описание (до Start)</label>
+                  <textarea v-model="row.draft.description" rows="2" />
+                </div>
+                <div class="form-group">
+                  <label>Приветствие</label>
+                  <textarea v-model="row.draft.welcome_message" rows="2" />
+                </div>
               </div>
-              <div class="form-group">
-                <label>Приветствие</label>
-                <textarea v-model="row.draft.welcome_message" rows="2" />
-              </div>
+              <BotTelegramPreview
+                class="preview-compact"
+                :display-name="row.draft.display_name"
+                :username="row.draft.username"
+                :about-text="row.draft.about_text"
+                :description="row.draft.description"
+                :welcome-message="row.draft.welcome_message"
+                :welcome-button-enabled="row.draft.welcome_button_enabled"
+                :welcome-button-text="row.draft.welcome_button_text"
+                :public-link="row.draft.public_link || linkPreview"
+              />
             </div>
           </details>
           <p v-if="row.error" class="row-err">{{ row.error }}</p>
         </div>
+      </div>
       </div>
 
       <div class="action-bar">
@@ -179,8 +193,9 @@
 
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
+import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
@@ -525,41 +540,6 @@ onMounted(async () => {
   align-items: center;
 }
 
-@media (max-width: 900px) {
-  .bulk-grid {
-    grid-template-columns: 2rem 1fr 1fr;
-    grid-template-areas:
-      'num acc acc'
-      'kw kw kw'
-      'name user user'
-      'st btns btns';
-  }
-  .bulk-main .row-num {
-    grid-area: num;
-  }
-  .bulk-main select {
-    grid-area: acc;
-  }
-  .bulk-main input:nth-of-type(1) {
-    grid-area: kw;
-  }
-  .bulk-main input:nth-of-type(2) {
-    grid-area: name;
-  }
-  .bulk-main input:nth-of-type(3) {
-    grid-area: user;
-  }
-  .bulk-main .row-status {
-    grid-area: st;
-  }
-  .bulk-main .row-btns {
-    grid-area: btns;
-  }
-  .bulk-head {
-    display: none;
-  }
-}
-
 .bulk-head {
   font-size: 0.7rem;
   color: var(--muted);
@@ -688,5 +668,28 @@ onMounted(async () => {
 
 .check input {
   width: auto;
+}
+
+.expand-layout {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 280px);
+  gap: 1rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .expand-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+:deep(.preview-compact .tg-phone) {
+  min-height: 280px;
+  transform: scale(0.92);
+  transform-origin: top center;
+}
+
+:deep(.preview-compact .tg-preview) {
+  position: static;
 }
 </style>

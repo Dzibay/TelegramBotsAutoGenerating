@@ -1,10 +1,6 @@
 <template>
   <div class="bot-create">
     <header class="page-header">
-      <RouterLink v-if="campaignId" :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'create' } }" class="back">
-        ← Создание ботов
-      </RouterLink>
-      <RouterLink v-else to="/app" class="back">← Кампании</RouterLink>
       <h1>Один бот</h1>
       <p class="subtitle">Аккаунт и ссылка → тексты (вручную или через AI) → создание в Telegram.</p>
     </header>
@@ -15,119 +11,129 @@
       <span :class="{ active: wizardStep >= 3 }">3. Создание</span>
     </div>
 
-    <form class="card form" @submit.prevent="onSubmit">
-      <div v-show="wizardStep === 1" class="wizard-pane">
-        <div
-          v-if="campaignId && campaignResourceUrl && !useCustomUrl"
-          class="url-from-campaign card-inner"
-        >
-          <label>Ссылка на сервис</label>
-          <p class="url-value">
-            <a :href="campaignResourceUrl" target="_blank" rel="noopener noreferrer">{{ campaignResourceUrl }}</a>
-          </p>
-          <p class="field-hint">Из настроек кампании — для всех ботов по умолчанию.</p>
-          <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для этого бота</button>
-        </div>
-        <div v-else class="form-group">
-          <label>Ссылка на рекламируемый сервис *</label>
-          <input v-model="targetUrl" type="url" required placeholder="https://example.com/landing" />
-          <p class="field-hint">Адрес сайта или лендинга, куда должны переходить пользователи.</p>
-          <button
-            v-if="campaignId && campaignResourceUrl"
-            type="button"
-            class="link-btn"
-            @click="useCampaignUrl"
+    <div :class="['bot-create-body', { 'form-with-preview': wizardStep >= 2 }]">
+      <form class="card form" @submit.prevent="onSubmit">
+        <div v-show="wizardStep === 1" class="wizard-pane">
+          <div
+            v-if="campaignId && campaignResourceUrl && !useCustomUrl"
+            class="url-from-campaign card-inner"
           >
-            ← Вернуть ссылку из кампании
-          </button>
-        </div>
+            <label>Ссылка на сервис</label>
+            <p class="url-value">
+              <a :href="campaignResourceUrl" target="_blank" rel="noopener noreferrer">{{ campaignResourceUrl }}</a>
+            </p>
+            <p class="field-hint">Из настроек кампании.</p>
+            <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для этого бота</button>
+          </div>
+          <div v-else class="form-group">
+            <label>Ссылка на рекламируемый сервис *</label>
+            <input v-model="targetUrl" type="url" required placeholder="https://example.com/landing" />
+            <button
+              v-if="campaignId && campaignResourceUrl"
+              type="button"
+              class="link-btn"
+              @click="useCampaignUrl"
+            >
+              ← Вернуть ссылку из кампании
+            </button>
+          </div>
 
-        <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
+          <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
 
-        <div v-if="!routeCampaignId" class="form-group">
-          <label>Кампания</label>
-          <select v-model.number="campaignId" required @change="onCampaignChange">
-            <option :value="null" disabled>Выберите кампанию</option>
-            <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.title }}</option>
-          </select>
-        </div>
+          <div v-if="!routeCampaignId" class="form-group">
+            <label>Кампания</label>
+            <select v-model.number="campaignId" required @change="onCampaignChange">
+              <option :value="null" disabled>Выберите кампанию</option>
+              <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.title }}</option>
+            </select>
+          </div>
 
-        <div class="form-group">
-          <label>Аккаунт Telegram</label>
-          <select v-model.number="accountId" required :disabled="!usableAccounts.length">
-            <option :value="null" disabled>Выберите аккаунт</option>
-            <option v-for="a in usableAccounts" :key="a.id" :value="a.id">
-              {{ accountOptionLabel(a) }}
-            </option>
-          </select>
-          <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
-            Нет готовых аккаунтов.
-            <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'accounts' } }">
-              Добавьте и проверьте аккаунты
-            </RouterLink>.
-          </p>
-        </div>
-        <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="wizardStep = 2">
-          Далее: тексты →
-        </button>
-      </div>
-
-      <div v-show="wizardStep === 2" class="wizard-pane">
-        <div class="ai-block card-inner">
           <div class="form-group">
-            <label>Ключевая фраза <span class="optional">(только для AI)</span></label>
-            <input
-              v-model="keyword"
-              type="text"
-              placeholder="например: vpn бот бесплатно"
-            />
-            <p class="field-hint">
-              Необязательно, если заполняете имя и тексты вручную. Для кнопки генерации фраза обязательна.
+            <label>Аккаунт Telegram</label>
+            <select v-model.number="accountId" required :disabled="!usableAccounts.length">
+              <option :value="null" disabled>Выберите аккаунт</option>
+              <option v-for="a in usableAccounts" :key="a.id" :value="a.id">
+                {{ accountOptionLabel(a) }}
+              </option>
+            </select>
+            <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
+              Нет готовых аккаунтов.
+              <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'accounts' } }">
+                Добавьте и проверьте
+              </RouterLink>.
             </p>
           </div>
-          <button
-            type="button"
-            class="btn-ai"
-            :disabled="!campaignId || !accountId || !effectiveTargetUrl.trim() || !keyword.trim() || generating"
-            @click="onGenerate"
-          >
-            {{ generating ? 'Генерация…' : '✨ Заполнить тексты по фразе (AI)' }}
+          <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="wizardStep = 2">
+            Далее: тексты →
           </button>
         </div>
 
-        <BotProfileFields
-          v-model="form"
-          v-model:generate-avatar="generateAvatar"
-          :keyword="keyword"
-          :avatar-prompt="avatarPrompt"
-          :public-link="linkPreview || ''"
-          show-generate-on-create
-          @update:avatar-file="avatarFile = $event"
-        />
+        <div v-show="wizardStep === 2" class="wizard-pane">
+          <div class="ai-block card-inner">
+            <div class="form-group">
+              <label>Ключевая фраза <span class="optional">(только для AI)</span></label>
+              <input v-model="keyword" type="text" placeholder="например: vpn бот бесплатно" />
+              <p class="field-hint">Необязательна при ручном вводе текстов ниже.</p>
+            </div>
+            <button
+              type="button"
+              class="btn-ai"
+              :disabled="!campaignId || !accountId || !effectiveTargetUrl.trim() || !keyword.trim() || generating"
+              @click="onGenerate"
+            >
+              {{ generating ? 'Генерация…' : '✨ Заполнить тексты по фразе (AI)' }}
+            </button>
+          </div>
 
-        <label class="check">
-          <input v-model="autoStart" type="checkbox" />
-          Запустить бота сразу после создания
-        </label>
-        <div class="wizard-nav">
-          <button type="button" class="btn-ghost" @click="wizardStep = 1">← Назад</button>
-          <button type="button" class="btn btn-next" :disabled="!canGoStep3" @click="wizardStep = 3">
-            Далее: создание →
-          </button>
-        </div>
-      </div>
+          <BotProfileFields
+            v-model="form"
+            v-model:generate-avatar="generateAvatar"
+            :keyword="keyword"
+            :avatar-prompt="avatarPrompt"
+            :public-link="linkPreview || ''"
+            show-generate-on-create
+            collapse-long-fields
+            @update:avatar-file="avatarFile = $event"
+            @update:avatar-preview="avatarPreviewUrl = $event"
+          />
 
-      <div v-show="wizardStep === 3" class="wizard-pane">
-        <p v-if="submitError" class="error-text">{{ submitError }}</p>
-        <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
-        <div class="actions">
-          <button type="button" class="btn-ghost" @click="wizardStep = 2">← К текстам</button>
-          <button type="submit" class="btn" :disabled="submitting || !canGoStep3 || !effectiveTargetUrl.trim()">
-            {{ submitting ? 'Создание…' : 'Создать бота в Telegram' }}
-          </button>
+          <label class="check">
+            <input v-model="autoStart" type="checkbox" />
+            Запустить бота сразу после создания
+          </label>
+          <div class="wizard-nav">
+            <button type="button" class="btn-ghost" @click="wizardStep = 1">← Назад</button>
+            <button type="button" class="btn btn-next" :disabled="!canGoStep3" @click="wizardStep = 3">
+              Далее: создание →
+            </button>
+          </div>
         </div>
-      </div>
-    </form>
+
+        <div v-show="wizardStep === 3" class="wizard-pane">
+          <p v-if="submitError" class="error-text">{{ submitError }}</p>
+          <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
+          <div class="actions">
+            <button type="button" class="btn-ghost" @click="wizardStep = 2">← К текстам</button>
+            <button type="submit" class="btn" :disabled="submitting || !canGoStep3 || !effectiveTargetUrl.trim()">
+              {{ submitting ? 'Создание…' : 'Создать бота в Telegram' }}
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <BotTelegramPreview
+        v-if="wizardStep >= 2"
+        :display-name="form.display_name"
+        :username="form.username"
+        :about-text="form.about_text"
+        :description="form.description"
+        :welcome-message="form.welcome_message"
+        :welcome-button-enabled="form.welcome_button_enabled"
+        :welcome-button-text="form.welcome_button_text"
+        :avatar-url="avatarPreviewUrl"
+        :public-link="linkPreview || ''"
+      />
+    </div>
   </div>
 </template>
 
@@ -136,6 +142,7 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
+import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
@@ -165,6 +172,7 @@ const submitError = ref(null);
 const autoStart = ref(true);
 const generateAvatar = ref(true);
 const avatarFile = ref(null);
+const avatarPreviewUrl = ref(null);
 const avatarPrompt = ref('');
 const form = ref({
   display_name: '',
@@ -368,7 +376,11 @@ onMounted(async () => {
 
 <style scoped>
 .bot-create {
-  max-width: 560px;
+  max-width: 100%;
+}
+
+.bot-create-body.form-with-preview {
+  max-width: 1100px;
 }
 
 .wizard-steps {
@@ -424,58 +436,9 @@ onMounted(async () => {
   flex: 1;
 }
 
-.page-header {
-  margin-bottom: 1.25rem;
-}
-
-.back {
-  font-size: 0.875rem;
-  color: var(--muted);
-}
-
-.page-header h1 {
-  margin: 0.35rem 0 0;
-}
-
-.subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.field-hint {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: 0.35rem;
-}
-
 .btn-ai {
   width: 100%;
   margin-top: 0.5rem;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 1rem 0;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.check input {
-  width: auto;
-}
-
-.actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.actions .btn {
-  flex: 1;
 }
 
 .url-from-campaign {

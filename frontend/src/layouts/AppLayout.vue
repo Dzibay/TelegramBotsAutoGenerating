@@ -20,14 +20,17 @@
     </header>
     <main class="main">
       <TaskProgressBanner />
-      <WorkflowNav />
+      <WorkflowNav v-if="!hideWorkflowNav" />
+      <PageBreadcrumb v-if="hideWorkflowNav" />
       <RouterView />
     </main>
   </div>
 </template>
 
 <script setup>
-import { RouterLink, RouterView, useRouter } from 'vue-router';
+import { computed } from 'vue';
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
+import PageBreadcrumb from '../components/PageBreadcrumb.vue';
 import TaskProgressBanner from '../components/TaskProgressBanner.vue';
 import WorkflowNav from '../components/WorkflowNav.vue';
 import { useAuthStore } from '../stores/authStore';
@@ -35,7 +38,10 @@ import { useWorkflowStore } from '../stores/workflowStore';
 
 const auth = useAuthStore();
 const workflow = useWorkflowStore();
+const route = useRoute();
 const router = useRouter();
+
+const hideWorkflowNav = computed(() => !!route.meta.hideWorkflowNav);
 
 function onLogout() {
   auth.logout();

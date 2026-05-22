@@ -3,7 +3,6 @@
   <div v-else-if="loadError" class="error-text">{{ loadError }}</div>
   <div v-else class="edit-page">
     <header class="page-header">
-      <RouterLink :to="{ name: 'campaign-workspace', params: { id } }" class="back">← Кампания</RouterLink>
       <h1>Настройки кампании</h1>
     </header>
 

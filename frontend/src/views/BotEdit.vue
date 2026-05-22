@@ -3,14 +3,13 @@
   <div v-else-if="loadError" class="error-text">{{ loadError }}</div>
   <div v-else class="bot-edit">
     <header class="page-header">
-      <RouterLink :to="backRoute" class="back">{{ backLabel }}</RouterLink>
       <div class="title-row">
         <h1>@{{ bot.username || bot.id }}</h1>
         <StatusBadge :status="bot.status" />
       </div>
     </header>
 
-    <p v-if="justCreated" class="success-banner card">Бот создан. Откройте его в Telegram по ссылке ниже и отправьте /start.</p>
+    <p v-if="justCreated" class="success-banner card">Бот создан. Откройте его в Telegram и отправьте /start.</p>
 
     <BotTelegramPanel
       :bot="bot"
@@ -18,6 +17,7 @@
       @verified="onVerified"
     />
 
+    <div class="form-with-preview">
     <form class="card form" @submit.prevent="onSave">
       <div class="form-group">
         <label>Ссылка на рекламируемый сервис</label>
@@ -33,12 +33,14 @@
         :keyword="form.keyword"
         :public-link="linkPreview"
         :avatar-url="avatarDisplayUrl"
+        collapse-long-fields
         @update:avatar-file="pendingAvatarFile = $event"
+        @update:avatar-preview="avatarPreviewUrl = $event"
       />
 
       <div class="form-group">
-        <label>Ключевая фраза</label>
-        <input v-model="form.keyword" />
+        <label>Ключевая фраза <span class="optional">(необязательно)</span></label>
+        <input v-model="form.keyword" placeholder="Только для повторной AI-генерации" />
       </div>
 
       <label class="check">
@@ -77,15 +79,29 @@
         <button type="button" class="btn-danger" :disabled="acting" @click="onDelete">Удалить</button>
       </div>
     </form>
+
+    <BotTelegramPreview
+      :display-name="profile.display_name"
+      :username="profile.username"
+      :about-text="profile.about_text"
+      :description="profile.description"
+      :welcome-message="profile.welcome_message"
+      :welcome-button-enabled="profile.welcome_button_enabled"
+      :welcome-button-text="profile.welcome_button_text"
+      :avatar-url="avatarPreviewUrl || avatarDisplayUrl"
+      :public-link="linkPreview"
+    />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPanel from '../components/BotTelegramPanel.vue';
+import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
@@ -110,10 +126,8 @@ const backRoute = computed(() => {
   return { name: 'dashboard' };
 });
 
-const backLabel = computed(() =>
-  bot.value?.campaign_id ? '← К кампании' : '← Кампании'
-);
 const loading = ref(true);
+const avatarPreviewUrl = ref(null);
 const loadError = ref(null);
 const saveError = ref(null);
 const saving = ref(false);
@@ -263,7 +277,13 @@ onMounted(load);
 
 <style scoped>
 .bot-edit {
-  max-width: 560px;
+  max-width: 1100px;
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .title-row {

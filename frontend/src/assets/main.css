@@ -417,6 +417,44 @@ details[open] summary {
   margin-top: 0.5rem;
 }
 
+.warn-banner {
+  margin: 0.5rem 0;
+  padding: 0.65rem 0.85rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #fde047;
+  background: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: var(--radius);
+}
+
+.warn-banner a {
+  color: var(--accent);
+}
+
+.form-with-preview {
+  display: grid;
+  grid-template-columns: 1fr minmax(280px, 340px);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .form-with-preview {
+    grid-template-columns: 1fr;
+  }
+}
+
+.bulk-table-scroll {
+  overflow-x: auto;
+  margin: 0 -0.25rem;
+  padding: 0 0.25rem;
+}
+
+.bulk-table-scroll .bulk-grid {
+  min-width: 720px;
+}
+
 .all-bots-link {
   display: inline-block;
   margin-top: 0.75rem;

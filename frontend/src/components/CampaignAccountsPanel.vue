@@ -4,8 +4,7 @@
       <div>
         <h3>Аккаунты Telegram</h3>
         <p class="panel-desc">
-          Добавьте подготовленные аккаунты и нажмите «Проверить», чтобы убедиться, что вход в Telegram работает.
-          Для массового создания ботов нужен статус «Готов». Счётчик ботов — как в Telegram.
+          Добавьте подготовленные аккаунты и нажмите «Проверить все». Для создания ботов нужен статус «Готов».
         </p>
       </div>
       <div v-if="accounts.length" class="head-actions">
@@ -42,12 +41,12 @@
         </div>
 
         <p class="acc-meta">
-          Ботов на аккаунте: {{ botCountLabel(a) }} / {{ a.max_bots_limit }}
+          Ботов: {{ botCountLabel(a) }} / {{ a.max_bots_limit }}
           <span v-if="a.bots_in_db != null && a.bots_in_db !== a.bots_created" class="sub-meta">
-            · в этой кампании: {{ a.bots_in_db }}
+            · в кампании: {{ a.bots_in_db }}
           </span>
-          <span v-if="a.tdata_on_disk === false" class="warn-tag">· нет файлов сессии</span>
-          <span v-else-if="a.can_create_bots" class="ok-tag">· можно создавать ботов</span>
+          <span v-if="a.tdata_on_disk === false" class="warn-tag">· нет экспорта</span>
+          <span v-else-if="a.can_create_bots" class="ok-tag">· можно создавать</span>
         </p>
 
         <p v-if="a.health_hint" class="health-hint">{{ a.health_hint }}</p>
@@ -74,9 +73,10 @@
             type="button"
             class="btn btn-sm btn-ghost"
             :disabled="botsBusyId === a.id || busy"
+            :aria-expanded="!!botsExpanded[a.id]"
             @click="toggleBots(a)"
           >
-            {{ botsBusyId === a.id ? 'Загрузка…' : botsExpanded[a.id] ? 'Скрыть ботов' : 'Показать ботов' }}
+            {{ botsBusyId === a.id ? 'Загрузка…' : botsExpanded[a.id] ? 'Скрыть список' : 'Боты на аккаунте' }}
           </button>
           <button
             type="button"

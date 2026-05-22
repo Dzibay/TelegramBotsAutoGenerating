@@ -37,7 +37,7 @@ const crumbs = computed(() => {
     'bot-edit': [...base, { label: 'Редактирование бота' }],
     'campaign-edit': [...base, { label: 'Настройки' }],
     'campaign-create': [{ label: 'Кампании', to: { name: 'dashboard' } }, { label: 'Новая кампания' }],
-    'account-prep': [{ label: 'Кампании', to: { name: 'dashboard' } }, { label: 'Подготовка аккаунтов' }],
+    'account-prep': [{ label: 'Аккаунты' }],
   };
 
   return map[route.name] || [];

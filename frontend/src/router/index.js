@@ -37,7 +37,7 @@ const routes = [
         redirect: () => ({ name: 'dashboard', query: { open: 'create_bot' } }),
       },
       { path: 'bots/:id/edit', name: 'bot-edit', component: BotEdit, meta: { hideWorkflowNav: true } },
-      { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep, meta: { hideWorkflowNav: true } },
+      { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

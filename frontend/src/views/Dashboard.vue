@@ -3,7 +3,7 @@
     <OnboardingModal :open="showOnboarding" @dismiss="showOnboarding = false" />
     <header class="dash-header">
       <div>
-        <h1>Шаг 1 — Кампания</h1>
+        <h1>Кампании</h1>
         <p class="subtitle">Создайте группу для аккаунтов и ботов. Ключевая фраза нужна только при генерации текстов AI.</p>
       </div>
       <RouterLink to="/app/campaigns/new" class="btn">+ Новая кампания</RouterLink>
@@ -23,7 +23,10 @@
       </li>
     </ol>
 
-    <p v-if="createBotHint" class="warn-banner card">{{ createBotHint }}</p>
+    <p v-if="route.query.hint === 'select_campaign'" class="warn-banner card">
+      Откройте кампанию из списка ниже — затем в шапке станет доступен раздел «Боты».
+    </p>
+    <p v-else-if="createBotHint" class="warn-banner card">{{ createBotHint }}</p>
     <p v-if="loadError" class="error-text">{{ loadError }}</p>
     <p v-else-if="loading" class="muted">Загрузка…</p>
     <div v-else-if="!campaigns.length" class="card empty-onboarding">

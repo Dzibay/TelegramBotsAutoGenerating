@@ -63,30 +63,32 @@
 
     <section v-show="activeTab === 'create'" class="create-hub card">
       <h2>Создание ботов</h2>
-      <p class="muted intro">У каждого бота — своя ключевая фраза. Выберите удобный способ.</p>
+      <p class="muted intro">
+        Тексты можно заполнить вручную или сгенерировать по фразе (AI). Фраза обязательна только для генерации.
+      </p>
       <div class="create-cards">
-        <RouterLink
-          :to="{ name: 'campaign-bot-create', params: { id: campaignId } }"
+        <component
+          :is="canOpenCreate ? 'RouterLink' : 'div'"
+          :to="canOpenCreate ? { name: 'campaign-bot-create', params: { id: campaignId } } : undefined"
           class="create-card create-card--primary"
+          :class="{ 'create-card--disabled': !canOpenCreate }"
+          :title="createBlockedReason || undefined"
         >
           <span class="cc-title">Один бот</span>
-          <span class="cc-desc">Пошагово: фраза → тексты → создание в Telegram. Основной способ.</span>
-        </RouterLink>
-        <RouterLink
-          :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
+          <span class="cc-desc">Пошагово: тексты вручную или через AI → создание в Telegram.</span>
+        </component>
+        <component
+          :is="canOpenCreate ? 'RouterLink' : 'div'"
+          :to="canOpenCreate ? { name: 'bulk-bot-create', params: { id: campaignId } } : undefined"
           class="create-card"
+          :class="{ 'create-card--disabled': !canOpenCreate }"
+          :title="createBlockedReason || undefined"
         >
           <span class="cc-title">Несколько ботов</span>
-          <span class="cc-desc">Список фраз, генерация всех текстов, правка и пакетное создание.</span>
-        </RouterLink>
+          <span class="cc-desc">Таблица: аккаунт, фраза для AI, имя и username, пакетное создание.</span>
+        </component>
       </div>
-      <p v-if="!campaign.resource_url" class="warn-banner">
-        Сначала укажите
-        <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">ссылку на сервис</RouterLink>.
-      </p>
-      <p v-if="readyAccountsCount === 0" class="warn-banner">
-        Нет готовых аккаунтов — перейдите на вкладку «Аккаунты» и нажмите «Проверить все».
-      </p>
+      <p v-if="createBlockedReason" class="warn-banner">{{ createBlockedReason }}</p>
     </section>
 
     <div v-show="activeTab === 'accounts'" class="grid-2">
@@ -117,18 +119,45 @@
     <section v-show="activeTab === 'list'" class="bots-list card">
       <div class="section-head">
         <h2>Боты кампании</h2>
-        <RouterLink :to="{ name: 'campaign-bot-create', params: { id: campaignId } }" class="btn btn-sm">
+        <RouterLink
+          v-if="canOpenCreate"
+          :to="{ name: 'campaign-bot-create', params: { id: campaignId } }"
+          class="btn btn-sm"
+        >
           + Один бот
         </RouterLink>
-        <RouterLink :to="{ name: 'bulk-bot-create', params: { id: campaignId } }" class="btn btn-sm btn-ghost">
+        <RouterLink
+          v-if="canOpenCreate"
+          :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
+          class="btn btn-sm btn-ghost"
+        >
           + Несколько
         </RouterLink>
       </div>
+
+      <div v-if="bots.length" class="bots-filters">
+        <input
+          v-model="botSearch"
+          type="search"
+          class="search-input"
+          placeholder="Поиск по имени, @username, фразе…"
+        />
+        <select v-model="botStatusFilter" class="filter-select">
+          <option value="">Все статусы</option>
+          <option value="active">Активные</option>
+          <option value="draft">Черновики</option>
+          <option value="creating">Создаются</option>
+          <option value="stopped">Остановлены</option>
+          <option value="error">С ошибкой</option>
+        </select>
+      </div>
+
       <p v-if="!bots.length" class="muted empty-bots">
         Пока нет ботов. Перейдите на вкладку «Создание».
       </p>
+      <p v-else-if="!filteredBots.length" class="muted empty-bots">Ничего не найдено. Измените поиск или фильтр.</p>
       <ul v-else class="mini-list bots">
-        <li v-for="b in bots" :key="b.id" class="bot-li">
+        <li v-for="b in filteredBots" :key="b.id" class="bot-li">
           <div class="bot-li-main">
             <strong>@{{ b.username || '—' }}</strong>
             <span v-if="b.keyword" class="bot-kw">«{{ b.keyword }}»</span>
@@ -240,6 +269,46 @@ let pollTimer = null;
 const readyAccountsCount = computed(
   () => accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots).length
 );
+
+const hasServiceUrl = computed(
+  () => !!(campaign.value.resource_url && String(campaign.value.resource_url).trim())
+);
+
+const canOpenCreate = computed(() => hasServiceUrl.value && readyAccountsCount.value > 0);
+
+const createBlockedReason = computed(() => {
+  if (!hasServiceUrl.value) {
+    return 'Сначала укажите ссылку на сервис в настройках кампании.';
+  }
+  if (readyAccountsCount.value === 0) {
+    return 'Нет готовых аккаунтов — на вкладке «Аккаунты» добавьте и нажмите «Проверить все».';
+  }
+  return null;
+});
+
+const botSearch = ref('');
+const botStatusFilter = ref('');
+
+const filteredBots = computed(() => {
+  let list = bots.value;
+  const q = botSearch.value.trim().toLowerCase();
+  if (botStatusFilter.value) {
+    list = list.filter((b) => b.status === botStatusFilter.value);
+  }
+  if (!q) return list;
+  return list.filter((b) => {
+    const hay = [
+      b.username,
+      b.display_name,
+      b.keyword,
+      String(b.id),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    return hay.includes(q);
+  });
+});
 
 const isPolling = computed(
   () => job.value && ['queued', 'running'].includes(job.value.status)
@@ -727,6 +796,39 @@ onUnmounted(stopPolling);
 .create-card--primary {
   border-color: rgba(59, 130, 246, 0.45);
   background: rgba(59, 130, 246, 0.08);
+}
+
+.create-card--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.bots-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.filter-select {
+  padding: 0.45rem 0.65rem;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
 }
 
 .cc-title {

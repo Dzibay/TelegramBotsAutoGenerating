@@ -3,7 +3,7 @@
   <div v-else-if="loadError" class="error-text">{{ loadError }}</div>
   <div v-else class="bot-edit">
     <header class="page-header">
-      <RouterLink to="/app/bots" class="back">← Боты</RouterLink>
+      <RouterLink :to="backRoute" class="back">{{ backLabel }}</RouterLink>
       <div class="title-row">
         <h1>@{{ bot.username || bot.id }}</h1>
         <StatusBadge :status="bot.status" />
@@ -37,7 +37,7 @@
       />
 
       <div class="form-group">
-        <label>Ключевое слово</label>
+        <label>Ключевая фраза</label>
         <input v-model="form.keyword" />
       </div>
 
@@ -97,6 +97,22 @@ const route = useRoute();
 const router = useRouter();
 const justCreated = computed(() => route.query.created === '1');
 const bot = ref({});
+
+const backRoute = computed(() => {
+  const cid = bot.value?.campaign_id;
+  if (cid) {
+    return {
+      name: 'campaign-workspace',
+      params: { id: cid },
+      query: { tab: 'list' },
+    };
+  }
+  return { name: 'dashboard' };
+});
+
+const backLabel = computed(() =>
+  bot.value?.campaign_id ? '← К кампании' : '← Кампании'
+);
 const loading = ref(true);
 const loadError = ref(null);
 const saveError = ref(null);
@@ -234,7 +250,7 @@ async function onDelete() {
       () => botService.remove(bot.value.id),
       { username: bot.value.username }
     );
-    router.push({ name: 'bots-hub' });
+    router.push(backRoute.value);
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка удаления';
   } finally {

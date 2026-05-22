@@ -1,7 +1,21 @@
 <template>
   <div class="layout">
     <header class="header">
-      <RouterLink to="/app" class="logo">TG Bots Generator</RouterLink>
+      <div class="header-left">
+        <RouterLink to="/app" class="logo">TG Bots Generator</RouterLink>
+        <RouterLink
+          v-if="workflow.activeCampaignId"
+          :to="{
+            name: 'campaign-workspace',
+            params: { id: workflow.activeCampaignId },
+            query: { tab: 'guide' },
+          }"
+          class="campaign-chip"
+          :title="workflow.activeCampaignTitle || 'Текущая кампания'"
+        >
+          {{ workflow.activeCampaignTitle || `Кампания #${workflow.activeCampaignId}` }}
+        </RouterLink>
+      </div>
       <button type="button" class="btn-ghost btn-sm" @click="onLogout">Выйти</button>
     </header>
     <main class="main">
@@ -17,8 +31,10 @@ import { RouterLink, RouterView, useRouter } from 'vue-router';
 import TaskProgressBanner from '../components/TaskProgressBanner.vue';
 import WorkflowNav from '../components/WorkflowNav.vue';
 import { useAuthStore } from '../stores/authStore';
+import { useWorkflowStore } from '../stores/workflowStore';
 
 const auth = useAuthStore();
+const workflow = useWorkflowStore();
 const router = useRouter();
 
 function onLogout() {
@@ -38,9 +54,38 @@ function onLogout() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.campaign-chip {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.campaign-chip:hover {
+  text-decoration: none;
+  border-color: var(--accent);
 }
 
 .logo {

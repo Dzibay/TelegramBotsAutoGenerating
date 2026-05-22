@@ -4,123 +4,128 @@
       <RouterLink v-if="campaignId" :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'create' } }" class="back">
         ← Создание ботов
       </RouterLink>
-      <RouterLink v-else to="/app/bots" class="back">← Боты</RouterLink>
+      <RouterLink v-else to="/app" class="back">← Кампании</RouterLink>
       <h1>Один бот</h1>
-      <p class="subtitle">Пошагово: ссылка и аккаунт → ключевая фраза → тексты → создание в Telegram.</p>
+      <p class="subtitle">Аккаунт и ссылка → тексты (вручную или через AI) → создание в Telegram.</p>
     </header>
 
     <div class="wizard-steps">
       <span :class="{ active: wizardStep >= 1, done: wizardStep > 1 }">1. Основное</span>
-      <span :class="{ active: wizardStep >= 2, done: wizardStep > 2 }">2. Фраза</span>
-      <span :class="{ active: wizardStep >= 3, done: wizardStep > 3 }">3. Тексты</span>
-      <span :class="{ active: wizardStep >= 4 }">4. Создание</span>
+      <span :class="{ active: wizardStep >= 2, done: wizardStep > 2 }">2. Тексты</span>
+      <span :class="{ active: wizardStep >= 3 }">3. Создание</span>
     </div>
 
     <form class="card form" @submit.prevent="onSubmit">
       <div v-show="wizardStep === 1" class="wizard-pane">
-      <div class="form-group">
-        <label>Ссылка на рекламируемый сервис *</label>
-        <input
-          v-model="targetUrl"
-          type="url"
-          required
-          placeholder="https://example.com/landing"
-        />
-        <p class="field-hint">Адрес сайта или лендинга, куда должны переходить пользователи.</p>
-      </div>
+        <div
+          v-if="campaignId && campaignResourceUrl && !useCustomUrl"
+          class="url-from-campaign card-inner"
+        >
+          <label>Ссылка на сервис</label>
+          <p class="url-value">
+            <a :href="campaignResourceUrl" target="_blank" rel="noopener noreferrer">{{ campaignResourceUrl }}</a>
+          </p>
+          <p class="field-hint">Из настроек кампании — для всех ботов по умолчанию.</p>
+          <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для этого бота</button>
+        </div>
+        <div v-else class="form-group">
+          <label>Ссылка на рекламируемый сервис *</label>
+          <input v-model="targetUrl" type="url" required placeholder="https://example.com/landing" />
+          <p class="field-hint">Адрес сайта или лендинга, куда должны переходить пользователи.</p>
+          <button
+            v-if="campaignId && campaignResourceUrl"
+            type="button"
+            class="link-btn"
+            @click="useCampaignUrl"
+          >
+            ← Вернуть ссылку из кампании
+          </button>
+        </div>
 
-      <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
+        <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
 
-      <div v-if="!routeCampaignId" class="form-group">
-        <label>Кампания</label>
-        <select v-model.number="campaignId" required @change="onCampaignChange">
-          <option :value="null" disabled>Выберите кампанию</option>
-          <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.title }}</option>
-        </select>
-      </div>
+        <div v-if="!routeCampaignId" class="form-group">
+          <label>Кампания</label>
+          <select v-model.number="campaignId" required @change="onCampaignChange">
+            <option :value="null" disabled>Выберите кампанию</option>
+            <option v-for="c in campaigns" :key="c.id" :value="c.id">{{ c.title }}</option>
+          </select>
+        </div>
 
-      <div class="form-group">
-        <label>Аккаунт Telegram</label>
-        <select v-model.number="accountId" required :disabled="!usableAccounts.length">
-          <option :value="null" disabled>Выберите аккаунт</option>
-          <option v-for="a in usableAccounts" :key="a.id" :value="a.id">
-            {{ accountOptionLabel(a) }}
-          </option>
-        </select>
-        <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
-          Нет готовых аккаунтов.
-          <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'accounts' } }">
-            Добавьте и проверьте аккаунты
-          </RouterLink>.
-        </p>
-      </div>
-      <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="wizardStep = 2">
-        Далее: ключевая фраза →
-      </button>
-      </div>
-
-      <div v-show="wizardStep === 2" class="wizard-pane">
-      <div class="form-group">
-        <label>Ключевая фраза для этого бота *</label>
-        <input
-          v-model="keyword"
-          type="text"
-          required
-          placeholder="например: vpn бот бесплатно"
-        />
-        <p class="field-hint">
-          По этой фразе подберутся имя, описание и приветствие. У каждого бота — своя фраза.
-        </p>
-      </div>
-      <div class="wizard-nav">
-        <button type="button" class="btn-ghost" @click="wizardStep = 1">← Назад</button>
-        <button type="button" class="btn btn-next" :disabled="!keyword.trim()" @click="wizardStep = 3">
+        <div class="form-group">
+          <label>Аккаунт Telegram</label>
+          <select v-model.number="accountId" required :disabled="!usableAccounts.length">
+            <option :value="null" disabled>Выберите аккаунт</option>
+            <option v-for="a in usableAccounts" :key="a.id" :value="a.id">
+              {{ accountOptionLabel(a) }}
+            </option>
+          </select>
+          <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
+            Нет готовых аккаунтов.
+            <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'accounts' } }">
+              Добавьте и проверьте аккаунты
+            </RouterLink>.
+          </p>
+        </div>
+        <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="wizardStep = 2">
           Далее: тексты →
         </button>
       </div>
+
+      <div v-show="wizardStep === 2" class="wizard-pane">
+        <div class="ai-block card-inner">
+          <div class="form-group">
+            <label>Ключевая фраза <span class="optional">(только для AI)</span></label>
+            <input
+              v-model="keyword"
+              type="text"
+              placeholder="например: vpn бот бесплатно"
+            />
+            <p class="field-hint">
+              Необязательно, если заполняете имя и тексты вручную. Для кнопки генерации фраза обязательна.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="btn-ai"
+            :disabled="!campaignId || !accountId || !effectiveTargetUrl.trim() || !keyword.trim() || generating"
+            @click="onGenerate"
+          >
+            {{ generating ? 'Генерация…' : '✨ Заполнить тексты по фразе (AI)' }}
+          </button>
+        </div>
+
+        <BotProfileFields
+          v-model="form"
+          v-model:generate-avatar="generateAvatar"
+          :keyword="keyword"
+          :avatar-prompt="avatarPrompt"
+          :public-link="linkPreview || ''"
+          show-generate-on-create
+          @update:avatar-file="avatarFile = $event"
+        />
+
+        <label class="check">
+          <input v-model="autoStart" type="checkbox" />
+          Запустить бота сразу после создания
+        </label>
+        <div class="wizard-nav">
+          <button type="button" class="btn-ghost" @click="wizardStep = 1">← Назад</button>
+          <button type="button" class="btn btn-next" :disabled="!canGoStep3" @click="wizardStep = 3">
+            Далее: создание →
+          </button>
+        </div>
       </div>
 
       <div v-show="wizardStep === 3" class="wizard-pane">
-      <button
-        type="button"
-        class="btn-ai"
-        :disabled="!campaignId || !accountId || !targetUrl.trim() || !keyword.trim() || generating"
-        @click="onGenerate"
-      >
-        {{ generating ? 'Генерация…' : '✨ Заполнить тексты по фразе' }}
-      </button>
-
-      <BotProfileFields
-        v-model="form"
-        v-model:generate-avatar="generateAvatar"
-        :keyword="keyword"
-        :avatar-prompt="avatarPrompt"
-        :public-link="linkPreview || ''"
-        show-generate-on-create
-        @update:avatar-file="avatarFile = $event"
-      />
-
-      <label class="check">
-        <input v-model="autoStart" type="checkbox" />
-        Запустить бота сразу после создания
-      </label>
-      <div class="wizard-nav">
-        <button type="button" class="btn-ghost" @click="wizardStep = 2">← Назад</button>
-        <button type="button" class="btn btn-next" :disabled="!form.display_name || !form.username" @click="wizardStep = 4">
-          Далее: создание →
-        </button>
-      </div>
-      </div>
-
-      <div v-show="wizardStep === 4" class="wizard-pane">
-      <p v-if="submitError" class="error-text">{{ submitError }}</p>
-      <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
-      <div class="actions">
-        <button type="button" class="btn-ghost" @click="wizardStep = 3">← К текстам</button>
-        <button type="submit" class="btn" :disabled="submitting || !targetUrl.trim() || !keyword.trim()">
-          {{ submitting ? 'Создание…' : 'Создать бота в Telegram' }}
-        </button>
-      </div>
+        <p v-if="submitError" class="error-text">{{ submitError }}</p>
+        <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
+        <div class="actions">
+          <button type="button" class="btn-ghost" @click="wizardStep = 2">← К текстам</button>
+          <button type="submit" class="btn" :disabled="submitting || !canGoStep3 || !effectiveTargetUrl.trim()">
+            {{ submitting ? 'Создание…' : 'Создать бота в Telegram' }}
+          </button>
+        </div>
       </div>
     </form>
   </div>
@@ -137,7 +142,6 @@ import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 
 const taskStore = useAsyncTaskStore();
-
 const route = useRoute();
 const router = useRouter();
 
@@ -147,11 +151,10 @@ const campaigns = ref([]);
 const accounts = ref([]);
 const campaignId = ref(routeCampaignId || (route.query.campaign_id ? Number(route.query.campaign_id) : null));
 
-const canGoStep2 = computed(
-  () => campaignId.value && accountId.value && targetUrl.value.trim() && usableAccounts.value.length
-);
-const accountId = ref(null);
+const campaignResourceUrl = ref('');
+const useCustomUrl = ref(false);
 const targetUrl = ref('');
+const accountId = ref(null);
 const keyword = ref('');
 const linkMode = ref('redirect');
 const redirectSlug = ref(null);
@@ -182,18 +185,42 @@ const STATUS_LABELS = {
   disabled: 'отключён',
 };
 
+const effectiveTargetUrl = computed(() => {
+  if (campaignId.value && campaignResourceUrl.value && !useCustomUrl.value) {
+    return campaignResourceUrl.value;
+  }
+  return targetUrl.value;
+});
+
+const canGoStep2 = computed(
+  () =>
+    campaignId.value &&
+    accountId.value &&
+    effectiveTargetUrl.value.trim() &&
+    usableAccounts.value.length
+);
+
+const canGoStep3 = computed(
+  () => !!form.value.display_name?.trim() && !!form.value.username?.trim()
+);
+
 const linkPreview = computed(() => {
   if (draftPublicLink.value) return draftPublicLink.value;
-  if (linkMode.value === 'direct' && targetUrl.value.trim()) return targetUrl.value.trim();
+  if (linkMode.value === 'direct' && effectiveTargetUrl.value.trim()) return effectiveTargetUrl.value.trim();
   return null;
 });
+
+function useCampaignUrl() {
+  useCustomUrl.value = false;
+  targetUrl.value = campaignResourceUrl.value;
+}
 
 const usableAccounts = computed(() =>
   accounts.value.filter((a) => {
     if (a.status === 'disabled') return false;
     if (a.bots_created >= a.max_bots_limit) return false;
     return ['ready', 'creating', 'pending', 'error', 'exhausted'].includes(a.status);
-  }),
+  })
 );
 
 function accountOptionLabel(a) {
@@ -202,12 +229,27 @@ function accountOptionLabel(a) {
   return `${name} — ${st} (${a.bots_created}/${a.max_bots_limit} ботов)`;
 }
 
+async function loadCampaignMeta() {
+  if (!campaignId.value) {
+    campaignResourceUrl.value = '';
+    return;
+  }
+  const data = await campaignService.get(campaignId.value);
+  campaignResourceUrl.value = data.campaign?.resource_url || '';
+  if (campaignResourceUrl.value) {
+    if (!useCustomUrl.value) targetUrl.value = campaignResourceUrl.value;
+  } else {
+    useCustomUrl.value = true;
+  }
+}
+
 async function loadCampaigns() {
   campaigns.value = await campaignService.list();
   if (campaignId.value) {
     const c = campaigns.value.find((x) => x.id === campaignId.value);
-    if (c?.resource_url && !targetUrl.value) {
-      targetUrl.value = c.resource_url;
+    if (c?.resource_url) {
+      campaignResourceUrl.value = c.resource_url;
+      if (!useCustomUrl.value) targetUrl.value = c.resource_url;
     }
   }
 }
@@ -218,37 +260,36 @@ async function loadAccounts() {
     return;
   }
   accounts.value = await campaignService.getAccounts(campaignId.value);
-  const pick = usableAccounts.value.find((a) => a.status === 'ready' || a.status === 'creating')
-    ?? usableAccounts.value[0];
+  const pick =
+    usableAccounts.value.find((a) => a.status === 'ready' || a.status === 'creating') ??
+    usableAccounts.value[0];
   accountId.value = pick?.id ?? null;
-}
-
-async function loadKeywordContext() {
-  if (!campaignId.value) {
-    keyword.value = '';
-    return;
-  }
-  /* keyword вводится вручную для каждого бота */
 }
 
 async function onCampaignChange() {
   accountId.value = null;
   keyword.value = '';
   const c = campaigns.value.find((x) => x.id === campaignId.value);
-  if (c?.resource_url) targetUrl.value = c.resource_url;
+  if (c?.resource_url) {
+    campaignResourceUrl.value = c.resource_url;
+    if (!useCustomUrl.value) targetUrl.value = c.resource_url;
+  }
   await loadAccounts();
-  await loadKeywordContext();
 }
 
 async function onGenerate() {
+  if (!keyword.value.trim()) {
+    submitError.value = 'Укажите ключевую фразу для генерации текстов нейросетью';
+    return;
+  }
   generating.value = true;
   submitError.value = null;
   try {
     const draft = await botService.generateDraft({
       campaignId: campaignId.value,
       accountId: accountId.value,
-      targetUrl: targetUrl.value.trim(),
-      keyword: keyword.value || undefined,
+      targetUrl: effectiveTargetUrl.value.trim(),
+      keyword: keyword.value.trim(),
       redirectSlug: redirectSlug.value,
       linkMode: linkMode.value,
     });
@@ -265,9 +306,7 @@ async function onGenerate() {
     form.value.welcome_button_text = draft.welcome_button_text || 'Перейти по ссылке';
     avatarPrompt.value = draft.avatar_prompt || '';
     if (draft.keyword) keyword.value = draft.keyword;
-    if (draft.ai_hint) {
-      submitError.value = draft.ai_hint;
-    }
+    if (draft.ai_hint) submitError.value = draft.ai_hint;
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Ошибка генерации AI';
   } finally {
@@ -276,6 +315,11 @@ async function onGenerate() {
 }
 
 async function onSubmit() {
+  if (!canGoStep3.value) {
+    submitError.value = 'Заполните имя и username бота';
+    wizardStep.value = 2;
+    return;
+  }
   submitting.value = true;
   submitError.value = null;
   const uname = form.value.username.replace(/^@/, '');
@@ -287,7 +331,7 @@ async function onSubmit() {
           {
             campaign_id: campaignId.value,
             telegram_account_id: accountId.value,
-            target_url: targetUrl.value.trim(),
+            target_url: effectiveTargetUrl.value.trim(),
             display_name: form.value.display_name,
             username: uname,
             description: form.value.description,
@@ -295,7 +339,7 @@ async function onSubmit() {
             welcome_message: form.value.welcome_message,
             welcome_button_enabled: form.value.welcome_button_enabled,
             welcome_button_text: form.value.welcome_button_text,
-            keyword: keyword.value || null,
+            keyword: keyword.value.trim() || null,
             redirect_slug: redirectSlug.value,
             link_mode: linkMode.value,
             create_via_botfather: true,
@@ -317,8 +361,8 @@ async function onSubmit() {
 watch(campaignId, loadAccounts);
 onMounted(async () => {
   await loadCampaigns();
+  await loadCampaignMeta();
   await loadAccounts();
-  await loadKeywordContext();
 });
 </script>
 
@@ -356,6 +400,20 @@ onMounted(async () => {
   border-color: rgba(34, 197, 94, 0.35);
 }
 
+.ai-block {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.optional {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .wizard-nav {
   display: flex;
   gap: 0.5rem;
@@ -391,29 +449,9 @@ onMounted(async () => {
   margin-top: 0.35rem;
 }
 
-.preview-tracking {
-  margin-bottom: 1rem;
-  padding: 0.65rem 0.75rem;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.preview-label {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--muted);
-  margin-bottom: 0.35rem;
-}
-
-.preview-tracking code {
-  font-size: 0.8rem;
-  word-break: break-all;
-}
-
 .btn-ai {
   width: 100%;
-  margin: 0.5rem 0 1rem;
+  margin-top: 0.5rem;
   background: linear-gradient(135deg, #3b82f6, #8b5cf6);
 }
 
@@ -438,5 +476,23 @@ onMounted(async () => {
 
 .actions .btn {
   flex: 1;
+}
+
+.url-from-campaign {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.url-value {
+  margin: 0.35rem 0;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.url-value a {
+  color: var(--accent);
 }
 </style>

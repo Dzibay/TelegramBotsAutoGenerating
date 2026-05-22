@@ -1,9 +1,10 @@
 <template>
   <div>
+    <OnboardingModal :open="showOnboarding" @dismiss="showOnboarding = false" />
     <header class="dash-header">
       <div>
         <h1>Шаг 1 — Кампания</h1>
-        <p class="subtitle">Создайте группу для аккаунтов и ботов. Ключевые фразы задаются при создании каждого бота.</p>
+        <p class="subtitle">Создайте группу для аккаунтов и ботов. Ключевая фраза нужна только при генерации текстов AI.</p>
       </div>
       <RouterLink to="/app/campaigns/new" class="btn">+ Новая кампания</RouterLink>
     </header>
@@ -18,17 +19,21 @@
         и добавьте в кампанию
       </li>
       <li>
-        <strong>Боты</strong> — по одному или списком: у каждого бота своя ключевая фраза
+        <strong>Боты</strong> — по одному или таблицей; фраза только если нужен AI
       </li>
     </ol>
 
+    <p v-if="createBotHint" class="warn-banner card">{{ createBotHint }}</p>
     <p v-if="loadError" class="error-text">{{ loadError }}</p>
     <p v-else-if="loading" class="muted">Загрузка…</p>
-    <p v-else-if="!campaigns.length" class="muted card empty">
-      Пока нет кампаний.
-      <RouterLink to="/app/campaigns/new">Создайте первую</RouterLink>
-      — это займёт минуту.
-    </p>
+    <div v-else-if="!campaigns.length" class="card empty-onboarding">
+      <p><strong>Начните с кампании</strong></p>
+      <p class="muted">Группа для аккаунтов и ботов. Дальше — подготовка Telegram и создание ботов.</p>
+      <div class="empty-actions">
+        <RouterLink to="/app/campaigns/new" class="btn">Создать кампанию</RouterLink>
+        <RouterLink to="/app/accounts/prepare" class="btn btn-ghost">Подготовить аккаунты</RouterLink>
+      </div>
+    </div>
 
     <ul v-else class="list">
       <li v-for="c in campaigns" :key="c.id" class="card item">
@@ -58,14 +63,19 @@
 
 <script setup>
 import { onMounted, ref } from 'vue';
-import { RouterLink, useRouter } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
+import OnboardingModal from '../components/OnboardingModal.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { campaignService } from '../services/campaignService';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { shouldShowOnboarding } from '../utils/onboarding';
 
+const route = useRoute();
 const router = useRouter();
 const workflow = useWorkflowStore();
 const campaigns = ref([]);
+const createBotHint = ref(null);
+const showOnboarding = ref(false);
 const loading = ref(true);
 const loadError = ref(null);
 
@@ -97,7 +107,21 @@ async function load() {
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  showOnboarding.value = shouldShowOnboarding();
+  await load();
+  if (route.query.open === 'create_bot') {
+    if (workflow.activeCampaignId) {
+      router.replace({
+        name: 'campaign-bot-create',
+        params: { id: workflow.activeCampaignId },
+      });
+    } else {
+      createBotHint.value =
+        'Чтобы создать бота, сначала откройте кампанию из списка ниже или создайте новую.';
+    }
+  }
+});
 </script>
 
 <style scoped>
@@ -137,9 +161,17 @@ onMounted(load);
   color: #86efac;
 }
 
-.empty {
+.empty-onboarding {
   text-align: center;
   padding: 2rem;
+}
+
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 1rem;
 }
 
 .list {
@@ -194,5 +226,14 @@ onMounted(load);
 .chevron {
   color: var(--muted);
   font-size: 1.25rem;
+}
+
+.warn-banner {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  color: #fcd34d;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.35);
 }
 </style>

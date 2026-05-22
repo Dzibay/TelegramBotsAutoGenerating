@@ -3,7 +3,7 @@
     <header class="page-header">
       <RouterLink to="/app" class="back">← Кампании</RouterLink>
       <h1>Новая кампания</h1>
-      <p class="subtitle">Придумайте название и выберите аккаунты. Ботов можно добавить позже на странице «Боты».</p>
+      <p class="subtitle">Название, ссылка на сервис и аккаунты. Ботов добавите на шаге «Боты» в кампании.</p>
     </header>
 
     <div class="steps">
@@ -49,17 +49,6 @@
           <PreparedAccountPicker v-model="selectedPreparedIds" />
         </div>
 
-        <details class="optional-mass">
-          <summary>Сразу создать ботов автоматически</summary>
-          <p class="field-hint">
-            После создания кампании запустится массовое создание: до 20 ботов на аккаунт с текстами от AI.
-          </p>
-          <label class="checkbox-row">
-            <input v-model="autoStart" type="checkbox" />
-            Запустить создание ботов сразу после сохранения
-          </label>
-        </details>
-
         <div class="summary card-inner" v-if="form.title">
           <ul>
             <li><strong>Название:</strong> {{ form.title }}</li>
@@ -97,7 +86,6 @@ const step = ref(1);
 const submitting = ref(false);
 const submitError = ref(null);
 const selectedPreparedIds = ref([]);
-const autoStart = ref(false);
 const form = ref({ title: '', resource_url: '' });
 
 async function onSubmit() {
@@ -189,19 +177,6 @@ async function onSubmit() {
   margin: 0.35rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
-}
-
-.optional-mass {
-  margin: 1rem 0;
-  padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 0.875rem;
-}
-
-.optional-mass summary {
-  cursor: pointer;
-  font-weight: 600;
 }
 
 .btn-next {

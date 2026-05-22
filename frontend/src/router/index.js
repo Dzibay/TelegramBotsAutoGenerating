@@ -7,7 +7,6 @@ const Dashboard = () => import('../views/Dashboard.vue');
 const CampaignCreate = () => import('../views/CampaignCreate.vue');
 const CampaignDetail = () => import('../views/CampaignDetail.vue');
 const AccountPrep = () => import('../views/AccountPrep.vue');
-const BotsHub = () => import('../views/BotsHub.vue');
 const BotCreate = () => import('../views/BotCreate.vue');
 const BotEdit = () => import('../views/BotEdit.vue');
 const CampaignEdit = () => import('../views/CampaignEdit.vue');
@@ -27,8 +26,11 @@ const routes = [
       { path: 'campaigns/:id/bots/bulk', name: 'bulk-bot-create', component: () => import('../views/BulkBotCreate.vue') },
       { path: 'campaigns/:id/bots/new', name: 'campaign-bot-create', component: BotCreate },
       { path: 'campaigns/:id/edit', name: 'campaign-edit', component: CampaignEdit },
-      { path: 'bots', name: 'bots-hub', component: BotsHub },
-      { path: 'bots/new', name: 'bot-create', component: BotCreate },
+      { path: 'bots', redirect: { name: 'dashboard' } },
+      {
+        path: 'bots/new',
+        redirect: () => ({ name: 'dashboard', query: { open: 'create_bot' } }),
+      },
       { path: 'bots/:id/edit', name: 'bot-edit', component: BotEdit },
       { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep },
     ],

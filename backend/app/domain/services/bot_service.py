@@ -241,9 +241,9 @@ async def generate_bot_draft(
 
     kw = (keyword or "").strip()
     if not kw:
-        kw = await campaign_service.suggest_keyword(campaign_id, None)
-    if not kw:
-        raise BadRequestError("Укажите ключевую фразу для этого бота.")
+        raise BadRequestError(
+            "Укажите ключевую фразу — она нужна только для генерации текстов нейросетью."
+        )
     concept = {
         "keyword": kw,
         "display_name": f"{kw.title()} Bot",

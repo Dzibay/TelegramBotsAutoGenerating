@@ -107,7 +107,7 @@
 
         <div class="card pool-card">
           <h3>Готовые аккаунты</h3>
-          <p class="hint">После успешной подготовки их можно выбрать при создании кампании.</p>
+          <p class="hint">После успешной подготовки добавьте их в кампанию.</p>
           <p v-if="poolLoading" class="muted">Загрузка…</p>
           <ul v-else-if="poolAccounts.length" class="pool-list">
             <li v-for="a in poolAccounts" :key="a.id">
@@ -116,6 +116,27 @@
             </li>
           </ul>
           <p v-else class="muted">Пока нет подготовленных аккаунтов.</p>
+
+          <div v-if="readyPoolCount" class="add-campaign-cta">
+            <p class="cta-text">
+              {{ readyPoolCount }} {{ readyPoolLabel }} готовы к добавлению в кампанию.
+            </p>
+            <RouterLink
+              v-if="workflow.activeCampaignId"
+              :to="{
+                name: 'campaign-workspace',
+                params: { id: workflow.activeCampaignId },
+                query: { tab: 'accounts' },
+              }"
+              class="btn btn-sm"
+            >
+              Добавить в «{{ workflow.activeCampaignTitle || 'кампанию' }}»
+            </RouterLink>
+            <template v-else>
+              <RouterLink to="/app" class="btn btn-sm">Выбрать кампанию</RouterLink>
+              <RouterLink to="/app/campaigns/new" class="btn btn-sm btn-ghost">Создать кампанию</RouterLink>
+            </template>
+          </div>
         </div>
 
         <div v-if="pastJobs.length" class="card">
@@ -136,6 +157,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
+import { useWorkflowStore } from '../stores/workflowStore';
 import AccountDropzone from '../components/AccountDropzone.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
@@ -145,6 +167,7 @@ import { prepService } from '../services/prepService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 
 const taskStore = useAsyncTaskStore();
+const workflow = useWorkflowStore();
 
 const files = ref([]);
 const submitting = ref(false);
@@ -173,6 +196,17 @@ let pollTimer = null;
 const isPolling = computed(
   () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
 );
+
+const readyPoolCount = computed(
+  () => poolAccounts.value.filter((a) => a.status === 'available').length
+);
+
+const readyPoolLabel = computed(() => {
+  const n = readyPoolCount.value;
+  if (n === 1) return 'аккаунт';
+  if (n >= 2 && n <= 4) return 'аккаунта';
+  return 'аккаунтов';
+});
 
 watch(isPolling, (on) => {
   if (on) startPolling();
@@ -450,5 +484,24 @@ onUnmounted(stopPolling);
   padding: 0.35rem 0;
   font-size: 0.85rem;
   border-bottom: 1px solid var(--border);
+}
+
+.add-campaign-cta {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.cta-text {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #86efac;
+}
+
+.add-campaign-cta .btn {
+  align-self: flex-start;
 }
 </style>

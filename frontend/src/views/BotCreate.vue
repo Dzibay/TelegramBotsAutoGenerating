@@ -4,7 +4,7 @@
       <RouterLink to="/app/bots" class="back">← Боты</RouterLink>
       <h1>Создание бота</h1>
       <p class="subtitle">
-        Укажите ссылку на сервис и выберите: трекинг /go/… (по умолчанию) или прямая ссылка в текстах бота
+        Укажите ссылку на сайт, выберите кампанию и аккаунт — остальное можно сгенерировать автоматически.
       </p>
     </header>
 
@@ -17,7 +17,7 @@
           required
           placeholder="https://example.com/landing"
         />
-        <p class="field-hint">Целевой URL сервиса (куда ведёт редирект при режиме «трекинг»).</p>
+        <p class="field-hint">Адрес сайта или лендинга, куда должны переходить пользователи.</p>
       </div>
 
       <BotLinkModeField v-model="linkMode" :preview-url="linkPreview || ''" />
@@ -68,7 +68,7 @@
         :disabled="!campaignId || !accountId || !targetUrl.trim() || !keyword || generating"
         @click="onGenerate"
       >
-        {{ generating ? 'Генерация…' : '✨ Сгенерировать поля (переезд + ссылка)' }}
+        {{ generating ? 'Генерация…' : '✨ Заполнить тексты автоматически' }}
       </button>
 
       <BotProfileFields
@@ -87,6 +87,7 @@
       </label>
 
       <p v-if="submitError" class="error-text">{{ submitError }}</p>
+      <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
       <div class="actions">
         <RouterLink to="/app/bots" class="btn-ghost">Отмена</RouterLink>
         <button type="submit" class="btn" :disabled="submitting || !targetUrl.trim()">
@@ -102,8 +103,12 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
+import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
+import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+
+const taskStore = useAsyncTaskStore();
 
 const route = useRoute();
 const router = useRouter();
@@ -141,7 +146,7 @@ const STATUS_LABELS = {
   creating: 'создание',
   pending: 'ожидание',
   error: 'ошибка',
-  exhausted: 'лимит',
+  exhausted: 'лимит ботов',
   disabled: 'отключён',
 };
 
@@ -254,27 +259,33 @@ async function onGenerate() {
 async function onSubmit() {
   submitting.value = true;
   submitError.value = null;
+  const uname = form.value.username.replace(/^@/, '');
   try {
-    const bot = await botService.create(
-      {
-        campaign_id: campaignId.value,
-        telegram_account_id: accountId.value,
-        target_url: targetUrl.value.trim(),
-        display_name: form.value.display_name,
-        username: form.value.username.replace(/^@/, ''),
-        description: form.value.description,
-        about_text: form.value.about_text,
-        welcome_message: form.value.welcome_message,
-        welcome_button_enabled: form.value.welcome_button_enabled,
-        welcome_button_text: form.value.welcome_button_text,
-        keyword: keyword.value || null,
-        redirect_slug: redirectSlug.value,
-        link_mode: linkMode.value,
-        create_via_botfather: true,
-        auto_start: autoStart.value,
-        generate_avatar: generateAvatar.value,
-      },
-      avatarFile.value
+    const bot = await taskStore.run(
+      'CREATE_BOT',
+      () =>
+        botService.create(
+          {
+            campaign_id: campaignId.value,
+            telegram_account_id: accountId.value,
+            target_url: targetUrl.value.trim(),
+            display_name: form.value.display_name,
+            username: uname,
+            description: form.value.description,
+            about_text: form.value.about_text,
+            welcome_message: form.value.welcome_message,
+            welcome_button_enabled: form.value.welcome_button_enabled,
+            welcome_button_text: form.value.welcome_button_text,
+            keyword: keyword.value || null,
+            redirect_slug: redirectSlug.value,
+            link_mode: linkMode.value,
+            create_via_botfather: true,
+            auto_start: autoStart.value,
+            generate_avatar: generateAvatar.value,
+          },
+          avatarFile.value
+        ),
+      { username: uname }
     );
     router.push({ name: 'bot-edit', params: { id: bot.id }, query: { created: '1' } });
   } catch (e) {

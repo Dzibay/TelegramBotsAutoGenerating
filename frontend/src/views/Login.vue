@@ -2,7 +2,7 @@
   <div class="auth-page">
     <form class="card auth-form" @submit.prevent="onSubmit">
       <h1>Telegram Bots Generator</h1>
-      <p class="muted">Вход по паролю администратора</p>
+      <p class="muted">Вход в панель управления</p>
       <div class="form-group">
         <label for="password">Пароль</label>
         <input
@@ -11,7 +11,7 @@
           type="password"
           required
           autocomplete="current-password"
-          placeholder="Пароль из ADMIN_PASSWORD"
+          placeholder="Введите пароль"
         />
       </div>
       <p v-if="auth.error" class="error-text">{{ auth.error }}</p>

@@ -1,9 +1,14 @@
 <template>
   <div class="log-panel card">
     <header class="log-header">
-      <h3>Журнал выполнения</h3>
-      <span v-if="polling" class="live-dot" title="Обновление">● live</span>
+      <h3>Журнал задачи</h3>
+      <span v-if="polling" class="live-dot" title="Обновляется автоматически">● идёт</span>
     </header>
+
+    <div v-if="polling" class="job-progress" role="progressbar" aria-valuetext="Задача выполняется">
+      <div class="job-progress-fill" />
+      <span class="job-progress-label">Идёт массовое создание ботов — подробности в записях ниже</span>
+    </div>
 
     <p v-if="!logs.length && !loading" class="muted empty">Логи появятся после запуска задачи</p>
     <p v-else-if="loading && !logs.length" class="muted empty">Загрузка…</p>
@@ -76,6 +81,39 @@ watch(
   font-size: 0.75rem;
   color: #4ade80;
   animation: pulse 1.5s infinite;
+}
+
+.job-progress {
+  padding: 0.5rem 1rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.job-progress-fill {
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(
+    90deg,
+    rgba(59, 130, 246, 0.2) 0%,
+    var(--accent) 50%,
+    rgba(59, 130, 246, 0.2) 100%
+  );
+  background-size: 200% 100%;
+  animation: job-shimmer 1.4s ease-in-out infinite;
+  margin-bottom: 0.35rem;
+}
+
+.job-progress-label {
+  font-size: 0.72rem;
+  color: #93c5fd;
+}
+
+@keyframes job-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
 }
 
 @keyframes pulse {

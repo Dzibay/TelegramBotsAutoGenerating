@@ -15,7 +15,7 @@
       <div class="form-group">
         <label>Ссылка на рекламируемый сервис</label>
         <input v-model="resourceUrl" type="url" placeholder="https://..." />
-        <p class="field-hint">Нужна для массового создания ботов (трекинг /go/…)</p>
+        <p class="field-hint">Используется при массовом и ручном создании ботов</p>
       </div>
 
       <CampaignKeywordsEditor

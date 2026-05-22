@@ -10,7 +10,7 @@
       </div>
     </header>
 
-    <p v-if="justCreated" class="success-banner card">Бот создан. Откройте ссылку ниже и проверьте работу.</p>
+    <p v-if="justCreated" class="success-banner card">Бот создан. Откройте его в Telegram по ссылке ниже и отправьте /start.</p>
 
     <BotTelegramPanel
       :bot="bot"
@@ -22,7 +22,7 @@
       <div class="form-group">
         <label>Ссылка на рекламируемый сервис</label>
         <input v-model="form.target_url" type="url" required placeholder="https://..." />
-        <p class="field-hint">Целевой URL (при режиме «трекинг» — конечная точка редиректа).</p>
+        <p class="field-hint">Сайт, на который ведёт ссылка из бота (при включённом счётчике переходов).</p>
       </div>
 
       <BotLinkModeField v-model="form.link_mode" :preview-url="linkPreview" />
@@ -43,7 +43,7 @@
 
       <label class="check">
         <input v-model="form.sync_botfather" type="checkbox" />
-        Применить в BotFather (имя, описание, профиль, аватар)
+        Обновить в Telegram (имя, описание, аватар)
       </label>
       <label v-if="form.sync_botfather" class="check">
         <input v-model="form.generate_avatar" type="checkbox" />
@@ -51,6 +51,16 @@
       </label>
 
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
+      <InlineTaskIndicator
+        v-if="saving && form.sync_botfather"
+        :username="bot.username"
+        fallback-label="Обновляем профиль в Telegram…"
+      />
+      <InlineTaskIndicator
+        v-if="acting"
+        :username="bot.username"
+        fallback-label="Операция с ботом…"
+      />
       <div class="actions">
         <button
           v-if="bot.status !== 'active'"
@@ -76,8 +86,12 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPanel from '../components/BotTelegramPanel.vue';
+import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
+import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+
+const taskStore = useAsyncTaskStore();
 
 const route = useRoute();
 const router = useRouter();
@@ -148,24 +162,34 @@ async function load() {
 async function onSave() {
   saving.value = true;
   saveError.value = null;
+  const syncBf = form.value.sync_botfather;
   try {
-    if (pendingAvatarFile.value) {
-      bot.value = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
-      pendingAvatarFile.value = null;
+    const runUpdate = async () => {
+      if (pendingAvatarFile.value) {
+        bot.value = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
+        pendingAvatarFile.value = null;
+      }
+      bot.value = await botService.update(bot.value.id, {
+        target_url: form.value.target_url,
+        link_mode: form.value.link_mode,
+        display_name: profile.value.display_name,
+        description: profile.value.description,
+        about_text: profile.value.about_text,
+        welcome_message: profile.value.welcome_message,
+        welcome_button_enabled: profile.value.welcome_button_enabled,
+        welcome_button_text: profile.value.welcome_button_text,
+        keyword: form.value.keyword,
+        sync_botfather: syncBf,
+        generate_avatar: form.value.generate_avatar,
+      });
+    };
+    if (syncBf) {
+      await taskStore.run('SYNC_BOTFATHER', runUpdate, {
+        username: bot.value.username,
+      });
+    } else {
+      await runUpdate();
     }
-    bot.value = await botService.update(bot.value.id, {
-      target_url: form.value.target_url,
-      link_mode: form.value.link_mode,
-      display_name: profile.value.display_name,
-      description: profile.value.description,
-      about_text: profile.value.about_text,
-      welcome_message: profile.value.welcome_message,
-      welcome_button_enabled: profile.value.welcome_button_enabled,
-      welcome_button_text: profile.value.welcome_button_text,
-      keyword: form.value.keyword,
-      sync_botfather: form.value.sync_botfather,
-      generate_avatar: form.value.generate_avatar,
-    });
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка сохранения';
   } finally {
@@ -205,7 +229,11 @@ async function onDelete() {
   if (!confirm('Удалить бота?')) return;
   acting.value = true;
   try {
-    await botService.remove(bot.value.id);
+    await taskStore.run(
+      'DELETE_BOT',
+      () => botService.remove(bot.value.id),
+      { username: bot.value.username }
+    );
     router.push({ name: 'bots-hub' });
   } catch (e) {
     saveError.value = e.response?.data?.error || 'Ошибка удаления';

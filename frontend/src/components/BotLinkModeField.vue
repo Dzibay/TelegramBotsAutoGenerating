@@ -5,15 +5,15 @@
       <label class="radio-option">
         <input type="radio" :checked="modelValue === 'redirect'" @change="emit('update:modelValue', 'redirect')" />
         <span>
-          <strong>Трекинг /go/…</strong> (по умолчанию)
-          <small>Клики считаются, в боте защищённая ссылка</small>
+          <strong>Считать переходы</strong> (рекомендуется)
+          <small>Короткая ссылка в боте, статистика кликов в панели</small>
         </span>
       </label>
       <label class="radio-option">
         <input type="radio" :checked="modelValue === 'direct'" @change="emit('update:modelValue', 'direct')" />
         <span>
-          <strong>Прямая ссылка</strong>
-          <small>В боте будет URL из поля «Ссылка на сервис»</small>
+          <strong>Прямая ссылка на сайт</strong>
+          <small>В боте сразу откроется адрес из поля «Ссылка на сервис»</small>
         </span>
       </label>
     </div>

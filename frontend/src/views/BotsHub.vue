@@ -3,7 +3,7 @@
     <header class="page-header">
       <div>
         <h1>Боты</h1>
-        <p class="subtitle">Все боты по кампаниям и аккаунтам — запуск, остановка, редактирование</p>
+        <p class="subtitle">Все боты в одном месте: запуск, остановка и редактирование</p>
       </div>
       <RouterLink to="/app/bots/new" class="btn">+ Создать бота</RouterLink>
     </header>
@@ -88,6 +88,9 @@ import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
+import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+
+const taskStore = useAsyncTaskStore();
 import { telegramBotUrl } from '../utils/botLink';
 
 function botLink(b) {
@@ -139,7 +142,11 @@ async function onDelete(bot) {
   if (!confirm(`Удалить бота @${bot.username || bot.id}?`)) return;
   actionId.value = bot.id;
   try {
-    await botService.remove(bot.id);
+    await taskStore.run(
+      'DELETE_BOT',
+      () => botService.remove(bot.id),
+      { username: bot.username || String(bot.id) }
+    );
     await load();
   } catch (e) {
     error.value = e.response?.data?.error || 'Ошибка удаления';

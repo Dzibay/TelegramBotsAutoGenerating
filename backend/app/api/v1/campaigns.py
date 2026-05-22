@@ -221,6 +221,27 @@ async def verify_account(
     return success_response(data={"account": account})
 
 
+@router.get("/{campaign_id}/accounts/{account_id}/bots")
+async def list_account_bots(
+    campaign_id: int,
+    account_id: int,
+    _user: dict = Depends(get_current_user),
+):
+    data = await account_service.list_account_bots(campaign_id, account_id)
+    return success_response(data=data)
+
+
+@router.delete("/{campaign_id}/accounts/{account_id}/bots/{username}")
+async def delete_account_bot(
+    campaign_id: int,
+    account_id: int,
+    username: str,
+    _user: dict = Depends(get_current_user),
+):
+    data = await account_service.delete_account_bot(campaign_id, account_id, username)
+    return success_response(data=data, message="Бот удалён")
+
+
 @router.delete("/{campaign_id}/accounts/{account_id}")
 async def remove_account(
     campaign_id: int,

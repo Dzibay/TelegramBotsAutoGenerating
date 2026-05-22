@@ -76,6 +76,22 @@ export const campaignService = {
     await apiClient.delete(API_ENDPOINTS.CAMPAIGNS.REMOVE_ACCOUNT(campaignId, accountId));
   },
 
+  async listAccountBots(campaignId, accountId) {
+    const res = await apiClient.get(
+      API_ENDPOINTS.CAMPAIGNS.ACCOUNT_BOTS(campaignId, accountId),
+      { timeout: 120000 }
+    );
+    return res.data;
+  },
+
+  async deleteAccountBot(campaignId, accountId, username) {
+    const res = await apiClient.delete(
+      API_ENDPOINTS.CAMPAIGNS.DELETE_ACCOUNT_BOT(campaignId, accountId, username),
+      { timeout: 120000 }
+    );
+    return res.data;
+  },
+
   async start(campaignId) {
     const res = await apiClient.post(API_ENDPOINTS.CAMPAIGNS.START(campaignId));
     return res.data?.job;

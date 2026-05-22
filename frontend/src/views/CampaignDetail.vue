@@ -49,12 +49,12 @@
 
     <section v-if="job || canStart" class="progress-section card">
       <div class="progress-top">
-        <h2>Процесс создания</h2>
+        <h2>Массовое создание ботов</h2>
         <StatusBadge v-if="job" :status="job.status" />
         <StatusBadge v-else status="draft" />
       </div>
       <p v-if="job" class="progress-msg">{{ job.progress_message || '—' }}</p>
-      <p v-else class="progress-msg muted">Задача ещё не запускалась</p>
+      <p v-else class="progress-msg muted">Ещё не запускали автоматическое создание</p>
       <div v-if="job && job.total_accounts" class="progress-bar-wrap">
         <div
           class="progress-bar"
@@ -96,13 +96,19 @@
           :can-add="canAddAccounts"
           :attaching="attaching"
           :verifying-all="verifyingAll"
-          :busy="accountBusy"
+          :busy="accountBusy || taskStore.isActive"
           :busy-id="accountBusyId"
+          :bots-busy-id="botsBusyId"
+          :delete-busy="deleteBotBusy"
+          :bots-lists="accountBotsLists"
+          :bots-error="accountBotsErrors"
           :attach-message="attachMessage"
           @attach="onAttachPrepared"
           @verify="onVerifyAccount"
           @verify-all="onVerifyAllAccounts"
           @remove="onRemoveAccount"
+          @load-bots="onLoadAccountBots"
+          @delete-bot="onDeleteAccountBot"
         />
 
         <section class="card section">
@@ -166,7 +172,14 @@ import JobLogPanel from '../components/JobLogPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
+import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { telegramBotUrl } from '../utils/botLink';
+
+const taskStore = useAsyncTaskStore();
+
+function accountLabel(account) {
+  return account?.label || account?.phone || `Аккаунт #${account?.id}`;
+}
 
 function botLink(b) {
   return b.telegram_url || telegramBotUrl(b.username);
@@ -190,6 +203,10 @@ const attaching = ref(false);
 const verifyingAll = ref(false);
 const accountBusy = ref(false);
 const accountBusyId = ref(null);
+const botsBusyId = ref(null);
+const deleteBotBusy = ref(null);
+const accountBotsLists = ref({});
+const accountBotsErrors = ref({});
 const attachMessage = ref(null);
 const accountsPanelRef = ref(null);
 let pollTimer = null;
@@ -279,7 +296,9 @@ function stopPolling() {
 async function onStart() {
   starting.value = true;
   try {
-    job.value = await campaignService.start(campaignId.value);
+    job.value = await taskStore.run('START_CAMPAIGN', () =>
+      campaignService.start(campaignId.value)
+    );
     logs.value = [];
     lastLogId.value = 0;
     await fetchLogs();
@@ -322,7 +341,11 @@ async function onBotStop(b) {
 async function onBotDelete(b) {
   if (!confirm(`Удалить @${b.username || b.id}?`)) return;
   try {
-    await botService.remove(b.id);
+    await taskStore.run(
+      'DELETE_BOT',
+      () => botService.remove(b.id),
+      { username: b.username || String(b.id) }
+    );
     await loadCampaign();
     await loadExtras();
   } catch (err) {
@@ -336,7 +359,11 @@ async function onAttachPrepared(ids) {
   attachMessage.value = null;
   loadError.value = null;
   try {
-    const result = await campaignService.attachPreparedAccounts(campaignId.value, ids);
+    const result = await taskStore.run(
+      'ATTACH_ACCOUNTS',
+      () => campaignService.attachPreparedAccounts(campaignId.value, ids),
+      { count: ids.length }
+    );
     accounts.value = result.accounts ?? [];
     const s = result.verifySummary;
     if (s) {
@@ -345,7 +372,7 @@ async function onAttachPrepared(ids) {
     await loadCampaign();
     accountsPanelRef.value?.reloadPicker?.();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка добавления аккаунтов';
+    loadError.value = err.response?.data?.error || 'Ошибка добавения аккаунтов';
   } finally {
     attaching.value = false;
   }
@@ -356,7 +383,11 @@ async function onVerifyAccount(account) {
   accountBusyId.value = account.id;
   loadError.value = null;
   try {
-    const updated = await campaignService.verifyAccount(campaignId.value, account.id);
+    const updated = await taskStore.run(
+      'VERIFY_ACCOUNT',
+      () => campaignService.verifyAccount(campaignId.value, account.id),
+      { accountId: account.id, accountLabel: accountLabel(account) }
+    );
     const idx = accounts.value.findIndex((a) => a.id === account.id);
     if (idx >= 0) accounts.value[idx] = updated;
   } catch (err) {
@@ -371,13 +402,95 @@ async function onVerifyAllAccounts() {
   verifyingAll.value = true;
   loadError.value = null;
   try {
-    const result = await campaignService.verifyAllAccounts(campaignId.value);
+    const result = await taskStore.run(
+      'VERIFY_ALL_ACCOUNTS',
+      () => campaignService.verifyAllAccounts(campaignId.value),
+      { count: accounts.value.length }
+    );
     accounts.value = result.accounts ?? accounts.value;
     attachMessage.value = `Проверка: ${result.verified_ok} OK, ${result.verified_failed} ошибок`;
   } catch (err) {
     loadError.value = err.response?.data?.error || 'Ошибка проверки';
   } finally {
     verifyingAll.value = false;
+  }
+}
+
+function patchAccount(updated) {
+  const idx = accounts.value.findIndex((a) => a.id === updated.id);
+  if (idx >= 0) {
+    accounts.value[idx] = { ...accounts.value[idx], ...updated };
+  }
+}
+
+async function onLoadAccountBots(account) {
+  botsBusyId.value = account.id;
+  accountBotsErrors.value = { ...accountBotsErrors.value, [account.id]: null };
+  try {
+    const data = await taskStore.run(
+      'LIST_ACCOUNT_BOTS',
+      () => campaignService.listAccountBots(campaignId.value, account.id),
+      { accountId: account.id, accountLabel: accountLabel(account) }
+    );
+    accountBotsLists.value = { ...accountBotsLists.value, [account.id]: data.bots ?? [] };
+    const idx = accounts.value.findIndex((a) => a.id === account.id);
+    if (idx >= 0) {
+      accounts.value[idx] = {
+        ...accounts.value[idx],
+        bots_created: data.bots_created,
+        bots_in_telegram: data.telegram_bots_count,
+        bots_in_db: data.bots_in_app,
+      };
+    }
+  } catch (err) {
+    accountBotsErrors.value = {
+      ...accountBotsErrors.value,
+      [account.id]: err.response?.data?.error || 'Не удалось загрузить список ботов',
+    };
+  } finally {
+    botsBusyId.value = null;
+  }
+}
+
+async function onDeleteAccountBot({ account, bot }) {
+  const uname = bot.username;
+  if (!confirm(`Удалить @${uname} из Telegram${bot.in_app ? ' и из списка кампании' : ''}?`)) return;
+  deleteBotBusy.value = `${account.id}:${uname}`;
+  loadError.value = null;
+  try {
+    const data = await taskStore.run(
+      'DELETE_ACCOUNT_BOT',
+      async () => {
+        const result = await campaignService.deleteAccountBot(
+          campaignId.value,
+          account.id,
+          uname
+        );
+        const listData = await campaignService.listAccountBots(campaignId.value, account.id);
+        accountBotsLists.value = {
+          ...accountBotsLists.value,
+          [account.id]: listData.bots ?? [],
+        };
+        return { ...result, listData };
+      },
+      {
+        accountId: account.id,
+        accountLabel: accountLabel(account),
+        username: uname,
+      }
+    );
+    patchAccount({
+      id: account.id,
+      bots_created: data.bots_created,
+      bots_in_telegram: data.telegram_bots_count,
+      bots_in_db: data.listData?.bots_in_app,
+    });
+    await loadCampaign();
+    await loadExtras();
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Не удалось удалить бота';
+  } finally {
+    deleteBotBusy.value = null;
   }
 }
 

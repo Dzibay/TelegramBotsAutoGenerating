@@ -11,6 +11,7 @@
       </nav>
     </header>
     <main class="main">
+      <TaskProgressBanner />
       <RouterView />
     </main>
   </div>
@@ -18,6 +19,7 @@
 
 <script setup>
 import { RouterLink, RouterView, useRouter } from 'vue-router';
+import TaskProgressBanner from '../components/TaskProgressBanner.vue';
 import { useAuthStore } from '../stores/authStore';
 
 const auth = useAuthStore();

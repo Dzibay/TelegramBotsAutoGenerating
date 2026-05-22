@@ -10,8 +10,8 @@
     <input ref="inputRef" type="file" accept=".zip" multiple hidden @change="onPick" />
 
     <div v-if="!files.length" class="dropzone-empty">
-      <p class="dropzone-title">Перетащите ZIP с папкой tdata</p>
-      <p class="dropzone-hint">или нажмите для выбора · можно несколько аккаунтов</p>
+      <p class="dropzone-title">Перетащите архив с данными Telegram</p>
+      <p class="dropzone-hint">ZIP-файл на каждый аккаунт · или нажмите, чтобы выбрать</p>
     </div>
 
     <ul v-else class="file-list" @click.stop>

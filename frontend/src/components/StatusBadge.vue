@@ -19,7 +19,7 @@ const labels = {
   pending: 'Ожидание',
   ready: 'Готов',
   creating: 'Создание',
-  exhausted: 'Лимит',
+  exhausted: 'Лимит ботов',
   error: 'Ошибка',
   active: 'Активен',
   stopped: 'Остановлен',

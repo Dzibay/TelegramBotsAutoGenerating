@@ -15,6 +15,10 @@ export const API_ENDPOINTS = {
       `/campaigns/${campaignId}/accounts/${accountId}/verify`,
     REMOVE_ACCOUNT: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}`,
+    ACCOUNT_BOTS: (campaignId, accountId) =>
+      `/campaigns/${campaignId}/accounts/${accountId}/bots`,
+    DELETE_ACCOUNT_BOT: (campaignId, accountId, username) =>
+      `/campaigns/${campaignId}/accounts/${accountId}/bots/${encodeURIComponent(username)}`,
     UPLOAD_ACCOUNT: (id) => `/campaigns/${id}/accounts`,
     UPLOAD_BATCH: (id) => `/campaigns/${id}/accounts/batch`,
     START: (id) => `/campaigns/${id}/start`,

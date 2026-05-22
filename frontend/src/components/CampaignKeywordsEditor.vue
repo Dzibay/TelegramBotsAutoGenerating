@@ -1,7 +1,7 @@
 <template>
   <div class="keywords-editor">
     <div class="form-group">
-      <label>Описание ниши (для AI)</label>
+      <label>Тематика ботов</label>
       <textarea
         v-model="nicheLocal"
         rows="3"
@@ -9,7 +9,7 @@
         @input="emitNiche"
       />
       <p class="field-hint">
-        Используется при генерации ключевых слов и текстов ботов. Каждый бот привязан к одному ключевому слову.
+        Помогает автоматически подобрать ключевые слова и тексты. На каждое слово обычно создаётся отдельный бот.
       </p>
     </div>
 

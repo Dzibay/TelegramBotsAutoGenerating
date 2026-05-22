@@ -76,22 +76,21 @@
     </div>
 
     <div class="form-group">
-      <label>Краткий профиль — «плакат» в карточке бота</label>
+      <label>Короткое описание в профиле</label>
       <textarea
         :value="modelValue.about_text"
         rows="2"
         maxlength="120"
-        placeholder="Подпись в шапке профиля @бот (до открытия чата)"
+        placeholder="Текст под именем бота, до открытия чата"
         @input="patch('about_text', $event.target.value)"
       />
       <p class="field-hint">
-        До 120 символов — короткая строка в карточке бота (BotFather: /setabouttext).
-        Пустое поле → шаблон при создании.
+        До 120 символов. Видно в профиле бота до начала диалога. Если пусто — подставится шаблон при создании.
       </p>
     </div>
 
     <div class="form-group">
-      <label>Описание в чате (большой текст до «Старт»)</label>
+      <label>Описание в чате</label>
       <textarea
         :value="modelValue.description"
         rows="4"
@@ -100,13 +99,12 @@
         @input="patch('description', $event.target.value)"
       />
       <p class="field-hint">
-        До 512 символов — основной блок в чате (BotFather: /setdescription).
-        Заполняется кнопкой «Сгенерировать» или шаблоном «бот переехал», если пусто.
+        До 512 символов. Показывается в пустом чате до кнопки «Старт». Можно заполнить кнопкой «Заполнить тексты автоматически».
       </p>
     </div>
 
     <div class="form-group">
-      <label>Стартовое сообщение (/start)</label>
+      <label>Приветствие после «Старт»</label>
       <textarea
         :value="modelValue.welcome_message"
         rows="5"
@@ -136,7 +134,7 @@
       />
       <p v-if="publicLink" class="field-hint">
         Ссылка кнопки: <code>{{ publicLink }}</code>
-        (трекинг или прямая — как в настройках бота выше).
+        (со счётчиком или прямая — как выбрано выше).
       </p>
       <p v-else class="field-hint">
         Ссылка кнопки — публичная ссылка бота (появится после генерации или создания).

@@ -4,7 +4,7 @@
       <RouterLink to="/app" class="back">← Кампании</RouterLink>
       <h1>Подготовка аккаунтов</h1>
       <p class="subtitle">
-        Загрузите tdata, завершите чужие сессии, смените облачный пароль и ужесточите приватность перед кампаниями.
+        Загрузите экспорт аккаунтов из Telegram Desktop, настройте безопасность и очистите старых ботов перед кампаниями.
       </p>
     </header>
 
@@ -14,46 +14,56 @@
 
         <AccountDropzone v-model="files" />
         <p class="field-hint">
-          Каждый ZIP — отдельный аккаунт. Внутри должна быть папка <code>tdata</code> из Telegram Desktop.
+          Один ZIP-архив — один аккаунт. Экспортируйте данные из Telegram Desktop (папка с сессией внутри архива).
         </p>
 
         <div class="options-block">
-          <h3>Меры безопасности</h3>
+          <h3>Что сделать с аккаунтом</h3>
           <label class="check">
             <input v-model="options.delete_bots" type="checkbox" />
-            Удалить всех ботов, привязанных к аккаунту (BotFather)
+            Удалить всех ботов на аккаунте
           </label>
           <label class="check">
             <input v-model="options.terminate_sessions" type="checkbox" />
-            Завершить все другие сессии (кроме текущей из tdata)
+            Завершить все другие входы в Telegram
           </label>
           <label class="check">
             <input v-model="options.change_password" type="checkbox" />
-            Сменить облачный пароль (2FA)
+            Сменить облачный пароль
           </label>
           <label class="check">
             <input v-model="options.privacy_restrictions" type="checkbox" />
-            Приватность: скрыть номер, «был в сети», инвайты
+            Ужесточить приватность (номер, «был в сети», приглашения)
           </label>
         </div>
 
         <div v-if="options.change_password" class="password-block">
-          <h3>Пароли</h3>
+          <h3>Облачный пароль</h3>
           <p class="hint">
-            Пароли не сохраняются в БД — только передаются worker'у на время задачи.
-            После смены обновите tdata в Telegram Desktop или загрузите новый экспорт.
+            Пароль используется только для этой задачи и нигде не сохраняется.
+            После смены при необходимости заново экспортируйте аккаунт из Telegram Desktop.
           </p>
           <div class="form-group">
-            <label>Новый облачный пароль</label>
-            <input v-model="newPassword" type="password" autocomplete="new-password" />
+            <label>Новый пароль</label>
+            <input
+              v-model="newPassword"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Придумайте новый пароль"
+            />
           </div>
           <div class="form-group">
-            <label>Текущий пароль (если 2FA уже включена)</label>
-            <input v-model="currentPassword" type="password" autocomplete="current-password" />
+            <label>Текущий пароль</label>
+            <input
+              v-model="currentPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Если пароль уже был включён"
+            />
           </div>
           <div class="form-group">
-            <label>Подсказка к паролю</label>
-            <input v-model="passwordHint" type="text" placeholder="Необязательно" />
+            <label>Подсказка (необязательно)</label>
+            <input v-model="passwordHint" type="text" placeholder="Текст подсказки в Telegram" />
           </div>
         </div>
 
@@ -63,6 +73,7 @@
         </label>
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
+        <InlineTaskIndicator v-if="submitting" fallback-label="Запуск подготовки…" />
         <button type="button" :disabled="submitting || !files.length" @click="onSubmit">
           {{ submitting ? 'Отправка…' : 'Запустить подготовку' }}
         </button>
@@ -95,8 +106,8 @@
         </div>
 
         <div class="card pool-card">
-          <h3>Пул для кампаний</h3>
-          <p class="hint">После успешной подготовки аккаунты появляются здесь и доступны при создании кампании.</p>
+          <h3>Готовые аккаунты</h3>
+          <p class="hint">После успешной подготовки их можно выбрать при создании кампании.</p>
           <p v-if="poolLoading" class="muted">Загрузка…</p>
           <ul v-else-if="poolAccounts.length" class="pool-list">
             <li v-for="a in poolAccounts" :key="a.id">
@@ -126,10 +137,14 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import AccountDropzone from '../components/AccountDropzone.vue';
+import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { preparedAccountService } from '../services/preparedAccountService';
 import { prepService } from '../services/prepService';
+import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+
+const taskStore = useAsyncTaskStore();
 
 const files = ref([]);
 const submitting = ref(false);
@@ -238,14 +253,19 @@ async function onSubmit() {
   submitting.value = true;
   submitError.value = null;
   try {
-    const job = await prepService.createJob({
-      files: files.value,
-      options: options.value,
-      newPassword: newPassword.value || null,
-      currentPassword: currentPassword.value || null,
-      passwordHint: passwordHint.value,
-      autoStart: autoStart.value,
-    });
+    const job = await taskStore.run(
+      'PREP_ACCOUNTS',
+      () =>
+        prepService.createJob({
+          files: files.value,
+          options: options.value,
+          newPassword: newPassword.value || null,
+          currentPassword: currentPassword.value || null,
+          passwordHint: passwordHint.value,
+          autoStart: autoStart.value,
+        }),
+      { count: files.value.length }
+    );
     files.value = [];
     await loadJob(job.id);
     await loadHistory();

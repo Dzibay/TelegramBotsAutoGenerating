@@ -4,8 +4,8 @@
       <div>
         <h3>Аккаунты Telegram</h3>
         <p class="panel-desc">
-          После добавления из пула аккаунты проверяются автоматически. Перед массовым созданием
-          убедитесь, что статус «Готов».
+          Добавьте подготовленные аккаунты и нажмите «Проверить», чтобы убедиться, что вход в Telegram работает.
+          Для массового создания ботов нужен статус «Готов». Счётчик ботов — как в Telegram.
         </p>
       </div>
       <div v-if="accounts.length" class="head-actions">
@@ -42,8 +42,11 @@
         </div>
 
         <p class="acc-meta">
-          Ботов: {{ a.bots_created }} / {{ a.max_bots_limit }}
-          <span v-if="a.tdata_on_disk === false" class="warn-tag">· нет tdata</span>
+          Ботов на аккаунте: {{ botCountLabel(a) }} / {{ a.max_bots_limit }}
+          <span v-if="a.bots_in_db != null && a.bots_in_db !== a.bots_created" class="sub-meta">
+            · в этой кампании: {{ a.bots_in_db }}
+          </span>
+          <span v-if="a.tdata_on_disk === false" class="warn-tag">· нет файлов сессии</span>
           <span v-else-if="a.can_create_bots" class="ok-tag">· можно создавать ботов</span>
         </p>
 
@@ -52,6 +55,11 @@
         <p v-if="a.verify_message" class="verify-msg" :class="a.verified ? 'ok' : 'err'">
           {{ a.verify_message }}
         </p>
+
+        <InlineTaskIndicator
+          :account-id="a.id"
+          fallback-label="Связь с Telegram…"
+        />
 
         <div class="acc-actions">
           <button
@@ -64,6 +72,14 @@
           </button>
           <button
             type="button"
+            class="btn btn-sm btn-ghost"
+            :disabled="botsBusyId === a.id || busy"
+            @click="toggleBots(a)"
+          >
+            {{ botsBusyId === a.id ? 'Загрузка…' : botsExpanded[a.id] ? 'Скрыть ботов' : 'Показать ботов' }}
+          </button>
+          <button
+            type="button"
             class="btn btn-sm btn-ghost danger"
             :disabled="busyId === a.id || busy"
             @click="$emit('remove', a)"
@@ -71,11 +87,48 @@
             Убрать
           </button>
         </div>
+
+        <div v-if="botsExpanded[a.id]" class="bots-block">
+          <p v-if="botsError[a.id]" class="bots-err">{{ botsError[a.id] }}</p>
+          <p v-else-if="!botsLists[a.id]?.length" class="muted small">
+            На этом аккаунте пока нет ботов
+          </p>
+          <ul v-else class="bot-mini-list">
+            <li v-for="b in botsLists[a.id]" :key="b.username" class="bot-mini-item">
+              <div class="bot-mini-info">
+                <a
+                  v-if="b.username"
+                  :href="`https://t.me/${b.username}`"
+                  target="_blank"
+                  rel="noopener"
+                  class="bot-link"
+                >@{{ b.username }}</a>
+                <span v-if="b.in_app" class="tag tag-app">в кампании</span>
+                <span v-else class="tag tag-ext">только в Telegram</span>
+                <span v-if="!b.in_telegram" class="tag tag-warn">удалён в Telegram</span>
+              </div>
+              <div class="bot-delete-cell">
+                <button
+                  type="button"
+                  class="btn btn-xs danger"
+                  :disabled="deleteBusy === `${a.id}:${b.username}` || busy"
+                  @click="$emit('delete-bot', { account: a, bot: b })"
+                >
+                  {{ deleteBusy === `${a.id}:${b.username}` ? 'Удаление…' : 'Удалить' }}
+                </button>
+                <InlineTaskIndicator
+                  :account-id="a.id"
+                  :username="b.username"
+                />
+              </div>
+            </li>
+          </ul>
+        </div>
       </li>
     </ul>
 
     <div v-if="canAdd" class="add-prepared">
-      <p class="muted small">Добавить из пула подготовленных</p>
+      <p class="muted small">Добавить подготовленный аккаунт</p>
       <PreparedAccountPicker ref="pickerRef" v-model="selectedIds" />
       <button
         type="button"
@@ -90,7 +143,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
+import InlineTaskIndicator from './InlineTaskIndicator.vue';
 import PreparedAccountPicker from './PreparedAccountPicker.vue';
 import StatusBadge from './StatusBadge.vue';
 
@@ -101,13 +155,18 @@ const props = defineProps({
   verifyingAll: { type: Boolean, default: false },
   busy: { type: Boolean, default: false },
   busyId: { type: Number, default: null },
+  botsBusyId: { type: Number, default: null },
+  deleteBusy: { type: String, default: null },
+  botsLists: { type: Object, default: () => ({}) },
+  botsError: { type: Object, default: () => ({}) },
   attachMessage: { type: String, default: null },
 });
 
-const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove']);
+const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot']);
 
 const selectedIds = ref([]);
 const pickerRef = ref(null);
+const botsExpanded = reactive({});
 
 const readyCount = computed(() => props.accounts.filter((a) => a.status === 'ready').length);
 const errorCount = computed(() => props.accounts.filter((a) => a.status === 'error').length);
@@ -124,6 +183,21 @@ const summaryClass = computed(() => {
   return '';
 });
 
+function botCountLabel(a) {
+  const tg = a.bots_in_telegram ?? a.bots_created;
+  return tg ?? 0;
+}
+
+function toggleBots(account) {
+  const id = account.id;
+  if (botsExpanded[id]) {
+    botsExpanded[id] = false;
+    return;
+  }
+  botsExpanded[id] = true;
+  emit('load-bots', account);
+}
+
 function onAttach() {
   if (!selectedIds.value.length) return;
   emit('attach', [...selectedIds.value]);
@@ -132,6 +206,9 @@ function onAttach() {
 
 defineExpose({
   reloadPicker: () => pickerRef.value?.reload?.(),
+  collapseBots: (accountId) => {
+    if (accountId != null) botsExpanded[accountId] = false;
+  },
 });
 </script>
 
@@ -233,6 +310,10 @@ defineExpose({
   color: var(--muted);
 }
 
+.sub-meta {
+  color: var(--muted);
+}
+
 .warn-tag {
   color: #f87171;
 }
@@ -262,8 +343,88 @@ defineExpose({
 
 .acc-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.35rem;
   margin-top: 0.5rem;
+}
+
+.bots-block {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border);
+}
+
+.bots-err {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #f87171;
+}
+
+.bot-mini-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bot-mini-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.bot-delete-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 5.5rem;
+}
+
+.bot-mini-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.bot-link {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.bot-link:hover {
+  text-decoration: underline;
+}
+
+.tag {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.tag-app {
+  background: rgba(34, 197, 94, 0.15);
+  color: #86efac;
+}
+
+.tag-ext {
+  background: rgba(234, 179, 8, 0.15);
+  color: #fde047;
+}
+
+.tag-warn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.btn-xs {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.45rem;
 }
 
 .add-prepared {

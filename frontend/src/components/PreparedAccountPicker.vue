@@ -64,7 +64,7 @@ async function load() {
   try {
     accounts.value = await preparedAccountService.listAvailable();
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось загрузить пул аккаунтов';
+    loadError.value = e.response?.data?.error || 'Не удалось загрузить список аккаунтов';
   } finally {
     loading.value = false;
   }

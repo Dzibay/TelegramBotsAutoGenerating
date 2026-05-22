@@ -45,9 +45,9 @@ def account_capabilities(row: dict[str, Any]) -> dict[str, Any]:
 
     hints: list[str] = []
     if not has_tdata:
-        hints.append("Нет файлов tdata на сервере — удалите и добавьте из пула подготовленных")
+        hints.append("Нет файлов сессии — уберите аккаунт и добавьте заново из подготовленных")
     elif status == "pending":
-        hints.append("Нажмите «Проверить» — подтвердить сессию Telegram")
+        hints.append("Нажмите «Проверить», чтобы подтвердить вход в Telegram")
     elif status == "error":
         err = row.get("last_error") or "неизвестная ошибка"
         hints.append(f"Ошибка: {err}. Нажмите «Проверить» снова")
@@ -67,6 +67,8 @@ def account_capabilities(row: dict[str, Any]) -> dict[str, Any]:
 
 def _serialize_account(row: dict[str, Any], extra: Optional[dict] = None) -> dict[str, Any]:
     caps = account_capabilities(row)
+    bots_in_db = int(row.get("bots_in_db") or 0)
+    bots_created = int(row.get("bots_created") or 0)
     out = {
         "id": row["id"],
         "campaign_id": row["campaign_id"],
@@ -74,7 +76,9 @@ def _serialize_account(row: dict[str, Any], extra: Optional[dict] = None) -> dic
         "phone": row.get("phone"),
         "status": row["status"],
         "max_bots_limit": row["max_bots_limit"],
-        "bots_created": row["bots_created"],
+        "bots_created": bots_created,
+        "bots_in_db": bots_in_db,
+        "bots_in_telegram": bots_created,
         "last_error": row.get("last_error"),
         "prepared_account_id": row.get("prepared_account_id"),
         "tdata_on_disk": caps["tdata_on_disk"],
@@ -82,17 +86,42 @@ def _serialize_account(row: dict[str, Any], extra: Optional[dict] = None) -> dic
         "health_hint": caps["health_hint"],
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
     }
+    if bots_in_db != bots_created:
+        out["health_hint"] = (
+            (out["health_hint"] + " ").strip()
+            + f"В Telegram: {bots_created}, в кампании: {bots_in_db}. "
+            "Нажмите «Показать ботов» для актуального списка."
+        ).strip()
     if extra:
         out.update(extra)
     return out
 
 
-async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
-    row = await db.fetch_one(
-        "SELECT * FROM telegram_accounts WHERE id = $1 AND campaign_id = $2",
+async def _fetch_account_row(account_id: int, campaign_id: int | None = None) -> dict[str, Any] | None:
+    if campaign_id is not None:
+        return await db.fetch_one(
+            """
+            SELECT ta.*,
+                   (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = ta.id) AS bots_in_db
+            FROM telegram_accounts ta
+            WHERE ta.id = $1 AND ta.campaign_id = $2
+            """,
+            account_id,
+            campaign_id,
+        )
+    return await db.fetch_one(
+        """
+        SELECT ta.*,
+               (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = ta.id) AS bots_in_db
+        FROM telegram_accounts ta
+        WHERE ta.id = $1
+        """,
         account_id,
-        campaign_id,
     )
+
+
+async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
+    row = await _fetch_account_row(account_id, campaign_id)
     if not row:
         raise NotFoundError("Аккаунт не найден в этой кампании")
 
@@ -112,12 +141,12 @@ async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
             """,
             account_id,
         )
-        row = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
+        row = await _fetch_account_row(account_id)
         return _serialize_account(
             row,
             {
                 "verified": False,
-                "verify_message": "Файлы tdata отсутствуют. Удалите аккаунт и добавьте снова из подготовленных.",
+                "verify_message": "Файлы сессии не найдены. Уберите аккаунт и добавьте снова из подготовленных.",
             },
         )
 
@@ -142,12 +171,24 @@ async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
             account_id,
             phone,
         )
-        row = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
+        row = await _fetch_account_row(account_id)
         msg = f"Сессия OK"
         if phone:
             msg += f" ({phone})"
         if username:
             msg += f" @{username}"
+
+        from app.domain.services.account_service import sync_bots_created_count
+        from app.infrastructure.telegram.botfather_client import list_bots_via_botfather
+
+        try:
+            tg_bots = await list_bots_via_botfather(client)
+            await sync_bots_created_count(account_id, len(tg_bots))
+            row = await _fetch_account_row(account_id)
+            msg += f" · ботов в Telegram: {len(tg_bots)}"
+        except Exception as sync_exc:
+            logger.warning("Bot count sync on verify id=%s: %s", account_id, sync_exc)
+
         return _serialize_account(row, {"verified": True, "verify_message": msg})
     except Exception as exc:
         err = str(exc)[:500]
@@ -161,7 +202,7 @@ async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
             account_id,
             err,
         )
-        row = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
+        row = await _fetch_account_row(account_id)
         return _serialize_account(
             row,
             {"verified": False, "verify_message": f"Проверка не пройдена: {err}"},

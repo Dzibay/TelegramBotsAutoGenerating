@@ -3,8 +3,8 @@
     <section class="hero card">
       <h1>Telegram Bots Generator</h1>
       <p class="muted">
-        Массовое создание ботов по ключевым словам и нише: tdata-аккаунты,
-        AI-контент и единый процесс обслуживания.
+        Создавайте и ведите Telegram-ботов для рекламных кампаний: подготовка аккаунтов,
+        генерация текстов и массовый запуск из одного интерфейса.
       </p>
       <div class="actions">
         <RouterLink v-if="!auth.isAuthenticated" to="/login" class="btn">Войти</RouterLink>

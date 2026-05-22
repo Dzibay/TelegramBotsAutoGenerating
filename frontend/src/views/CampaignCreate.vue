@@ -3,7 +3,7 @@
     <header class="page-header">
       <RouterLink to="/app" class="back">← Кампании</RouterLink>
       <h1>Новая кампания</h1>
-      <p class="subtitle">Название и подготовленные аккаунты — ботов создаёте отдельно на странице «Боты»</p>
+      <p class="subtitle">Придумайте название и выберите аккаунты. Ботов можно добавить позже на странице «Боты».</p>
     </header>
 
     <div class="steps">
@@ -22,7 +22,7 @@
             placeholder="Например: Аккаунты май 2026"
             autofocus
           />
-          <p class="field-hint">Группа для хранения аккаунтов и привязанных к ним ботов</p>
+          <p class="field-hint">Удобное имя для вашей группы аккаунтов и ботов</p>
         </div>
         <button type="button" class="btn btn-next" :disabled="!form.title.trim()" @click="step = 2">
           Далее: аккаунты →
@@ -33,20 +33,20 @@
         <div class="form-group">
           <label>Подготовленные аккаунты</label>
           <p class="field-hint">
-            Сначала подготовьте tdata на странице
+            Сначала подготовьте аккаунты на странице
             <RouterLink to="/app/accounts/prepare">«Подготовка аккаунтов»</RouterLink>.
           </p>
           <PreparedAccountPicker v-model="selectedPreparedIds" />
         </div>
 
         <details class="optional-mass">
-          <summary>Опционально: массовое создание ботов (AI)</summary>
+          <summary>Сразу создать ботов автоматически</summary>
           <p class="field-hint">
-            Сразу запустить worker — создаст до 20 ботов на аккаунт через BotFather без ручной настройки.
+            После создания кампании запустится массовое создание: до 20 ботов на аккаунт с текстами от AI.
           </p>
           <label class="checkbox-row">
             <input v-model="autoStart" type="checkbox" />
-            Запустить массовое создание после сохранения
+            Запустить создание ботов сразу после сохранения
           </label>
         </details>
 
@@ -58,6 +58,7 @@
         </div>
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
+        <InlineTaskIndicator v-if="submitting" fallback-label="Создаём кампанию и проверяем аккаунты…" />
         <div class="nav-row">
           <button type="button" class="btn-ghost" @click="step = 1">← Назад</button>
           <button type="submit" :disabled="submitting || !selectedPreparedIds.length">
@@ -72,8 +73,12 @@
 <script setup>
 import { ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
+import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import { campaignService } from '../services/campaignService';
+import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+
+const taskStore = useAsyncTaskStore();
 
 const router = useRouter();
 const step = ref(1);
@@ -92,11 +97,16 @@ async function onSubmit() {
   submitting.value = true;
   submitError.value = null;
   try {
-    const data = await campaignService.createFull({
-      payload: { title: form.value.title.trim() },
-      preparedAccountIds: selectedPreparedIds.value,
-      autoStart: autoStart.value,
-    });
+    const data = await taskStore.run(
+      'CREATE_CAMPAIGN_FULL',
+      () =>
+        campaignService.createFull({
+          payload: { title: form.value.title.trim() },
+          preparedAccountIds: selectedPreparedIds.value,
+          autoStart: autoStart.value,
+        }),
+      { count: selectedPreparedIds.value.length }
+    );
     router.push({ name: 'campaign-detail', params: { id: data.campaign?.id } });
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Не удалось создать кампанию';

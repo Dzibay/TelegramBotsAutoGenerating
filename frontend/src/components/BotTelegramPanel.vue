@@ -4,7 +4,7 @@
 
     <div v-if="promoLink" class="promo-block">
       <p class="block-label">
-        {{ isRedirect ? 'Трекинг-ссылка в боте (/go/…)' : 'Прямая ссылка в боте' }}
+        {{ isRedirect ? 'Ссылка в боте (со счётчиком)' : 'Прямая ссылка в боте' }}
       </p>
       <div class="link-row">
         <a :href="promoLink" target="_blank" rel="noopener noreferrer" class="tg-link">
@@ -21,7 +21,7 @@
         Редирект на: <span class="muted">{{ bot.target_url }}</span>
       </p>
       <p v-else-if="!isRedirect" class="target-hint muted">
-        Режим «прямая ссылка» — клики по /go/ не используются.
+        Счётчик переходов не ведётся — пользователи идут напрямую на сайт.
       </p>
     </div>
 
@@ -44,7 +44,7 @@
       :disabled="verifying || !botId"
       @click="onVerify"
     >
-      {{ verifying ? 'Проверка…' : 'Проверить токен (Telegram API)' }}
+      {{ verifying ? 'Проверка…' : 'Проверить, что бот отвечает' }}
     </button>
 
     <p v-if="verifyError" class="error-text">{{ verifyError }}</p>

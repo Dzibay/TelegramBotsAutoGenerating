@@ -29,6 +29,41 @@
         </p>
       </div>
 
+      <details class="defaults-block" open>
+        <summary>Дефолтные тексты ботов</summary>
+        <p class="field-hint block-hint">
+          Подставляются при создании ботов, если поле пустое (вручную или после AI). Ссылка на сервис
+          добавится автоматически при сохранении бота.
+        </p>
+        <div class="form-group">
+          <label>О себе в профиле (до 120 символов)</label>
+          <textarea
+            v-model="defaultAboutText"
+            rows="2"
+            maxlength="120"
+            placeholder="Короткая строка в карточке бота"
+          />
+        </div>
+        <div class="form-group">
+          <label>Описание в чате до Start (до 512 символов)</label>
+          <textarea
+            v-model="defaultDescription"
+            rows="4"
+            maxlength="512"
+            placeholder="Текст до нажатия кнопки Start"
+          />
+        </div>
+        <div class="form-group">
+          <label>Приветствие после Start (до 2000 символов)</label>
+          <textarea
+            v-model="defaultWelcomeMessage"
+            rows="5"
+            maxlength="2000"
+            placeholder="Первое сообщение в чате"
+          />
+        </div>
+      </details>
+
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <div class="actions">
         <RouterLink :to="{ name: 'campaign-workspace', params: { id } }" class="btn-ghost">Отмена</RouterLink>
@@ -53,6 +88,9 @@ const saving = ref(false);
 const title = ref('');
 const resourceUrl = ref('');
 const nicheDescription = ref('');
+const defaultAboutText = ref('');
+const defaultDescription = ref('');
+const defaultWelcomeMessage = ref('');
 
 async function load() {
   loading.value = true;
@@ -61,6 +99,9 @@ async function load() {
     title.value = campaign.title;
     resourceUrl.value = campaign.resource_url || '';
     nicheDescription.value = campaign.niche_description || '';
+    defaultAboutText.value = campaign.default_about_text || '';
+    defaultDescription.value = campaign.default_description || '';
+    defaultWelcomeMessage.value = campaign.default_welcome_message || '';
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
@@ -76,6 +117,9 @@ async function onSave() {
       title: title.value.trim(),
       resource_url: resourceUrl.value.trim() || null,
       niche_description: nicheDescription.value.trim() || null,
+      default_about_text: defaultAboutText.value.trim() || null,
+      default_description: defaultDescription.value.trim() || null,
+      default_welcome_message: defaultWelcomeMessage.value.trim() || null,
     });
     router.push({ name: 'campaign-workspace', params: { id: id.value } });
   } catch (e) {
@@ -107,5 +151,27 @@ onMounted(load);
   margin: 0.35rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+.defaults-block {
+  margin: 1rem 0;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.defaults-block summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.defaults-block[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.block-hint {
+  margin: 0 0 0.75rem;
 }
 </style>

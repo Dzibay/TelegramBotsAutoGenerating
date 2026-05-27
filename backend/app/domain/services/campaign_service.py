@@ -9,6 +9,11 @@ def _iso(dt) -> Optional[str]:
     return dt.isoformat() if dt else None
 
 
+def _optional_text(value: str | None) -> str | None:
+    text = (value or "").strip()
+    return text or None
+
+
 def _campaign_row(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -16,6 +21,9 @@ def _campaign_row(row: dict[str, Any]) -> dict[str, Any]:
         "niche_description": row.get("niche_description"),
         "keywords": list(row.get("keywords") or []),
         "resource_url": row.get("resource_url"),
+        "default_about_text": row.get("default_about_text"),
+        "default_description": row.get("default_description"),
+        "default_welcome_message": row.get("default_welcome_message"),
         "status": row["status"],
         "accounts_count": int(row.get("accounts_count") or 0),
         "bots_count": int(row.get("bots_count") or 0),
@@ -30,19 +38,31 @@ async def create_campaign(
     keywords: list[str] | None = None,
     resource_url: str | None = None,
     niche_description: str | None = None,
+    *,
+    default_about_text: str | None = None,
+    default_description: str | None = None,
+    default_welcome_message: str | None = None,
 ) -> dict[str, Any]:
     cleaned_keywords = [k.strip() for k in (keywords or []) if k and k.strip()]
     resource = (resource_url or "").strip() or None
     row = await db.fetch_one(
         """
-        INSERT INTO campaigns (title, niche_description, keywords, resource_url)
-        VALUES ($1, $2, $3::text[], $4)
-        RETURNING id, title, niche_description, keywords, resource_url, status, created_at, updated_at
+        INSERT INTO campaigns (
+            title, niche_description, keywords, resource_url,
+            default_about_text, default_description, default_welcome_message
+        )
+        VALUES ($1, $2, $3::text[], $4, $5, $6, $7)
+        RETURNING id, title, niche_description, keywords, resource_url,
+                  default_about_text, default_description, default_welcome_message,
+                  status, created_at, updated_at
         """,
         title.strip(),
         niche_description,
         cleaned_keywords,
         resource,
+        _optional_text(default_about_text),
+        _optional_text(default_description),
+        _optional_text(default_welcome_message),
     )
     out = _campaign_row(row)
     out["accounts_count"] = 0
@@ -104,6 +124,9 @@ async def update_campaign(
     resource_url: str | None = None,
     niche_description: str | None = None,
     keywords: list[str] | None = None,
+    default_about_text: str | None = None,
+    default_description: str | None = None,
+    default_welcome_message: str | None = None,
 ) -> dict[str, Any]:
     await get_campaign(campaign_id)
     updates = []
@@ -123,6 +146,15 @@ async def update_campaign(
         cleaned = _clean_keywords(keywords)
         params.append(cleaned)
         updates.append(f"keywords = ${len(params)}::text[]")
+    if default_about_text is not None:
+        params.append(_optional_text(default_about_text))
+        updates.append(f"default_about_text = ${len(params)}")
+    if default_description is not None:
+        params.append(_optional_text(default_description))
+        updates.append(f"default_description = ${len(params)}")
+    if default_welcome_message is not None:
+        params.append(_optional_text(default_welcome_message))
+        updates.append(f"default_welcome_message = ${len(params)}")
     if not updates:
         return await get_campaign(campaign_id)
     params.append(campaign_id)

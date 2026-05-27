@@ -8,6 +8,9 @@ class CampaignCreateRequest(BaseModel):
     niche_description: Optional[str] = Field(None, max_length=2000)
     keywords: list[str] = Field(default_factory=list)
     resource_url: Optional[str] = Field(None, max_length=2048)
+    default_about_text: Optional[str] = Field(None, max_length=120)
+    default_description: Optional[str] = Field(None, max_length=512)
+    default_welcome_message: Optional[str] = Field(None, max_length=2000)
 
 
 class CampaignKeywordsUpdateRequest(BaseModel):
@@ -39,6 +42,9 @@ class CampaignResponse(BaseModel):
     niche_description: Optional[str]
     keywords: list[str]
     resource_url: Optional[str] = None
+    default_about_text: Optional[str] = None
+    default_description: Optional[str] = None
+    default_welcome_message: Optional[str] = None
     status: str
     accounts_count: int = 0
     bots_count: int = 0

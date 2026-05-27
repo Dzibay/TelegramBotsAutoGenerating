@@ -289,6 +289,7 @@ async def generate_bot_draft(
         display_name=display_name,
         keyword=kw,
         use_promo_welcome=False,
+        campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
     )
     description = texts["description"] or ""
     about_draft = texts["about_text"] or ""
@@ -315,12 +316,32 @@ async def generate_bot_draft(
             tracking_url=tracking_url,
         )
         if not welcome.strip() or welcome.strip() == f"👉 {public_link}":
-            welcome = promo["welcome_message"]
+            defaults = bot_promo_service.campaign_text_defaults(campaign)
+            if defaults.get("welcome_message"):
+                welcome = bot_promo_service.embed_link_in_welcome(
+                    defaults["welcome_message"],
+                    public_link,
+                    link_mode=mode,
+                    target_url=target,
+                    tracking_url=tracking_url,
+                )
+            else:
+                welcome = promo["welcome_message"]
             ai_fallback = True
     except Exception as exc:
         if Config.AI_FALLBACK_ON_ERROR:
             logger.warning("AI welcome failed: %s — template", exc)
-            welcome = promo["welcome_message"]
+            defaults = bot_promo_service.campaign_text_defaults(campaign)
+            if defaults.get("welcome_message"):
+                welcome = bot_promo_service.embed_link_in_welcome(
+                    defaults["welcome_message"],
+                    public_link,
+                    link_mode=mode,
+                    target_url=target,
+                    tracking_url=tracking_url,
+                )
+            else:
+                welcome = promo["welcome_message"]
             ai_fallback = True
         else:
             raise
@@ -396,6 +417,7 @@ async def create_bot(
         tracking_url=tracking_url,
         display_name=display_name,
         keyword=keyword or "",
+        campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
     )
     description = texts["description"] or ""
     welcome_message = texts["welcome_message"] or ""
@@ -564,6 +586,7 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
         )
 
     if needs_reembed or any(fields.get(k) is not None for k in ("description", "welcome_message", "about_text")):
+        campaign = await campaign_service.get_campaign(bot["campaign_id"])
         texts = bot_promo_service.finalize_bot_texts(
             description=fields.get("description")
             if fields.get("description") is not None
@@ -580,6 +603,7 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
             tracking_url=tracking_url,
             display_name=row_data.get("display_name") or "",
             keyword=row_data.get("keyword") or "",
+            campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
         )
         for k, v in texts.items():
             if v is not None:

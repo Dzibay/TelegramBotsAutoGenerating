@@ -63,7 +63,7 @@
               </RouterLink>.
             </p>
           </div>
-          <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="wizardStep = 2">
+          <button type="button" class="btn btn-next" :disabled="!canGoStep2" @click="goToTextsStep">
             Далее: тексты →
           </button>
         </div>
@@ -147,6 +147,7 @@ import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { applyCampaignTextDefaults } from '../utils/campaignTextDefaults';
 
 const taskStore = useAsyncTaskStore();
 const route = useRoute();
@@ -159,6 +160,7 @@ const accounts = ref([]);
 const campaignId = ref(routeCampaignId || (route.query.campaign_id ? Number(route.query.campaign_id) : null));
 
 const campaignResourceUrl = ref('');
+const campaignMeta = ref(null);
 const useCustomUrl = ref(false);
 const targetUrl = ref('');
 const accountId = ref(null);
@@ -223,6 +225,13 @@ function useCampaignUrl() {
   targetUrl.value = campaignResourceUrl.value;
 }
 
+function goToTextsStep() {
+  if (campaignMeta.value) {
+    applyCampaignTextDefaults(form.value, campaignMeta.value);
+  }
+  wizardStep.value = 2;
+}
+
 const usableAccounts = computed(() =>
   accounts.value.filter((a) => {
     if (a.status === 'disabled') return false;
@@ -243,6 +252,7 @@ async function loadCampaignMeta() {
     return;
   }
   const data = await campaignService.get(campaignId.value);
+  campaignMeta.value = data.campaign || null;
   campaignResourceUrl.value = data.campaign?.resource_url || '';
   if (campaignResourceUrl.value) {
     if (!useCustomUrl.value) targetUrl.value = campaignResourceUrl.value;

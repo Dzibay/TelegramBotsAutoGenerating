@@ -39,6 +39,9 @@ async def create_campaign(
         keywords=body.keywords,
         resource_url=body.resource_url,
         niche_description=body.niche_description,
+        default_about_text=body.default_about_text,
+        default_description=body.default_description,
+        default_welcome_message=body.default_welcome_message,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_CREATED)
 
@@ -68,6 +71,9 @@ async def create_campaign_full(
         keywords=body.keywords,
         resource_url=body.resource_url,
         niche_description=body.niche_description,
+        default_about_text=body.default_about_text,
+        default_description=body.default_description,
+        default_welcome_message=body.default_welcome_message,
     )
     campaign_id = campaign["id"]
 
@@ -97,6 +103,9 @@ async def update_campaign(
         resource_url=body.resource_url,
         niche_description=body.niche_description,
         keywords=body.keywords,
+        default_about_text=body.default_about_text,
+        default_description=body.default_description,
+        default_welcome_message=body.default_welcome_message,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
 

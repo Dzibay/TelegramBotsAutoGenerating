@@ -442,6 +442,7 @@ class CreationPipeline:
             display_name=display_name,
             keyword=keyword,
             use_promo_welcome=False,
+            campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
         )
         description = texts["description"] or promo["description"]
         about_text = texts["about_text"] or promo["about_text"]
@@ -463,21 +464,45 @@ class CreationPipeline:
         token = result["token"]
         username = result["username"]
 
-        welcome = await self.ai.generate_welcome_message(
-            public_link,
-            keyword,
-            display_name,
-            variant_index,
-            campaign_id=self.campaign_id,
-            moved_notice=True,
-        )
-        welcome = bot_promo_service.embed_link_in_welcome(
-            welcome,
-            public_link,
-            link_mode=mode,
-            target_url=target,
-            tracking_url=tracking_url,
-        )
+        defaults = bot_promo_service.campaign_text_defaults(campaign)
+        try:
+            welcome = await self.ai.generate_welcome_message(
+                public_link,
+                keyword,
+                display_name,
+                variant_index,
+                campaign_id=self.campaign_id,
+                moved_notice=True,
+            )
+            welcome = bot_promo_service.embed_link_in_welcome(
+                welcome,
+                public_link,
+                link_mode=mode,
+                target_url=target,
+                tracking_url=tracking_url,
+            )
+            if not welcome.strip() or welcome.strip() == f"👉 {public_link}":
+                if defaults.get("welcome_message"):
+                    welcome = bot_promo_service.embed_link_in_welcome(
+                        defaults["welcome_message"],
+                        public_link,
+                        link_mode=mode,
+                        target_url=target,
+                        tracking_url=tracking_url,
+                    )
+                else:
+                    welcome = promo["welcome_message"]
+        except Exception:
+            if defaults.get("welcome_message"):
+                welcome = bot_promo_service.embed_link_in_welcome(
+                    defaults["welcome_message"],
+                    public_link,
+                    link_mode=mode,
+                    target_url=target,
+                    tracking_url=tracking_url,
+                )
+            else:
+                welcome = promo["welcome_message"]
 
         avatar_path = None
         try:

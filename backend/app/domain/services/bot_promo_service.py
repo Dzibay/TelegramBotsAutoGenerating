@@ -223,6 +223,17 @@ def embed_link_in_description(
     return out[:512]
 
 
+def campaign_text_defaults(campaign: dict | None) -> dict[str, str | None]:
+    """Дефолтные тексты из настроек кампании (без вставки ссылки)."""
+    if not campaign:
+        return {"description": None, "about_text": None, "welcome_message": None}
+    return {
+        "description": ((campaign.get("default_description") or "").strip() or None),
+        "about_text": ((campaign.get("default_about_text") or "").strip() or None),
+        "welcome_message": ((campaign.get("default_welcome_message") or "").strip() or None),
+    }
+
+
 def finalize_bot_texts(
     *,
     description: str | None,
@@ -235,34 +246,50 @@ def finalize_bot_texts(
     display_name: str = "",
     keyword: str = "",
     use_promo_welcome: bool = True,
+    campaign_defaults: dict[str, str | None] | None = None,
 ) -> dict[str, str | None]:
-    """Собирает финальные тексты: пустые поля → шаблон promo, свои → только вставка ссылки."""
+    """Собирает финальные тексты: своё → вставка ссылки; пусто → дефолты кампании → шаблон promo."""
     promo = build_promo_texts(
         public_link=public_link,
         display_name=display_name,
         keyword=keyword,
         link_mode=link_mode,
     )
+    defaults = campaign_defaults or {}
     desc_trim = (description or "").strip()
     about_trim = (about_text or "").strip()
     welcome_trim = (welcome_message or "").strip()
 
-    if not desc_trim:
-        final_desc = promo["description"]
+    def _desc_source() -> str:
+        if desc_trim:
+            return desc_trim
+        d = (defaults.get("description") or "").strip()
+        return d or promo["description"]
+
+    def _about_source() -> str:
+        if about_trim:
+            return about_trim
+        d = (defaults.get("about_text") or "").strip()
+        return d or promo["about_text"]
+
+    desc_src = _desc_source()
+    if desc_src == promo["description"]:
+        final_desc = desc_src
     else:
         final_desc = embed_link_in_description(
-            desc_trim,
+            desc_src,
             public_link,
             link_mode=link_mode,
             target_url=target_url,
             tracking_url=tracking_url,
         )
 
-    if not about_trim:
-        final_about = promo["about_text"]
+    about_src = _about_source()
+    if about_src == promo["about_text"]:
+        final_about = about_src
     else:
         final_about = embed_link_in_about(
-            about_trim,
+            about_src,
             public_link,
             link_mode=link_mode,
             target_url=target_url,
@@ -271,9 +298,7 @@ def finalize_bot_texts(
 
     if welcome_message is None and not use_promo_welcome:
         final_welcome = None
-    elif not welcome_trim:
-        final_welcome = promo["welcome_message"] if use_promo_welcome else None
-    else:
+    elif welcome_trim:
         final_welcome = embed_link_in_welcome(
             welcome_trim,
             public_link,
@@ -281,6 +306,20 @@ def finalize_bot_texts(
             target_url=target_url,
             tracking_url=tracking_url,
         )
+    else:
+        default_welcome = (defaults.get("welcome_message") or "").strip()
+        if default_welcome:
+            final_welcome = embed_link_in_welcome(
+                default_welcome,
+                public_link,
+                link_mode=link_mode,
+                target_url=target_url,
+                tracking_url=tracking_url,
+            )
+        elif use_promo_welcome:
+            final_welcome = promo["welcome_message"]
+        else:
+            final_welcome = None
 
     return {
         "description": final_desc,

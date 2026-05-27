@@ -10,6 +10,12 @@ class CampaignUpdateRequest(BaseModel):
     resource_url: Optional[str] = Field(None, max_length=2048)
     niche_description: Optional[str] = Field(None, max_length=2000)
     keywords: Optional[list[str]] = None
+    default_about_text: Optional[str] = Field(None, max_length=120)
+    default_description: Optional[str] = Field(None, max_length=512)
+    default_welcome_message: Optional[str] = Field(None, max_length=2000)
+    default_about_text: Optional[str] = Field(None, max_length=120)
+    default_description: Optional[str] = Field(None, max_length=512)
+    default_welcome_message: Optional[str] = Field(None, max_length=2000)
 
 
 class BotGenerateRequest(BaseModel):

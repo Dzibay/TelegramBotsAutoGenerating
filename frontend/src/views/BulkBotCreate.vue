@@ -199,17 +199,19 @@ import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
 import { validateBulkBatch } from '../utils/bulkBatchValidate';
 
 let rowSeq = 0;
 
 function emptyDraft() {
+  const snap = campaignTextDefaultsSnapshot(campaign.value);
   return {
     display_name: '',
     username: '',
-    description: '',
-    about_text: '',
-    welcome_message: '',
+    description: snap.description,
+    about_text: snap.about_text,
+    welcome_message: snap.welcome_message,
     welcome_button_enabled: true,
     welcome_button_text: 'Перейти по ссылке',
     redirect_slug: null,
@@ -288,6 +290,7 @@ function useCampaignUrl() {
 
 function ensureDraft(row) {
   if (!row.draft) row.draft = emptyDraft();
+  else applyCampaignTextDefaults(row.draft, campaign.value);
 }
 
 function onDraftField(row, field, value) {
@@ -476,6 +479,16 @@ async function createViaJob() {
 watch(rows, () => {
   submitError.value = null;
 }, { deep: true });
+
+watch(
+  () => campaign.value,
+  (c) => {
+    if (!c) return;
+    rows.value.forEach((row) => {
+      if (row.draft) applyCampaignTextDefaults(row.draft, c);
+    });
+  }
+);
 
 onMounted(async () => {
   try {

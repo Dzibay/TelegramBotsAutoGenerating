@@ -9,6 +9,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
     niche_description TEXT,
     keywords TEXT[] NOT NULL DEFAULT '{}',
     resource_url TEXT,
+    default_about_text TEXT,
+    default_description TEXT,
+    default_welcome_message TEXT,
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'queued', 'running', 'completed', 'failed', 'cancelled')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

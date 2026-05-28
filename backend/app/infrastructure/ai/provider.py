@@ -401,6 +401,4 @@ class AIService:
             except Exception as exc:
                 logger.warning("AI welcome_message failed: %s", exc)
                 raw = ""
-        if resource_url and resource_url.strip() and resource_url not in raw:
-            raw = f"{raw}\n\n👉 {resource_url.strip()}".strip() if raw else f"👉 {resource_url.strip()}"
         return raw

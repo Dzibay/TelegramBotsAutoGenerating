@@ -315,7 +315,7 @@ async def generate_bot_draft(
             target_url=target,
             tracking_url=tracking_url,
         )
-        if not welcome.strip() or welcome.strip() == f"👉 {public_link}":
+        if not welcome.strip():
             defaults = bot_promo_service.campaign_text_defaults(campaign)
             if defaults.get("welcome_message"):
                 welcome = bot_promo_service.embed_link_in_welcome(

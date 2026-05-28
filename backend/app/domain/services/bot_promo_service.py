@@ -180,13 +180,9 @@ def embed_link_in_about(
     target_url: Optional[str] = None,
     tracking_url: Optional[str] = None,
 ) -> str:
-    out = _swap_legacy_links((text or "").strip(), public_link, target_url, tracking_url)[:120]
-    if not out:
-        return out
-    if public_link not in out:
-        extra = f" {public_link}"
-        out = (out + extra)[:120] if len(out) + len(extra) <= 120 else out
-    return out
+    """Нормализует ссылки в тексте без дописывания новой ссылки."""
+    out = _swap_legacy_links((text or "").strip(), public_link, target_url, tracking_url)
+    return out[:120] if out else ""
 
 
 def embed_link_in_welcome(
@@ -197,13 +193,9 @@ def embed_link_in_welcome(
     target_url: Optional[str] = None,
     tracking_url: Optional[str] = None,
 ) -> str:
-    """Добавляет ссылку в пользовательский текст. Пустая строка не меняется."""
+    """Нормализует ссылки в тексте без дописывания новой ссылки."""
     out = _swap_legacy_links((text or "").strip(), public_link, target_url, tracking_url)
-    if not out:
-        return ""
-    if public_link not in out:
-        out = f"{out}\n\n👉 {public_link}"
-    return out[:2000]
+    return out[:2000] if out else ""
 
 
 def embed_link_in_description(
@@ -214,13 +206,9 @@ def embed_link_in_description(
     target_url: Optional[str] = None,
     tracking_url: Optional[str] = None,
 ) -> str:
-    """Добавляет ссылку в пользовательский текст. Пустая строка не меняется."""
+    """Нормализует ссылки в тексте без дописывания новой ссылки."""
     out = _swap_legacy_links((text or "").strip(), public_link, target_url, tracking_url)
-    if not out:
-        return ""
-    if public_link not in out:
-        out = f"{out}\n\n👉 {public_link}"
-    return out[:512]
+    return out[:512] if out else ""
 
 
 def campaign_text_defaults(campaign: dict | None) -> dict[str, str | None]:
@@ -248,7 +236,7 @@ def finalize_bot_texts(
     use_promo_welcome: bool = True,
     campaign_defaults: dict[str, str | None] | None = None,
 ) -> dict[str, str | None]:
-    """Собирает финальные тексты: своё → вставка ссылки; пусто → дефолты кампании → шаблон promo."""
+    """Собирает финальные тексты: своё → как есть; пусто → дефолты кампании → шаблон promo."""
     promo = build_promo_texts(
         public_link=public_link,
         display_name=display_name,

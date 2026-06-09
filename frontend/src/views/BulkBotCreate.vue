@@ -4,7 +4,7 @@
       <h1>Массовое создание</h1>
       <p class="subtitle">
         Ручной режим: общие тексты для всех ботов, затем список с аватаром, именем, username и ссылкой.
-        Создание идёт по очереди с живым прогрессом.
+        Создание идёт в фоне на сервере — вкладку можно закрыть.
       </p>
     </header>
 
@@ -195,38 +195,51 @@
       <!-- Шаг 3 -->
       <section v-show="wizardStep === 3" class="card block">
         <h3 class="block-title">Создание ботов</h3>
-        <p class="field-hint block-hint">
-          Боты создаются по очереди в выбранном аккаунте. При лимите BotFather система подождёт и повторит попытку.
+        <p v-if="isJobActive" class="info-banner">
+          Задача выполняется на сервере. Можно закрыть или обновить вкладку — прогресс сохранится.
+          Вернитесь на эту страницу или откройте кампанию → журнал задачи.
+        </p>
+        <p v-else-if="!creationFinished" class="field-hint block-hint">
+          После старта боты создаются в фоне. При лимите Telegram сервер подождёт и продолжит автоматически.
         </p>
 
         <BulkCreationQueue
           :items="queueItems"
           :logs="creationLogs"
-          :creating="creating"
-          :active="creating || creationFinished"
+          :creating="isJobActive"
+          :active="isJobActive || creationFinished"
           :current-username="currentCreatingUsername"
           :current-label="currentCreatingLabel"
           :flood-wait-remaining="floodWaitRemaining"
+          :job-done="activeJob?.processed_accounts ?? 0"
+          :job-total="activeJob?.total_accounts ?? 0"
+          :job-created="activeJob?.total_bots_created ?? null"
+          :job-message="activeJob?.progress_message ?? ''"
         />
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
         <p v-if="creationSummary" class="summary-text">{{ creationSummary }}</p>
 
         <div class="wizard-nav">
-          <button type="button" class="btn-ghost" :disabled="creating" @click="wizardStep = 2">
+          <button
+            type="button"
+            class="btn-ghost"
+            :disabled="startingJob"
+            @click="wizardStep = 2"
+          >
             ← К списку
           </button>
           <button
-            v-if="!creationFinished"
+            v-if="!isJobActive && !creationFinished"
             type="button"
             class="btn"
-            :disabled="!canCreateManual || creating"
+            :disabled="!canCreateManual || startingJob"
             @click="startManualCreation"
           >
-            {{ creating ? `Создание ${createProgress}…` : 'Создать ботов в Telegram' }}
+            {{ startingJob ? 'Запуск…' : 'Создать ботов в Telegram' }}
           </button>
           <button
-            v-else
+            v-else-if="creationFinished"
             type="button"
             class="btn"
             @click="goToCampaignList"
@@ -401,14 +414,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BulkAvatarCell from '../components/BulkAvatarCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import { botService } from '../services/botService';
-import { campaignService } from '../services/campaignService';
+import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
 import {
@@ -416,14 +429,7 @@ import {
   validateBulkBatch,
   validateManualBulkBatch,
 } from '../utils/bulkBatchValidate';
-import {
-  formatWaitLabel,
-  getFloodWaitSeconds,
-  isFloodWaitError,
-} from '../utils/floodWait';
-
-const BOTFATHER_MAX_RETRIES = 5;
-const INTER_BOT_DELAY_MS = 5000;
+const JOB_SNAPSHOT_KEY = (id) => `bulk_manual_job_${id}`;
 
 let rowSeq = 0;
 
@@ -499,6 +505,14 @@ const creationSummary = ref('');
 const currentCreatingUsername = ref('');
 const currentCreatingLabel = ref('');
 const floodWaitRemaining = ref(0);
+const activeJob = ref(null);
+const startingJob = ref(false);
+const lastLogId = ref(0);
+let pollTimer = null;
+
+const isJobActive = computed(
+  () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
+);
 
 const readyAccounts = computed(() =>
   accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots !== false)
@@ -554,7 +568,11 @@ const canGoStep3 = computed(
 const canAddRow = computed(() => freeSlots.value > 0 && manualRows.value.length < freeSlots.value);
 
 const canCreateManual = computed(
-  () => readyRowsCount.value > 0 && !manualValidation.value.errors.length && !creating.value
+  () =>
+    readyRowsCount.value > 0 &&
+    !manualValidation.value.errors.length &&
+    !isJobActive.value &&
+    !startingJob.value
 );
 
 const queueItems = computed(() =>
@@ -605,28 +623,154 @@ function useCampaignUrl() {
   targetUrl.value = campaignResourceUrl.value;
 }
 
-function addLog(message, level = 'info') {
-  const d = new Date();
-  creationLogs.value.push({
-    time: d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    message,
-    level,
-  });
+function formatLogTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function mapApiLog(entry) {
+  return {
+    time: formatLogTime(entry.created_at),
+    message: entry.message,
+    level: entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warn' : entry.level,
+  };
 }
 
-async function waitFloodCountdown(seconds) {
-  const total = Math.ceil(seconds);
-  floodWaitRemaining.value = total;
-  for (let s = total; s > 0; s -= 1) {
-    floodWaitRemaining.value = s;
-    currentCreatingLabel.value = `Пауза Telegram: ${formatWaitLabel(s)}`;
-    await sleep(1000);
+function applyLogContext(entry) {
+  const ctx = entry.context;
+  if (!ctx) return;
+  if (ctx.username) {
+    currentCreatingUsername.value = String(ctx.username).replace(/^@/, '');
   }
-  floodWaitRemaining.value = 0;
+  if (ctx.status === 'waiting' && ctx.wait_seconds) {
+    floodWaitRemaining.value = Number(ctx.wait_seconds);
+  } else if (ctx.status === 'creating' || ctx.status === 'done' || ctx.status === 'error') {
+    floodWaitRemaining.value = 0;
+  }
+  if (ctx.row_id != null) {
+    const row = manualRows.value.find((r) => r.id === ctx.row_id);
+    if (row && ctx.status) row.queueStatus = ctx.status;
+    if (row && ctx.error) row.error = ctx.error;
+  }
+  if (ctx.status === 'creating' && ctx.username) {
+    currentCreatingLabel.value = `@${ctx.username.replace(/^@/, '')}`;
+  }
+}
+
+function saveJobSnapshot(jobId) {
+  const rows = manualRows.value
+    .filter((r) => r.displayName?.trim() && r.username?.trim())
+    .map((r) => ({
+      id: r.id,
+      displayName: r.displayName,
+      username: r.username,
+      targetUrl: r.targetUrl || '',
+      queueStatus: r.queueStatus || 'pending',
+      error: r.error || null,
+    }));
+  sessionStorage.setItem(
+    JOB_SNAPSHOT_KEY(campaignId.value),
+    JSON.stringify({ jobId, accountId: accountId.value, rows })
+  );
+}
+
+function loadJobSnapshot() {
+  try {
+    const raw = sessionStorage.getItem(JOB_SNAPSHOT_KEY(campaignId.value));
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function restoreRowsFromSnapshot(snap) {
+  if (!snap?.rows?.length) return;
+  const maxId = Math.max(...snap.rows.map((s) => s.id || 0), 0);
+  rowSeq = Math.max(rowSeq, maxId);
+  manualRows.value = snap.rows.map((s) => ({
+    id: s.id,
+    displayName: s.displayName || '',
+    username: s.username || '',
+    targetUrl: s.targetUrl || '',
+    avatarFile: null,
+    avatarPreview: null,
+    queueStatus: s.queueStatus || 'pending',
+    error: s.error || null,
+    createdBotId: null,
+  }));
+  if (snap.accountId) accountId.value = snap.accountId;
+}
+
+function clearJobSnapshot() {
+  sessionStorage.removeItem(JOB_SNAPSHOT_KEY(campaignId.value));
+}
+
+async function fetchJobLogs() {
+  if (!activeJob.value?.id) return;
+  const batch = await jobService.getLogs(activeJob.value.id, lastLogId.value);
+  if (!batch.length) return;
+  for (const entry of batch) {
+    applyLogContext(entry);
+    creationLogs.value.push(mapApiLog(entry));
+  }
+  lastLogId.value = batch[batch.length - 1].id;
+}
+
+async function refreshActiveJob() {
+  if (!activeJob.value?.id) return;
+  activeJob.value = await jobService.get(activeJob.value.id);
+  if (['completed', 'failed', 'cancelled'].includes(activeJob.value.status)) {
+    stopJobPolling();
+    creationFinished.value = true;
+    const created = activeJob.value.total_bots_created ?? 0;
+    creationSummary.value = activeJob.value.progress_message || `Готово: создано ${created}.`;
+    if (activeJob.value.status === 'failed' && created === 0) {
+      submitError.value = activeJob.value.error_message || 'Задача завершилась с ошибкой';
+    }
+    clearJobSnapshot();
+    try {
+      accounts.value = await campaignService.getAccounts(campaignId.value);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function pollJob() {
+  await refreshActiveJob();
+  await fetchJobLogs();
+}
+
+function startJobPolling() {
+  stopJobPolling();
+  pollTimer = setInterval(pollJob, 2000);
+}
+
+function stopJobPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function tryResumeActiveJob() {
+  const data = await campaignService.get(campaignId.value);
+  const job = data.activeJob;
+  if (!job || !['queued', 'running'].includes(job.status)) return;
+
+  const snap = loadJobSnapshot();
+  if (snap?.jobId === job.id) {
+    restoreRowsFromSnapshot(snap);
+  }
+
+  activeJob.value = job;
+  wizardStep.value = 3;
+  creationFinished.value = false;
+  lastLogId.value = 0;
+  creationLogs.value = [];
+  await fetchJobLogs();
+  startJobPolling();
 }
 
 function goToBotsStep() {
@@ -670,125 +814,59 @@ function removeManualRow(i) {
   manualRows.value.splice(i, 1);
 }
 
-function buildManualCreateSpec(row) {
-  const url = rowTargetUrl(row, effectiveTargetUrl.value);
-  return {
-    campaign_id: campaignId.value,
-    telegram_account_id: accountId.value,
-    target_url: url,
-    display_name: row.displayName.trim(),
-    username: row.username.replace(/^@/, '').trim(),
-    description: sharedTexts.value.description,
-    about_text: sharedTexts.value.about_text || '',
-    welcome_message: sharedTexts.value.welcome_message,
-    welcome_button_enabled: sharedTexts.value.welcome_button_enabled,
-    welcome_button_text: sharedTexts.value.welcome_button_text,
-    keyword: null,
-    link_mode: linkMode.value,
-    create_via_botfather: true,
-    auto_start: autoStart.value,
-    generate_avatar: false,
-  };
-}
-
 async function startManualCreation() {
   if (!canCreateManual.value) return;
 
   const rowsToCreate = manualRows.value.filter(
     (r) => r.displayName?.trim() && r.username?.trim()
   );
-  const limit = Math.min(rowsToCreate.length, freeSlots.value);
 
-  creating.value = true;
+  startingJob.value = true;
   submitError.value = null;
   creationFinished.value = false;
   creationSummary.value = '';
+  creationLogs.value = [];
+  lastLogId.value = 0;
+  floodWaitRemaining.value = 0;
 
-  addLog(`Старт: ${limit} бот(ов) в аккаунте «${accountLabel(selectedAccount.value)}»`);
+  rowsToCreate.forEach((r) => {
+    r.queueStatus = 'pending';
+    r.error = null;
+  });
 
-  let created = 0;
-  let failed = 0;
-
-  for (let i = 0; i < limit; i++) {
-    const row = rowsToCreate[i];
-    const uname = row.username.replace(/^@/, '').trim();
-    row.queueStatus = 'creating';
-    row.error = null;
-    currentCreatingUsername.value = uname;
-    currentCreatingLabel.value = `${row.displayName.trim()} (@${uname})`;
-    createProgress.value = `${i + 1}/${limit}`;
-
-    addLog(`[${i + 1}/${limit}] @${uname} — подключение к аккаунту…`);
-
-    let retries = 0;
-    let success = false;
-
-    while (retries <= BOTFATHER_MAX_RETRIES && !success) {
-      try {
-        const bot = await taskStore.run(
-          'BULK_CREATE_BOTS',
-          () => botService.create(buildManualCreateSpec(row), row.avatarFile),
-          { username: uname }
-        );
-        row.queueStatus = 'done';
-        row.createdBotId = bot.id;
-        created += 1;
-        addLog(`[${i + 1}/${limit}] @${uname} — создан`, 'success');
-        success = true;
-        if (i + 1 < limit) {
-          addLog(`Пауза ${INTER_BOT_DELAY_MS / 1000} сек. перед следующим ботом…`);
-          await sleep(INTER_BOT_DELAY_MS);
-        }
-      } catch (e) {
-        const errMsg = e.response?.data?.error || 'Ошибка создания';
-        const waitSec = getFloodWaitSeconds(e);
-        if (waitSec != null && retries < BOTFATHER_MAX_RETRIES) {
-          row.queueStatus = 'waiting';
-          addLog(
-            `[${i + 1}/${limit}] @${uname} — лимит Telegram, пауза ${formatWaitLabel(waitSec)}`,
-            'warn'
-          );
-          await waitFloodCountdown(waitSec);
-          row.queueStatus = 'creating';
-          addLog(`[${i + 1}/${limit}] @${uname} — повтор после паузы…`);
-          retries += 1;
-        } else if (isFloodWaitError(e) && retries >= BOTFATHER_MAX_RETRIES) {
-          row.queueStatus = 'error';
-          row.error = `${errMsg} (исчерпаны повторы)`;
-          failed += 1;
-          addLog(`[${i + 1}/${limit}] @${uname} — ${errMsg}`, 'error');
-          break;
-        } else {
-          row.queueStatus = 'error';
-          row.error = errMsg;
-          failed += 1;
-          addLog(`[${i + 1}/${limit}] @${uname} — ${errMsg}`, 'error');
-          break;
-        }
-      }
+  const form = new FormData();
+  form.append(
+    'data',
+    JSON.stringify({
+      telegram_account_id: accountId.value,
+      default_target_url: effectiveTargetUrl.value.trim(),
+      link_mode: linkMode.value,
+      auto_start: autoStart.value,
+      shared_texts: sharedTexts.value,
+      bots: rowsToCreate.map((r) => ({
+        row_id: r.id,
+        display_name: r.displayName.trim(),
+        username: r.username.replace(/^@/, '').trim(),
+        target_url: r.targetUrl?.trim() || null,
+      })),
+    })
+  );
+  for (const row of rowsToCreate) {
+    if (row.avatarFile) {
+      form.append(`avatar_${row.id}`, row.avatarFile);
     }
   }
 
-  for (let i = limit; i < rowsToCreate.length; i++) {
-    rowsToCreate[i].queueStatus = 'skipped';
-    rowsToCreate[i].error = 'Нет свободных слотов на аккаунте';
-  }
-
-  creating.value = false;
-  currentCreatingUsername.value = '';
-  currentCreatingLabel.value = '';
-  createProgress.value = '';
-  creationFinished.value = true;
-  creationSummary.value = `Готово: создано ${created}, ошибок ${failed}.`;
-
-  if (created === 0 && failed > 0) {
-    submitError.value = 'Не удалось создать ни одного бота. Смотрите журнал.';
-  }
-
   try {
-    accounts.value = await campaignService.getAccounts(campaignId.value);
-  } catch {
-    /* ignore refresh */
+    const job = await campaignService.startManualBulk(campaignId.value, form);
+    activeJob.value = job;
+    saveJobSnapshot(job.id);
+    startJobPolling();
+    await pollJob();
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось запустить задачу';
+  } finally {
+    startingJob.value = false;
   }
 }
 
@@ -995,9 +1073,15 @@ onMounted(async () => {
     accounts.value = await campaignService.getAccounts(campaignId.value);
     const first = readyAccounts.value[0];
     if (first) accountId.value = first.id;
+
+    await tryResumeActiveJob();
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   }
+});
+
+onUnmounted(() => {
+  stopJobPolling();
 });
 </script>
 
@@ -1236,6 +1320,17 @@ onMounted(async () => {
   margin: 0.75rem 0 0;
   font-size: 0.9rem;
   color: #86efac;
+}
+
+.info-banner {
+  margin: 0 0 1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.1);
+  font-size: 0.85rem;
+  color: #93c5fd;
+  line-height: 1.45;
 }
 
 .url-from-campaign {

@@ -1,9 +1,11 @@
 """Пайплайн создания ботов для worker."""
+import asyncio
 from pathlib import Path
 from typing import Any, Optional
 
 from app.config import Config
-from app.domain.services import bot_promo_service, job_log_service, username_service
+from app.core.exceptions import BadRequestError
+from app.domain.services import bot_promo_service, bot_service, job_log_service, username_service
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.botfather_client import (
@@ -16,16 +18,22 @@ from app.infrastructure.telegram.session_loader import load_client_from_tdata
 from app.utils.crypto import encrypt_token
 
 
+INTER_BOT_DELAY_SEC = 5
+FLOOD_MAX_RETRIES = 8
+
+
 class CreationPipeline:
     def __init__(
         self,
         job_id: int,
         campaign_id: int,
         plans: list[dict[str, Any]] | None = None,
+        manual_plans: list[dict[str, Any]] | None = None,
     ):
         self.job_id = job_id
         self.campaign_id = campaign_id
         self.plans = plans or []
+        self.manual_plans = manual_plans or []
         self.ai = AIService()
 
     async def log(
@@ -48,6 +56,10 @@ class CreationPipeline:
         campaign = await db.fetch_one("SELECT * FROM campaigns WHERE id = $1", self.campaign_id)
         if not campaign:
             raise ValueError("Кампания не найдена")
+
+        if self.manual_plans:
+            await self._run_manual(campaign)
+            return
 
         if self.plans:
             await self._run_planned(campaign)
@@ -102,6 +114,157 @@ class CreationPipeline:
                 )
 
         await self._finish_job(total_created)
+
+    async def _run_manual(self, campaign: dict) -> None:
+        total = len(self.manual_plans)
+        if not total:
+            raise ValueError("Пустой план ручного создания")
+
+        account_id = int(self.manual_plans[0]["telegram_account_id"])
+        account = await db.fetch_one(
+            "SELECT * FROM telegram_accounts WHERE id = $1 AND campaign_id = $2",
+            account_id,
+            self.campaign_id,
+        )
+        if not account:
+            raise ValueError(f"Аккаунт #{account_id} не найден")
+
+        label = account.get("label") or f"Аккаунт #{account_id}"
+        slots_left = max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
+        plans = self.manual_plans[:slots_left]
+
+        await self.log(
+            f"Ручная партия: {len(plans)} бот(ов) на {label}",
+            progress=f"0/{len(plans)}",
+        )
+        await db.execute(
+            "UPDATE telegram_accounts SET status = 'creating', updated_at = NOW() WHERE id = $1",
+            account_id,
+        )
+
+        created_count = 0
+        processed = 0
+
+        for idx, plan in enumerate(plans):
+            processed += 1
+            uname = plan["username"]
+            row_id = plan.get("row_id", idx + 1)
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET processed_accounts = $2, updated_at = NOW()
+                WHERE id = $1
+                """,
+                self.job_id,
+                processed,
+            )
+            await self.log(
+                f"[{processed}/{len(plans)}] @{uname} — старт",
+                progress=f"{processed - 1}/{len(plans)}: @{uname}",
+                context={
+                    "row_id": row_id,
+                    "plan_index": idx,
+                    "username": uname,
+                    "status": "creating",
+                },
+            )
+
+            avatar_bytes = None
+            avatar_path = plan.get("avatar_path")
+            if avatar_path:
+                path = Path(avatar_path)
+                if path.is_file():
+                    avatar_bytes = path.read_bytes()
+
+            try:
+                bot = await self._create_manual_bot_with_flood_retry(plan, avatar_bytes=avatar_bytes)
+                created_count += 1
+                await self.log(
+                    f"[{processed}/{len(plans)}] @{uname} — создан",
+                    level="info",
+                    progress=f"{processed}/{len(plans)}: готово",
+                    context={
+                        "row_id": row_id,
+                        "plan_index": idx,
+                        "username": uname,
+                        "status": "done",
+                        "bot_id": bot.get("id"),
+                    },
+                )
+            except Exception as exc:
+                await self.log(
+                    f"[{processed}/{len(plans)}] @{uname} — {exc}",
+                    level="error",
+                    context={
+                        "row_id": row_id,
+                        "plan_index": idx,
+                        "username": uname,
+                        "status": "error",
+                        "error": str(exc)[:300],
+                    },
+                )
+
+            if processed < len(plans):
+                await self.log(f"Пауза {INTER_BOT_DELAY_SEC} сек. перед следующим ботом…")
+                await asyncio.sleep(INTER_BOT_DELAY_SEC)
+
+        acc = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
+        acc_status = "ready"
+        if acc and int(acc["bots_created"]) >= int(acc["max_bots_limit"]):
+            acc_status = "exhausted"
+        await db.execute(
+            "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
+            account_id,
+            acc_status,
+        )
+        await self.log(f"{label}: создано {created_count} из {len(plans)}")
+        await self._finish_job(created_count)
+
+    async def _create_manual_bot_with_flood_retry(
+        self,
+        plan: dict[str, Any],
+        *,
+        avatar_bytes: Optional[bytes],
+    ) -> dict[str, Any]:
+        for attempt in range(FLOOD_MAX_RETRIES + 1):
+            try:
+                return await bot_service.create_bot(
+                    campaign_id=self.campaign_id,
+                    telegram_account_id=int(plan["telegram_account_id"]),
+                    target_url=plan["target_url"],
+                    display_name=plan["display_name"],
+                    username=plan["username"],
+                    description=plan["description"],
+                    about_text=plan.get("about_text") or "",
+                    welcome_message=plan["welcome_message"],
+                    welcome_button_enabled=bool(plan.get("welcome_button_enabled", True)),
+                    welcome_button_text=plan.get("welcome_button_text")
+                    or bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
+                    keyword=None,
+                    link_mode=plan.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
+                    create_via_botfather=True,
+                    auto_start=bool(plan.get("auto_start", True)),
+                    avatar_bytes=avatar_bytes,
+                    generate_avatar=False,
+                )
+            except BadRequestError as exc:
+                details = exc.details or {}
+                wait = int(details.get("wait_seconds") or 0)
+                if details.get("flood_wait") and wait > 0 and attempt < FLOOD_MAX_RETRIES:
+                    await self.log(
+                        f"Лимит Telegram для @{plan['username']}, пауза {wait} сек…",
+                        level="warn",
+                        context={
+                            "row_id": plan.get("row_id"),
+                            "username": plan["username"],
+                            "status": "waiting",
+                            "wait_seconds": wait,
+                        },
+                    )
+                    await asyncio.sleep(wait + 2)
+                    continue
+                raise
+        raise BadRequestError(f"Не удалось создать @{plan['username']} после пауз лимита Telegram")
 
     async def _run_planned(self, campaign: dict) -> None:
         from collections import defaultdict

@@ -29,3 +29,29 @@ class StartCreationJobRequest(BaseModel):
     """Опциональный план: только указанные боты с заданными ключевыми словами."""
 
     plans: list[BotCreationPlanItem] = Field(default_factory=list, max_length=200)
+
+
+class ManualSharedTexts(BaseModel):
+    description: str = Field(..., min_length=1, max_length=512)
+    welcome_message: str = Field(..., min_length=1, max_length=2000)
+    about_text: Optional[str] = Field(None, max_length=120)
+    welcome_button_enabled: bool = True
+    welcome_button_text: str = Field("Перейти по ссылке", max_length=64)
+
+
+class ManualBotItem(BaseModel):
+    row_id: int = Field(..., ge=1)
+    display_name: str = Field(..., min_length=1, max_length=64)
+    username: str = Field(..., min_length=3, max_length=64)
+    target_url: Optional[str] = Field(None, max_length=2048)
+
+
+class StartManualBulkRequest(BaseModel):
+    """Ручная массовая партия: общие тексты + список ботов."""
+
+    telegram_account_id: int
+    default_target_url: str = Field(..., min_length=1, max_length=2048)
+    link_mode: str = Field("redirect", max_length=32)
+    auto_start: bool = True
+    shared_texts: ManualSharedTexts
+    bots: list[ManualBotItem] = Field(..., min_length=1, max_length=50)

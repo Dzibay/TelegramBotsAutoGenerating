@@ -26,6 +26,7 @@ async def process_job(
     job_id: int,
     campaign_id: int,
     plans: list | None = None,
+    manual_plans: list | None = None,
 ) -> None:
     from app.infrastructure.database import repository as db
 
@@ -44,7 +45,12 @@ async def process_job(
     await job_log_service.append_log(job_id, "Задача запущена", progress_message="Старт")
 
     try:
-        pipeline = CreationPipeline(job_id, campaign_id, plans=plans)
+        pipeline = CreationPipeline(
+            job_id,
+            campaign_id,
+            plans=plans,
+            manual_plans=manual_plans,
+        )
         await pipeline.run()
     except Exception as exc:
         logger.exception("Job %s failed: %s", job_id, exc)
@@ -85,8 +91,14 @@ async def worker_loop() -> None:
             data = json.loads(payload)
             job_id = int(data["job_id"])
             campaign_id = int(data["campaign_id"])
-            plans = data.get("plans")
-            await process_job(job_id, campaign_id, plans=plans)
+            manual_plans = data.get("manual_plans") if data.get("mode") == "manual" else None
+            plans = None if manual_plans else data.get("plans")
+            await process_job(
+                job_id,
+                campaign_id,
+                plans=plans,
+                manual_plans=manual_plans,
+            )
         except Exception as exc:
             logger.exception("Ошибка обработки задачи: %s", exc)
             if job_id and campaign_id:

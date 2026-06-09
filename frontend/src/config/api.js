@@ -22,6 +22,7 @@ export const API_ENDPOINTS = {
     UPLOAD_ACCOUNT: (id) => `/campaigns/${id}/accounts`,
     UPLOAD_BATCH: (id) => `/campaigns/${id}/accounts/batch`,
     START: (id) => `/campaigns/${id}/start`,
+    START_MANUAL_BULK: (id) => `/campaigns/${id}/start-manual-bulk`,
     GENERATE_KEYWORDS: (id) => `/campaigns/${id}/generate-keywords`,
     SUGGEST_KEYWORD: (id) => `/campaigns/${id}/suggest-keyword`,
   },

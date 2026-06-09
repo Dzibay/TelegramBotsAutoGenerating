@@ -5,11 +5,18 @@
         <div class="queue-fill" :style="{ width: `${progressPercent}%` }" />
       </div>
       <p class="queue-summary">
-        {{ doneCount }} из {{ totalCount }} завершено
-        <span v-if="failedCount"> · ошибок: {{ failedCount }}</span>
+        <template v-if="jobTotal > 0">
+          {{ jobDone }} из {{ jobTotal }} обработано
+          <span v-if="jobCreated != null"> · создано: {{ jobCreated }}</span>
+        </template>
+        <template v-else>
+          {{ doneCount }} из {{ totalCount }} завершено
+          <span v-if="failedCount"> · ошибок: {{ failedCount }}</span>
+        </template>
         <span v-if="floodWaitRemaining > 0" class="flood-wait">
           · пауза Telegram: {{ floodWaitLabel }}
         </span>
+        <span v-else-if="jobMessage" class="job-msg"> · {{ jobMessage }}</span>
         <span v-else-if="currentLabel"> · сейчас: {{ currentLabel }}</span>
       </p>
       <InlineTaskIndicator v-if="creating" :username="currentUsername" fallback-label="Создаём бота в Telegram…" />
@@ -71,6 +78,10 @@ const props = defineProps({
   currentUsername: { type: String, default: '' },
   currentLabel: { type: String, default: '' },
   floodWaitRemaining: { type: Number, default: 0 },
+  jobDone: { type: Number, default: 0 },
+  jobTotal: { type: Number, default: 0 },
+  jobCreated: { type: Number, default: null },
+  jobMessage: { type: String, default: '' },
 });
 
 const scrollRef = ref(null);
@@ -84,6 +95,9 @@ const doneCount = computed(
 const failedCount = computed(() => props.items.filter((i) => i.queueStatus === 'error').length);
 
 const progressPercent = computed(() => {
+  if (props.jobTotal > 0) {
+    return Math.round((props.jobDone / props.jobTotal) * 100);
+  }
   if (!totalCount.value) return 0;
   return Math.round((doneCount.value / totalCount.value) * 100);
 });
@@ -164,6 +178,10 @@ watch(
 
 .flood-wait {
   color: #facc15;
+}
+
+.job-msg {
+  color: #93c5fd;
 }
 
 .queue-columns {

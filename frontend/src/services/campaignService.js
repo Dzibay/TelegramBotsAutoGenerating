@@ -106,6 +106,15 @@ export const campaignService = {
     return res.data?.job;
   },
 
+  async startManualBulk(campaignId, formData) {
+    const res = await apiClient.post(
+      API_ENDPOINTS.CAMPAIGNS.START_MANUAL_BULK(campaignId),
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 }
+    );
+    return res.data?.job;
+  },
+
   async update(id, payload) {
     const res = await apiClient.patch(API_ENDPOINTS.CAMPAIGNS.GET(id), payload);
     return res.data?.campaign;

@@ -1,7 +1,7 @@
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 
 from app.constants import HTTPStatus, SuccessMessages
 from app.core.dependencies import get_current_user
@@ -11,6 +11,7 @@ from app.domain.models.campaign_models import (
     CampaignCreateRequest,
     GenerateKeywordsRequest,
     StartCreationJobRequest,
+    StartManualBulkRequest,
 )
 from app.domain.services import account_health, account_service, campaign_service, job_service, prepared_account_service
 from app.utils.response import success_response
@@ -275,4 +276,39 @@ async def start_campaign(
     if body and body.plans:
         plans = [p.model_dump() for p in body.plans]
     job = await job_service.start_creation_job(campaign_id, plans=plans)
+    return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
+
+
+@router.post("/{campaign_id}/start-manual-bulk")
+async def start_manual_bulk(
+    campaign_id: int,
+    request: Request,
+    _user: dict = Depends(get_current_user),
+):
+    form = await request.form()
+    raw = form.get("data")
+    if not raw:
+        raise BadRequestError("Отсутствует поле data")
+    body = StartManualBulkRequest.model_validate_json(raw)
+    avatars: dict[int, bytes] = {}
+    for key in form.keys():
+        if not str(key).startswith("avatar_"):
+            continue
+        try:
+            row_id = int(str(key).split("_", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        upload = form[key]
+        if not hasattr(upload, "read"):
+            continue
+        raw_bytes = await upload.read()
+        if len(raw_bytes) > 5 * 1024 * 1024:
+            raise BadRequestError(f"Аватар в строке {row_id} больше 5 МБ")
+        if raw_bytes:
+            avatars[row_id] = raw_bytes
+    job = await job_service.start_manual_creation_job(
+        campaign_id,
+        body=body,
+        avatars=avatars,
+    )
     return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)

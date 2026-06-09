@@ -1,7 +1,5 @@
 from typing import Any, Optional
 
-from app.constants import HTTPStatus
-
 
 def success_response(
     data: Optional[Any] = None,
@@ -16,10 +14,3 @@ def success_response(
         else:
             response["data"] = data
     return response
-
-
-def error_response(error: str, details: Any = None, status_code: int = HTTPStatus.BAD_REQUEST) -> dict:
-    body: dict[str, Any] = {"success": False, "error": error}
-    if details is not None:
-        body["details"] = details
-    return body

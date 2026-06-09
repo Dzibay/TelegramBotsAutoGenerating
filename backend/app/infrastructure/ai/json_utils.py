@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 
-def extract_json_array(raw: str) -> list[dict[str, Any]]:
+def extract_json_array(raw: str) -> list[Any]:
     text = raw.strip()
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fence:
@@ -15,7 +15,8 @@ def extract_json_array(raw: str) -> list[dict[str, Any]]:
     data = json.loads(text[start : end + 1])
     if not isinstance(data, list):
         raise ValueError("Ожидался JSON-массив")
-    return [x for x in data if isinstance(x, dict)]
+    # Возвращаем элементы как есть: для ключевых слов это строки, для концептов — словари.
+    return data
 
 
 def extract_json_object(raw: str) -> dict[str, Any]:

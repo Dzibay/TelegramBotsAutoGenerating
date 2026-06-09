@@ -1,7 +1,5 @@
 -- Telegram Bots Auto Generating — схема PostgreSQL
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
 -- Кампания: одна «волна» создания ботов под нишу и ключевые слова
 CREATE TABLE IF NOT EXISTS campaigns (
     id BIGSERIAL PRIMARY KEY,

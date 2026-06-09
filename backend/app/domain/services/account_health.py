@@ -172,7 +172,7 @@ async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
             phone,
         )
         row = await _fetch_account_row(account_id)
-        msg = f"Сессия OK"
+        msg = "Сессия OK"
         if phone:
             msg += f" ({phone})"
         if username:

@@ -63,44 +63,6 @@ def prepare_bot_links(
     }
 
 
-def embed_bot_texts(
-    *,
-    description: str | None = None,
-    welcome_message: str | None = None,
-    about_text: str | None = None,
-    public_link: str,
-    link_mode: str,
-    target_url: str,
-    tracking_url: str | None,
-) -> dict[str, str | None]:
-    out: dict[str, str | None] = {}
-    if description is not None:
-        out["description"] = embed_link_in_description(
-            description,
-            public_link,
-            link_mode=link_mode,
-            target_url=target_url,
-            tracking_url=tracking_url,
-        )
-    if welcome_message is not None:
-        out["welcome_message"] = embed_link_in_welcome(
-            welcome_message,
-            public_link,
-            link_mode=link_mode,
-            target_url=target_url,
-            tracking_url=tracking_url,
-        )
-    if about_text is not None:
-        out["about_text"] = embed_link_in_about(
-            about_text,
-            public_link,
-            link_mode=link_mode,
-            target_url=target_url,
-            tracking_url=tracking_url,
-        )
-    return out
-
-
 def normalize_target_url(url: str) -> str:
     u = (url or "").strip()
     if not u:
@@ -319,25 +281,6 @@ def finalize_bot_texts(
 def welcome_button_label(text: str | None) -> str:
     label = (text or WELCOME_BUTTON_TEXT_DEFAULT).strip()
     return (label[:64] if label else WELCOME_BUTTON_TEXT_DEFAULT)
-
-
-# Обратная совместимость
-def embed_tracking_in_about(text: str, tracking_url: str, target_url: Optional[str] = None) -> str:
-    return embed_link_in_about(
-        text, tracking_url, link_mode=LINK_MODE_REDIRECT, target_url=target_url, tracking_url=tracking_url
-    )
-
-
-def embed_tracking_in_welcome(text: str, tracking_url: str, target_url: Optional[str] = None) -> str:
-    return embed_link_in_welcome(
-        text, tracking_url, link_mode=LINK_MODE_REDIRECT, target_url=target_url, tracking_url=tracking_url
-    )
-
-
-def embed_tracking_in_description(text: str, tracking_url: str, target_url: Optional[str] = None) -> str:
-    return embed_link_in_description(
-        text, tracking_url, link_mode=LINK_MODE_REDIRECT, target_url=target_url, tracking_url=tracking_url
-    )
 
 
 async def record_click(slug: str) -> dict[str, Any]:

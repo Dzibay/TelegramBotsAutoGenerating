@@ -52,3 +52,71 @@ export function validateBulkBatch(rows, readyAccounts) {
 
   return { errors, warnings };
 }
+
+/**
+ * Проверки ручной массовой партии (один аккаунт, общие тексты).
+ * @returns {{ errors: string[], warnings: string[] }}
+ */
+export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl = '') {
+  const errors = [];
+  const warnings = [];
+
+  if (!account) {
+    errors.push('Выберите аккаунт Telegram.');
+    return { errors, warnings };
+  }
+
+  if (account.bots_created >= account.max_bots_limit) {
+    errors.push(`На аккаунте достигнут лимит ботов (${account.max_bots_limit}).`);
+  }
+
+  const slots = Math.max(0, account.max_bots_limit - account.bots_created);
+  const readyRows = rows.filter((r) => r.displayName?.trim() && r.username?.trim());
+
+  if (!readyRows.length) {
+    errors.push('Добавьте хотя бы одного бота с именем и username.');
+  } else if (readyRows.length > slots) {
+    errors.push(
+      `В партии ${readyRows.length} ботов, свободно слотов на аккаунте: ${slots}.`
+    );
+  }
+
+  if (!sharedTexts?.description?.trim()) {
+    errors.push('Заполните описание (плакат до Start).');
+  }
+  if (!sharedTexts?.welcome_message?.trim()) {
+    errors.push('Заполните сообщение после Start.');
+  }
+
+  const usernames = new Map();
+  for (let i = 0; i < rows.length; i++) {
+    const u = rows[i].username?.replace(/^@/, '').trim().toLowerCase();
+    if (!u) continue;
+    if (usernames.has(u)) {
+      errors.push(`Username @${u} повторяется в строках ${usernames.get(u)} и ${i + 1}.`);
+    } else {
+      usernames.set(u, i + 1);
+    }
+  }
+
+  const withoutAvatar = readyRows.filter((r) => !r.avatarFile);
+  if (withoutAvatar.length) {
+    warnings.push(
+      `${withoutAvatar.length} бот(ов) без аватара — в Telegram останется пустая картинка.`
+    );
+  }
+
+  const withoutUrl = readyRows.filter((r) => !rowTargetUrl(r, defaultUrl)?.trim());
+  if (withoutUrl.length) {
+    errors.push('Укажите ссылку на сервис (общую или для каждого бота).');
+  }
+
+  return { errors, warnings };
+}
+
+/** Ссылка строки: своя или общая по умолчанию. */
+export function rowTargetUrl(row, defaultUrl = '') {
+  const custom = row.targetUrl?.trim();
+  if (custom) return custom;
+  return defaultUrl?.trim() || '';
+}

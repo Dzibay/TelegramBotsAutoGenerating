@@ -66,6 +66,18 @@ export const TASK_PRESETS = {
       'Сохранение…',
     ],
   },
+  BULK_CREATE_BOTS: {
+    title: 'Массовое создание ботов',
+    icon: 'botfather',
+    estimatedSec: 180,
+    steps: [
+      'Подключение к аккаунту…',
+      'Регистрация бота в Telegram…',
+      'Имя, username и аватар…',
+      'Описание и приветствие…',
+      'Следующий бот в очереди…',
+    ],
+  },
   DELETE_BOT: {
     title: 'Удаление бота',
     icon: 'botfather',

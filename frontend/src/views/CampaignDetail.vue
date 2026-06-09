@@ -87,7 +87,7 @@
           :aria-disabled="!canOpenCreate ? 'true' : undefined"
         >
           <span class="cc-title">Несколько ботов</span>
-          <span class="cc-desc">Таблица: аккаунт, фраза для AI, имя и username, пакетное создание.</span>
+          <span class="cc-desc">Общие тексты, список ботов с аватаром и ссылкой, создание по очереди.</span>
         </component>
       </div>
       <p v-if="createBlockedReason" class="warn-banner">{{ createBlockedReason }}</p>

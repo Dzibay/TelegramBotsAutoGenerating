@@ -206,6 +206,7 @@
           :active="creating || creationFinished"
           :current-username="currentCreatingUsername"
           :current-label="currentCreatingLabel"
+          :flood-wait-remaining="floodWaitRemaining"
         />
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
@@ -415,9 +416,14 @@ import {
   validateBulkBatch,
   validateManualBulkBatch,
 } from '../utils/bulkBatchValidate';
+import {
+  formatWaitLabel,
+  getFloodWaitSeconds,
+  isFloodWaitError,
+} from '../utils/floodWait';
 
-const BOTFATHER_RETRY_DELAY_MS = 60000;
-const BOTFATHER_MAX_RETRIES = 2;
+const BOTFATHER_MAX_RETRIES = 5;
+const INTER_BOT_DELAY_MS = 5000;
 
 let rowSeq = 0;
 
@@ -492,6 +498,7 @@ const creationFinished = ref(false);
 const creationSummary = ref('');
 const currentCreatingUsername = ref('');
 const currentCreatingLabel = ref('');
+const floodWaitRemaining = ref(0);
 
 const readyAccounts = computed(() =>
   accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots !== false)
@@ -611,9 +618,15 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isBotfatherRateLimit(err) {
-  const msg = (err?.response?.data?.error || err?.message || '').toLowerCase();
-  return msg.includes('лимит botfather') || msg.includes('too many') || msg.includes('подождите');
+async function waitFloodCountdown(seconds) {
+  const total = Math.ceil(seconds);
+  floodWaitRemaining.value = total;
+  for (let s = total; s > 0; s -= 1) {
+    floodWaitRemaining.value = s;
+    currentCreatingLabel.value = `Пауза Telegram: ${formatWaitLabel(s)}`;
+    await sleep(1000);
+  }
+  floodWaitRemaining.value = 0;
 }
 
 function goToBotsStep() {
@@ -722,17 +735,29 @@ async function startManualCreation() {
         created += 1;
         addLog(`[${i + 1}/${limit}] @${uname} — создан`, 'success');
         success = true;
+        if (i + 1 < limit) {
+          addLog(`Пауза ${INTER_BOT_DELAY_MS / 1000} сек. перед следующим ботом…`);
+          await sleep(INTER_BOT_DELAY_MS);
+        }
       } catch (e) {
         const errMsg = e.response?.data?.error || 'Ошибка создания';
-        if (isBotfatherRateLimit(e) && retries < BOTFATHER_MAX_RETRIES) {
+        const waitSec = getFloodWaitSeconds(e);
+        if (waitSec != null && retries < BOTFATHER_MAX_RETRIES) {
           row.queueStatus = 'waiting';
           addLog(
-            `[${i + 1}/${limit}] @${uname} — лимит BotFather, пауза ${BOTFATHER_RETRY_DELAY_MS / 1000} сек…`,
+            `[${i + 1}/${limit}] @${uname} — лимит Telegram, пауза ${formatWaitLabel(waitSec)}`,
             'warn'
           );
-          await sleep(BOTFATHER_RETRY_DELAY_MS);
+          await waitFloodCountdown(waitSec);
           row.queueStatus = 'creating';
+          addLog(`[${i + 1}/${limit}] @${uname} — повтор после паузы…`);
           retries += 1;
+        } else if (isFloodWaitError(e) && retries >= BOTFATHER_MAX_RETRIES) {
+          row.queueStatus = 'error';
+          row.error = `${errMsg} (исчерпаны повторы)`;
+          failed += 1;
+          addLog(`[${i + 1}/${limit}] @${uname} — ${errMsg}`, 'error');
+          break;
         } else {
           row.queueStatus = 'error';
           row.error = errMsg;

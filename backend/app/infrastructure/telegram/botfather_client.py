@@ -5,15 +5,64 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from telethon.errors.rpcerrorlist import FloodWaitError
+
 from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
 from app.utils.telegram_username import normalize_bot_username
 
 logger = get_logger(__name__)
 
+# Короткие паузы ждём на сервере; длинные отдаём клиенту с wait_seconds.
+MAX_SERVER_FLOOD_WAIT = 120
+
 TOKEN_RE = re.compile(r"(\d{8,10}:[A-Za-z0-9_-]{30,})")
 BOT_USER_RE = re.compile(r"@?([a-z][a-z0-9_]{2,28}bot)\b", re.IGNORECASE)
 _SKIP_BOT_USERNAMES = frozenset({"botfather"})
+
+
+def _raise_flood_wait(seconds: int) -> None:
+    sec = max(1, int(seconds))
+    minutes, remainder = divmod(sec, 60)
+    if minutes >= 1:
+        hint = (
+            f"Лимит Telegram: подождите {minutes} мин. {remainder} сек. "
+            "перед следующей попыткой."
+        )
+    else:
+        hint = f"Лимит Telegram: подождите {sec} сек. перед следующей попыткой."
+    raise BadRequestError(
+        hint,
+        details={"wait_seconds": sec, "flood_wait": True},
+    )
+
+
+async def _handle_flood_wait(exc: FloodWaitError, *, context: str) -> None:
+    wait = max(1, int(exc.seconds))
+    logger.warning("Telegram FloodWait %s sec (%s)", wait, context)
+    if wait <= MAX_SERVER_FLOOD_WAIT:
+        await asyncio.sleep(wait + 1)
+        return
+    _raise_flood_wait(wait)
+
+
+async def _conv_send(conv, text: str) -> None:
+    preview = (text or "")[:48]
+    while True:
+        try:
+            await conv.send_message(text)
+            return
+        except FloodWaitError as exc:
+            await _handle_flood_wait(exc, context=f"send {preview!r}")
+
+
+async def _conv_send_file(conv, path: Path) -> None:
+    while True:
+        try:
+            await conv.send_file(path)
+            return
+        except FloodWaitError as exc:
+            await _handle_flood_wait(exc, context=f"send_file {path.name!r}")
 
 
 async def _prepare_botfather_chat(client) -> None:
@@ -43,7 +92,7 @@ def _latest_incoming(conv):
 
 async def _reset_botfather(conv) -> None:
     """Сбрасывает незавершённый диалог BotFather и очищает буфер сообщений."""
-    await conv.send_message("/cancel")
+    await _conv_send(conv, "/cancel")
     try:
         await asyncio.wait_for(conv.get_response(), timeout=4.0)
     except (asyncio.TimeoutError, ValueError):
@@ -134,10 +183,10 @@ async def create_bot_via_botfather(
     current = normalize_bot_username(username)
 
     async with _botfather_conv(client) as conv:
-        await conv.send_message("/newbot")
+        await _conv_send(conv, "/newbot")
         await _wait_reply(conv)
 
-        await conv.send_message(display_name[:64])
+        await _conv_send(conv, display_name[:64])
         reply = await _wait_reply(conv)
         text = reply.raw_text or ""
 
@@ -145,7 +194,7 @@ async def create_bot_via_botfather(
             _raise_botfather_error(text, field="display_name")
 
         while attempt < max_username_attempts:
-            await conv.send_message(current[:32])
+            await _conv_send(conv, current[:32])
             reply = await _wait_reply(conv)
             text = reply.raw_text or ""
 
@@ -179,11 +228,11 @@ async def set_bot_name(client, username: str, display_name: str) -> None:
         return
     try:
         async with _botfather_conv(client, timeout=20) as conv:
-            await conv.send_message("/setname")
+            await _conv_send(conv, "/setname")
             await _wait_reply(conv)
-            await conv.send_message(f"@{username.lstrip('@')}")
+            await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
-            await conv.send_message(name)
+            await _conv_send(conv, name)
             await _wait_reply(conv)
     except Exception as exc:
         logger.warning("setname failed for @%s: %s", username, exc)
@@ -192,11 +241,11 @@ async def set_bot_name(client, username: str, display_name: str) -> None:
 async def set_bot_description(client, username: str, description: str) -> None:
     try:
         async with _botfather_conv(client, timeout=20) as conv:
-            await conv.send_message("/setdescription")
+            await _conv_send(conv, "/setdescription")
             await _wait_reply(conv)
-            await conv.send_message(f"@{username.lstrip('@')}")
+            await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
-            await conv.send_message(description[:512])
+            await _conv_send(conv, description[:512])
             await _wait_reply(conv)
     except Exception as exc:
         logger.warning("setdescription failed for @%s: %s", username, exc)
@@ -208,11 +257,11 @@ async def set_bot_about(client, username: str, about: str) -> None:
         return
     try:
         async with _botfather_conv(client, timeout=20) as conv:
-            await conv.send_message("/setabouttext")
+            await _conv_send(conv, "/setabouttext")
             await _wait_reply(conv)
-            await conv.send_message(f"@{username.lstrip('@')}")
+            await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
-            await conv.send_message(text)
+            await _conv_send(conv, text)
             await _wait_reply(conv)
     except Exception as exc:
         logger.warning("setabouttext failed for @%s: %s", username, exc)
@@ -293,7 +342,7 @@ async def _try_confirm_delete(conv, reply, username: str) -> str:
         if key in seen:
             continue
         seen.add(key)
-        await conv.send_message(candidate)
+        await _conv_send(conv, candidate)
         confirm = await _wait_reply(conv)
         last_body = confirm.raw_text or ""
         if _is_delete_success(last_body) or _is_bot_not_found(last_body):
@@ -352,7 +401,7 @@ async def list_bots_via_botfather(client) -> list[str]:
     seen_pages: set[int] = set()
 
     async with _botfather_conv(client, timeout=30) as conv:
-        await conv.send_message("/mybots")
+        await _conv_send(conv, "/mybots")
         reply = await _wait_reply(conv)
 
         if _is_no_bots_reply(reply.raw_text or ""):
@@ -416,10 +465,10 @@ async def delete_bot_via_botfather(client, username: str) -> None:
         raise BadRequestError("У бота нет username для удаления в Telegram")
 
     async with _botfather_conv(client, timeout=30) as conv:
-        await conv.send_message("/deletebot")
+        await _conv_send(conv, "/deletebot")
         await _wait_reply(conv)
 
-        await conv.send_message(f"@{uname}")
+        await _conv_send(conv, f"@{uname}")
         reply = await _wait_reply(conv)
         text = reply.raw_text or ""
 
@@ -444,7 +493,7 @@ async def delete_bot_via_botfather(client, username: str) -> None:
                 return
             retry_low = (text or "").lower()
             if "confirmation text exactly" in retry_low or "totally sure" in retry_low:
-                await conv.send_message(_DELETE_CONFIRM_PHRASE)
+                await _conv_send(conv, _DELETE_CONFIRM_PHRASE)
                 text = (await _wait_reply(conv)).raw_text or ""
                 if _is_delete_success(text) or _is_bot_not_found(text):
                     logger.info("Bot @%s deleted via BotFather (exact confirm)", uname)
@@ -462,11 +511,11 @@ async def set_bot_photo(client, username: str, image_path: Path) -> None:
         return
     try:
         async with _botfather_conv(client, timeout=30) as conv:
-            await conv.send_message("/setuserpic")
+            await _conv_send(conv, "/setuserpic")
             await _wait_reply(conv)
-            await conv.send_message(f"@{username.lstrip('@')}")
+            await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
-            await conv.send_file(path)
+            await _conv_send_file(conv, path)
             await _wait_reply(conv)
     except Exception as exc:
         logger.warning("setuserpic failed for @%s: %s", username, exc)

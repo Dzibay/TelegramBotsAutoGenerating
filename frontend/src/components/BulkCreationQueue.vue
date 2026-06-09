@@ -7,7 +7,10 @@
       <p class="queue-summary">
         {{ doneCount }} из {{ totalCount }} завершено
         <span v-if="failedCount"> · ошибок: {{ failedCount }}</span>
-        <span v-if="currentLabel"> · сейчас: {{ currentLabel }}</span>
+        <span v-if="floodWaitRemaining > 0" class="flood-wait">
+          · пауза Telegram: {{ floodWaitLabel }}
+        </span>
+        <span v-else-if="currentLabel"> · сейчас: {{ currentLabel }}</span>
       </p>
       <InlineTaskIndicator v-if="creating" :username="currentUsername" fallback-label="Создаём бота в Telegram…" />
     </div>
@@ -58,6 +61,7 @@
 <script setup>
 import { computed, nextTick, ref, watch } from 'vue';
 import InlineTaskIndicator from './InlineTaskIndicator.vue';
+import { formatWaitLabel } from '../utils/floodWait';
 
 const props = defineProps({
   items: { type: Array, default: () => [] },
@@ -66,6 +70,7 @@ const props = defineProps({
   active: { type: Boolean, default: false },
   currentUsername: { type: String, default: '' },
   currentLabel: { type: String, default: '' },
+  floodWaitRemaining: { type: Number, default: 0 },
 });
 
 const scrollRef = ref(null);
@@ -83,6 +88,8 @@ const progressPercent = computed(() => {
   return Math.round((doneCount.value / totalCount.value) * 100);
 });
 
+const floodWaitLabel = computed(() => formatWaitLabel(props.floodWaitRemaining));
+
 function statusIcon(status) {
   const map = {
     pending: '○',
@@ -96,10 +103,13 @@ function statusIcon(status) {
 }
 
 function statusLabel(status) {
+  if (status === 'waiting' && props.floodWaitRemaining > 0) {
+    return `Пауза ${floodWaitLabel.value}`;
+  }
   const map = {
     pending: 'Ожидает',
     creating: 'Создаётся',
-    waiting: 'Пауза BotFather',
+    waiting: 'Пауза Telegram',
     done: 'Создан',
     error: 'Ошибка',
     skipped: 'Пропущен',
@@ -150,6 +160,10 @@ watch(
   margin: 0;
   font-size: 0.85rem;
   color: var(--text);
+}
+
+.flood-wait {
+  color: #facc15;
 }
 
 .queue-columns {

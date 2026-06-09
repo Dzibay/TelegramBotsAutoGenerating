@@ -148,6 +148,7 @@ import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { applyCampaignTextDefaults } from '../utils/campaignTextDefaults';
+import { formatWaitLabel, getFloodWaitSeconds } from '../utils/floodWait';
 
 const taskStore = useAsyncTaskStore();
 const route = useRoute();
@@ -332,6 +333,50 @@ async function onGenerate() {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createBotWithFloodRetry(uname) {
+  const payload = {
+    campaign_id: campaignId.value,
+    telegram_account_id: accountId.value,
+    target_url: effectiveTargetUrl.value.trim(),
+    display_name: form.value.display_name,
+    username: uname,
+    description: form.value.description,
+    about_text: form.value.about_text,
+    welcome_message: form.value.welcome_message,
+    welcome_button_enabled: form.value.welcome_button_enabled,
+    welcome_button_text: form.value.welcome_button_text,
+    keyword: keyword.value.trim() || null,
+    redirect_slug: redirectSlug.value,
+    link_mode: linkMode.value,
+    create_via_botfather: true,
+    auto_start: autoStart.value,
+    generate_avatar: generateAvatar.value,
+  };
+  let retries = 0;
+  while (retries <= 3) {
+    try {
+      return await botService.create(payload, avatarFile.value);
+    } catch (e) {
+      const waitSec = getFloodWaitSeconds(e);
+      if (waitSec != null && retries < 3) {
+        for (let s = Math.ceil(waitSec); s > 0; s -= 1) {
+          submitError.value = `Лимит Telegram, осталось ${formatWaitLabel(s)}…`;
+          await sleep(1000);
+        }
+        submitError.value = null;
+        retries += 1;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('Не удалось создать бота');
+}
+
 async function onSubmit() {
   if (!canGoStep3.value) {
     submitError.value = 'Заполните имя и username бота';
@@ -344,28 +389,7 @@ async function onSubmit() {
   try {
     const bot = await taskStore.run(
       'CREATE_BOT',
-      () =>
-        botService.create(
-          {
-            campaign_id: campaignId.value,
-            telegram_account_id: accountId.value,
-            target_url: effectiveTargetUrl.value.trim(),
-            display_name: form.value.display_name,
-            username: uname,
-            description: form.value.description,
-            about_text: form.value.about_text,
-            welcome_message: form.value.welcome_message,
-            welcome_button_enabled: form.value.welcome_button_enabled,
-            welcome_button_text: form.value.welcome_button_text,
-            keyword: keyword.value.trim() || null,
-            redirect_slug: redirectSlug.value,
-            link_mode: linkMode.value,
-            create_via_botfather: true,
-            auto_start: autoStart.value,
-            generate_avatar: generateAvatar.value,
-          },
-          avatarFile.value
-        ),
+      () => createBotWithFloodRetry(uname),
       { username: uname }
     );
     router.push({ name: 'bot-edit', params: { id: bot.id }, query: { created: '1' } });

@@ -109,7 +109,6 @@ function onLogout() {
   width: 2rem;
   height: 2rem;
   border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
 }
 
 .logo-text {
@@ -161,7 +160,6 @@ function onLogout() {
   height: 6px;
   border-radius: 50%;
   background: var(--success);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
 }
 
 .sidebar-verbose {

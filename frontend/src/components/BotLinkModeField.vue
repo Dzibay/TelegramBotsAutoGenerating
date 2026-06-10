@@ -71,7 +71,6 @@ const emit = defineEmits(['update:modelValue']);
 .radio-option:has(input:checked) {
   border-color: rgba(59, 130, 246, 0.5);
   background: var(--accent-soft);
-  box-shadow: 0 0 12px rgba(59, 130, 246, 0.1);
 }
 
 .radio-option input {

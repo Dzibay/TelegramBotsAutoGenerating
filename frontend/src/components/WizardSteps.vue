@@ -89,7 +89,6 @@ defineEmits(['go']);
 
 .wizard-step.clickable:not(:disabled):hover .wizard-step-num {
   border-color: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 .wizard-step.active {
@@ -118,7 +117,6 @@ defineEmits(['go']);
   border-color: var(--accent);
   background: rgba(59, 130, 246, 0.2);
   color: #93c5fd;
-  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 .wizard-step.done .wizard-step-num {

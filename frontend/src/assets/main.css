@@ -197,12 +197,10 @@ a.all-bots-link:hover {
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.3);
 }
 
 :is(button, a).btn:hover {
   background: linear-gradient(135deg, #4b92ff 0%, #3b82f6 100%);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.45);
   transform: translateY(-1px);
   color: #fff;
 }
@@ -224,14 +222,12 @@ button[type='submit']:not([class*='btn-']):not(.link-btn) {
   cursor: pointer;
   background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #fff;
-  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.3);
-  transition: background 0.18s, box-shadow 0.18s, transform 0.18s;
+  transition: background 0.18s, transform 0.18s;
 }
 
 button:not([class]):hover,
 button[type='submit']:not([class*='btn-']):not(.link-btn):hover {
   background: linear-gradient(135deg, #4b92ff 0%, #3b82f6 100%);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.45);
   transform: translateY(-1px);
 }
 
@@ -286,7 +282,6 @@ button:disabled {
   border-color: transparent;
   color: #fff;
   width: 100%;
-  box-shadow: 0 2px 16px rgba(139, 92, 246, 0.3);
 }
 
 :is(button, a).btn-ai:hover {
@@ -419,9 +414,8 @@ input[type='checkbox'] {
 
 .create-card:not(.create-card--disabled):hover,
 .create-card--primary:not(.create-card--disabled):hover {
-  transform: translateY(-2px);
-  border-color: rgba(59, 130, 246, 0.45);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 
 .form-group {
@@ -698,7 +692,6 @@ details[open] summary {
 .mode-tab.active {
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.25), rgba(37, 99, 235, 0.2));
   color: #fff;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
 }
 
 .block-title {

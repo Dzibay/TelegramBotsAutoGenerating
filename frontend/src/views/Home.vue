@@ -55,7 +55,6 @@ onMounted(() => {
   margin-bottom: 0.75rem;
   border-radius: var(--radius-lg);
   background: var(--accent-soft);
-  box-shadow: 0 0 32px var(--accent-glow);
 }
 
 .hero-icon {

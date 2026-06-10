@@ -77,7 +77,6 @@ async function onSubmit() {
   height: 3.5rem;
   border-radius: var(--radius);
   background: var(--accent-soft);
-  box-shadow: 0 0 24px var(--accent-glow);
 }
 
 .brand-icon {

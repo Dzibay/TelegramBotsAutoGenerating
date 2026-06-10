@@ -92,7 +92,6 @@ function formatSize(bytes) {
 .dropzone--active {
   border-color: var(--accent);
   background: var(--accent-soft);
-  box-shadow: 0 0 20px var(--accent-glow);
 }
 
 .dropzone--has-files {

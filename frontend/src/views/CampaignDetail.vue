@@ -6,11 +6,22 @@
     <header class="detail-header">
       <RouterLink to="/app" class="back">← Все кампании</RouterLink>
       <div class="title-row">
-        <h1>{{ campaign.title }}</h1>
-        <StatusBadge :status="campaign.status" />
+        <div class="title-main">
+          <h1>{{ campaign.title }}</h1>
+          <StatusBadge :status="campaign.status" />
+        </div>
         <div class="header-btns">
           <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }" class="btn-ghost btn-sm">
-            Изменить
+            <Settings :size="14" />
+            Настройки
+          </RouterLink>
+          <RouterLink
+            v-if="canOpenCreate"
+            :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
+            class="btn btn-sm"
+          >
+            <Rocket :size="14" />
+            Создать ботов
           </RouterLink>
           <button type="button" class="btn-ghost btn-sm btn-danger" @click="onDeleteCampaign">
             Удалить
@@ -22,6 +33,13 @@
         <a :href="campaign.resource_url" target="_blank" rel="noopener noreferrer">{{ campaign.resource_url }}</a>
       </p>
     </header>
+
+    <WizardSteps
+      class="campaign-stepper"
+      :steps="workflowSteps"
+      :current="workflowCurrentStep"
+      aria-label="Прогресс кампании"
+    />
 
     <WorkspaceTabs v-model="activeTab" :tabs="workspaceTabs" />
 
@@ -37,23 +55,36 @@
       @cancel="onCancelJob"
     />
 
-    <section v-show="activeTab === 'guide'" class="guide card">
-      <h2>Что делать дальше</h2>
-      <div v-if="nextStepGuide" class="next-step card-inner">
-        <p class="next-step-label">{{ nextStepGuide.title }}</p>
-        <p v-if="nextStepGuide.hint" class="next-step-hint muted">{{ nextStepGuide.hint }}</p>
-        <div class="next-step-actions">
+    <section v-show="activeTab === 'guide'" class="guide-grid">
+      <div v-if="nextStepGuide" class="guide-cta card">
+        <h2>{{ nextStepGuide.title }}</h2>
+        <p v-if="nextStepGuide.hint" class="guide-cta-hint muted">{{ nextStepGuide.hint }}</p>
+        <ul class="guide-checks">
+          <li :class="{ ok: hasServiceUrl }">
+            <Check :size="14" />
+            Ссылка на сервис {{ hasServiceUrl ? 'указана' : 'не указана' }}
+          </li>
+          <li :class="{ ok: campaign.accounts_count > 0 }">
+            <Check :size="14" />
+            {{ campaign.accounts_count || 0 }} аккаунтов в кампании
+          </li>
+          <li :class="{ ok: readyAccountsCount > 0 }">
+            <Check :size="14" />
+            {{ readyAccountsCount }} готовы к созданию ботов
+          </li>
+        </ul>
+        <div class="guide-cta-actions">
           <RouterLink
             v-if="nextStepGuide.route"
             :to="nextStepGuide.route"
-            class="btn btn-sm"
+            class="btn"
           >
             {{ nextStepGuide.actionLabel }}
           </RouterLink>
           <button
             v-else-if="nextStepGuide.action"
             type="button"
-            class="btn btn-sm"
+            class="btn"
             @click="nextStepGuide.action()"
           >
             {{ nextStepGuide.actionLabel }}
@@ -61,7 +92,7 @@
           <button
             v-if="canStart && nextStepGuide.showAutoStart"
             type="button"
-            class="btn btn-sm btn-ghost"
+            class="btn btn-ghost"
             :disabled="starting"
             @click="onStart"
           >
@@ -69,23 +100,40 @@
           </button>
         </div>
       </div>
-      <ol class="checklist">
-        <li :class="{ ok: campaign.resource_url }">
-          <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">Ссылка на сервис</RouterLink>
-          {{ campaign.resource_url ? '— указана' : '— укажите в настройках' }}
-        </li>
-        <li :class="{ ok: campaign.accounts_count > 0 }">
-          <a href="#" @click.prevent="activeTab = 'accounts'">Аккаунты в кампании</a>
-          — {{ campaign.accounts_count ? `${campaign.accounts_count} добавлено` : 'добавьте из подготовленных' }}
-        </li>
-        <li :class="{ ok: readyAccountsCount > 0 }">
-          Готовых к созданию ботов: {{ readyAccountsCount }}
-        </li>
-        <li :class="{ ok: campaign.bots_count > 0 }">
-          <a href="#" @click.prevent="activeTab = 'list'">Боты</a>
-          — {{ campaign.bots_count }} шт.
-        </li>
-      </ol>
+
+      <div class="guide-next card">
+        <h3>Что дальше</h3>
+        <ol class="next-steps-list">
+          <li :class="{ done: hasServiceUrl }">
+            <span class="step-num">1</span>
+            <div>
+              <strong>Сервис</strong>
+              <p>Укажите ссылку, куда будут вести боты</p>
+            </div>
+          </li>
+          <li :class="{ done: campaign.accounts_count > 0 }">
+            <span class="step-num">2</span>
+            <div>
+              <strong>Аккаунты</strong>
+              <p>Добавьте подготовленные Telegram-аккаунты</p>
+            </div>
+          </li>
+          <li :class="{ done: readyAccountsCount > 0 }">
+            <span class="step-num">3</span>
+            <div>
+              <strong>Проверка</strong>
+              <p>Убедитесь, что аккаунты в статусе «Готов»</p>
+            </div>
+          </li>
+          <li :class="{ done: campaign.bots_count > 0 }">
+            <span class="step-num">4</span>
+            <div>
+              <strong>Создание</strong>
+              <p>Один бот или массовая очередь</p>
+            </div>
+          </li>
+        </ol>
+      </div>
     </section>
 
     <div v-show="activeTab !== 'accounts'" class="stats">
@@ -120,6 +168,7 @@
           :title="createBlockedReason || undefined"
           :aria-disabled="!canOpenCreate ? 'true' : undefined"
         >
+          <Bot :size="22" class="cc-icon" />
           <span class="cc-title">Один бот</span>
           <span class="cc-desc">Пошагово: тексты вручную или через AI → создание в Telegram.</span>
         </component>
@@ -131,6 +180,7 @@
           :title="createBlockedReason || undefined"
           :aria-disabled="!canOpenCreate ? 'true' : undefined"
         >
+          <Users :size="22" class="cc-icon cc-icon--purple" />
           <span class="cc-title">Несколько ботов</span>
           <span class="cc-desc">Общие тексты, список ботов с аватаром и ссылкой, создание по очереди.</span>
         </component>
@@ -164,31 +214,39 @@
     </div>
 
     <section v-show="activeTab === 'list'" class="bots-list card">
-      <div class="section-head">
-        <h2>Боты кампании</h2>
-        <RouterLink
-          v-if="canOpenCreate"
-          :to="{ name: 'campaign-bot-create', params: { id: campaignId } }"
-          class="btn btn-sm"
-        >
-          + Один бот
-        </RouterLink>
-        <RouterLink
-          v-if="canOpenCreate"
-          :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
-          class="btn btn-sm btn-ghost"
-        >
-          + Несколько
-        </RouterLink>
+      <div class="bots-list-head">
+        <div>
+          <h2>Боты кампании</h2>
+          <p class="bots-list-meta muted">{{ bots.length }} всего · {{ campaign.active_bots_count }} активных</p>
+        </div>
+        <div class="bots-list-actions">
+          <RouterLink
+            v-if="canOpenCreate"
+            :to="{ name: 'campaign-bot-create', params: { id: campaignId } }"
+            class="btn btn-sm"
+          >
+            + Один бот
+          </RouterLink>
+          <RouterLink
+            v-if="canOpenCreate"
+            :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
+            class="btn btn-sm btn-ghost"
+          >
+            + Несколько
+          </RouterLink>
+        </div>
       </div>
 
       <div v-if="bots.length" class="bots-filters">
-        <input
-          v-model="botSearch"
-          type="search"
-          class="search-input"
-          placeholder="Поиск по имени, @username, фразе…"
-        />
+        <div class="search-wrap">
+          <Search :size="15" class="search-icon" />
+          <input
+            v-model="botSearch"
+            type="search"
+            class="search-input"
+            placeholder="Поиск по имени, @username, фразе…"
+          />
+        </div>
         <select v-model="botStatusFilter" class="filter-select">
           <option value="">Все статусы</option>
           <option value="active">Активные</option>
@@ -214,53 +272,105 @@
         </EmptyState>
       </p>
       <p v-else-if="!filteredBots.length" class="muted empty-bots">Ничего не найдено. Измените поиск или фильтр.</p>
-      <ul v-else class="mini-list bots">
-        <li v-for="b in filteredBots" :key="b.id" class="bot-li">
-          <div class="bot-li-main">
-            <strong>@{{ b.username || '—' }}</strong>
-            <span v-if="b.keyword" class="bot-kw">«{{ b.keyword }}»</span>
-            <span>{{ b.display_name }}</span>
-            <StatusBadge :status="b.status" />
-            <a
-              v-if="botLink(b)"
-              :href="botLink(b)"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="tg-open"
-            >
-              Telegram ↗
-            </a>
-          </div>
-          <div class="bot-li-actions">
-            <button
-              v-if="b.status !== 'active'"
-              type="button"
-              class="link-btn"
-              @click="onBotStart(b)"
-            >
-              Запустить
-            </button>
-            <button v-else type="button" class="link-btn" @click="onBotStop(b)">Стоп</button>
-            <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="link-btn">
-              Изменить
-            </RouterLink>
-            <button type="button" class="link-btn danger" @click="onBotDelete(b)">Удалить</button>
-          </div>
-        </li>
-      </ul>
+
+      <div v-else class="bots-table-wrap">
+        <table class="bots-table">
+          <thead>
+            <tr>
+              <th>Бот</th>
+              <th>Статус</th>
+              <th>Аккаунт</th>
+              <th>Создан</th>
+              <th>Активность</th>
+              <th class="th-actions" />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="b in filteredBots" :key="b.id">
+              <td class="bot-cell">
+                <div class="bot-avatar" :class="avatarColorClass(b)">
+                  <img v-if="botAvatarUrl(b)" :src="botAvatarUrl(b)" alt="" />
+                  <Bot v-else :size="16" />
+                </div>
+                <div class="bot-info">
+                  <span class="bot-name">{{ b.display_name || 'Без имени' }}</span>
+                  <a
+                    v-if="b.username && botLink(b)"
+                    :href="botLink(b)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="bot-handle"
+                  >
+                    @{{ b.username }}
+                  </a>
+                  <span v-else class="bot-handle muted">@—</span>
+                  <span v-if="b.keyword" class="bot-kw">«{{ b.keyword }}»</span>
+                </div>
+              </td>
+              <td>
+                <StatusBadge :status="b.status" />
+              </td>
+              <td class="account-cell">
+                <span class="account-name">{{ b.account_label || accountLabelById(b.telegram_account_id) }}</span>
+                <span v-if="b.account_phone" class="account-phone">{{ b.account_phone }}</span>
+              </td>
+              <td class="date-cell">{{ formatDateTime(b.created_at) }}</td>
+              <td class="activity-cell">
+                <span class="activity-dot" :class="`activity-dot--${b.status}`" />
+                {{ formatRelativeTime(b.updated_at) }}
+              </td>
+              <td class="actions-cell">
+                <details class="row-menu">
+                  <summary class="menu-trigger" aria-label="Действия">
+                    <MoreVertical :size="16" />
+                  </summary>
+                  <div class="menu-dropdown">
+                    <a
+                      v-if="botLink(b)"
+                      :href="botLink(b)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="menu-item"
+                    >
+                      Открыть в Telegram
+                    </a>
+                    <button
+                      v-if="b.status !== 'active'"
+                      type="button"
+                      class="menu-item"
+                      @click="onBotStart(b)"
+                    >
+                      Запустить
+                    </button>
+                    <button v-else type="button" class="menu-item" @click="onBotStop(b)">Остановить</button>
+                    <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="menu-item">
+                      Изменить
+                    </RouterLink>
+                    <button type="button" class="menu-item menu-item--danger" @click="onBotDelete(b)">
+                      Удалить
+                    </button>
+                  </div>
+                </details>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { Bot, Users, Zap } from 'lucide-vue-next';
+import { Bot, Check, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
 import CampaignJobBanner from '../components/CampaignJobBanner.vue';
 import EmptyState from '../components/EmptyState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
+import WizardSteps from '../components/WizardSteps.vue';
 import WorkspaceTabs from '../components/WorkspaceTabs.vue';
+import { formatDateTime, formatRelativeTime } from '../utils/formatDate';
 import { useWorkflowStore } from '../stores/workflowStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { botService } from '../services/botService';
@@ -278,6 +388,38 @@ function accountLabel(account) {
 function botLink(b) {
   return b.telegram_url || telegramBotUrl(b.username);
 }
+
+function botAvatarUrl(b) {
+  return b.has_avatar ? botService.avatarUrl(b) : null;
+}
+
+function avatarColorClass(b) {
+  const colors = ['green', 'purple', 'blue', 'orange'];
+  return `bot-avatar--${colors[(b.id || 0) % colors.length]}`;
+}
+
+function accountLabelById(id) {
+  if (!id) return '—';
+  const acc = accounts.value.find((a) => a.id === id);
+  return acc ? accountLabel(acc) : `Аккаунт #${id}`;
+}
+
+const workflowSteps = [
+  { label: 'Сервис' },
+  { label: 'Аккаунты' },
+  { label: 'Проверка' },
+  { label: 'Создание' },
+  { label: 'Запуск' },
+];
+
+const workflowCurrentStep = computed(() => {
+  if (!hasServiceUrl.value) return 1;
+  if (!campaign.value.accounts_count) return 2;
+  if (!readyAccountsCount.value) return 3;
+  if (!campaign.value.bots_count) return 4;
+  if (!campaign.value.active_bots_count) return 5;
+  return 5;
+});
 
 const route = useRoute();
 const router = useRouter();
@@ -826,26 +968,23 @@ onUnmounted(() => {
 
 <style scoped>
 .detail-header {
-  margin-bottom: 1.25rem;
-}
-
-.back {
-  font-size: 0.875rem;
+  margin-bottom: 1rem;
 }
 
 .title-row {
   display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
   flex-wrap: wrap;
   margin-top: 0.5rem;
 }
 
-.title-row h1 {
-  margin: 0;
-  font-size: 1.625rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+.title-main {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
 }
 
 .resource {
@@ -854,9 +993,15 @@ onUnmounted(() => {
   color: var(--muted);
 }
 
-.bot-kw {
-  font-size: 0.75rem;
-  color: var(--accent);
+.header-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.campaign-stepper {
+  margin-bottom: 1.25rem;
 }
 
 .stats {
@@ -866,6 +1011,12 @@ onUnmounted(() => {
   margin-bottom: 1.25rem;
 }
 
+@media (max-width: 640px) {
+  .stats {
+    grid-template-columns: 1fr;
+  }
+}
+
 .stat {
   display: flex;
   flex-direction: column;
@@ -873,24 +1024,11 @@ onUnmounted(() => {
   padding: 1.1rem 1.25rem;
 }
 
-.stat-icon {
-  margin-bottom: 0.15rem;
-}
-
-.stat-icon--blue {
-  color: #60a5fa;
-}
-
-.stat-icon--purple {
-  color: #a78bfa;
-}
-
-.stat-icon--green {
-  color: #4ade80;
-}
+.stat-icon--blue { color: #60a5fa; }
+.stat-icon--purple { color: #a78bfa; }
+.stat-icon--green { color: #4ade80; }
 
 .stat-val {
-  display: block;
   font-size: 1.75rem;
   font-weight: 700;
   letter-spacing: -0.03em;
@@ -903,98 +1041,151 @@ onUnmounted(() => {
   color: var(--muted);
 }
 
-.progress-section h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.progress-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.progress-msg {
-  margin: 0 0 0.75rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.progress-bar-wrap {
-  height: 6px;
-  background: rgba(8, 12, 20, 0.6);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.progress-bar {
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s;
-}
-
-.progress-section {
+/* Guide tab */
+.guide-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 1rem;
   margin-bottom: 1.25rem;
 }
 
-.actions {
-  margin-top: 1rem;
+@media (max-width: 800px) {
+  .guide-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
-.guide {
-  padding: 1.25rem;
-  margin-bottom: 1rem;
+.guide-cta {
+  padding: 1.35rem;
+  border-color: rgba(34, 197, 94, 0.2);
 }
 
-.guide h2 {
-  margin: 0 0 0.75rem;
-  font-size: 1rem;
+.guide-cta h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 
-.checklist {
-  margin: 0;
-  padding-left: 1.2rem;
-  line-height: 1.7;
+.guide-cta-hint {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.guide-checks {
+  list-style: none;
+  margin: 0 0 1.15rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.guide-checks li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
   color: var(--muted);
 }
 
-.checklist li.ok {
-  color: #86efac;
+.guide-checks li svg {
+  flex-shrink: 0;
+  opacity: 0.35;
 }
 
-.next-step {
-  margin-bottom: 1rem;
-  padding: 1rem 1.15rem;
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.06));
-  border-radius: var(--radius);
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
+.guide-checks li.ok {
+  color: #4ade80;
 }
 
-.next-step-label {
-  margin: 0 0 0.25rem;
-  font-weight: 600;
-  font-size: 0.92rem;
+.guide-checks li.ok svg {
+  opacity: 1;
 }
 
-.next-step-hint {
-  margin: 0 0 0.65rem;
-  font-size: 0.82rem;
-}
-
-.next-step-actions {
+.guide-cta-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
 
-.empty-bots {
-  margin: 0;
+.guide-next {
+  padding: 1.25rem;
 }
 
+.guide-next h3 {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.next-steps-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.next-steps-list li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.next-steps-list li.done .step-num {
+  background: var(--success-soft);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #4ade80;
+}
+
+.next-steps-list li.done strong {
+  color: var(--text);
+}
+
+.step-num {
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid var(--border-strong);
+  background: rgba(8, 12, 20, 0.5);
+  color: var(--muted);
+}
+
+.next-steps-list strong {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin-bottom: 0.15rem;
+}
+
+.next-steps-list p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+/* Create tab */
 .create-hub {
-  padding: 1.25rem;
+  padding: 1.35rem;
+  margin-bottom: 1.25rem;
+}
+
+.create-hub h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.intro {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
 }
 
 .create-cards {
@@ -1012,151 +1203,349 @@ onUnmounted(() => {
 .create-card {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 1.15rem;
+  gap: 0.4rem;
+  padding: 1.2rem;
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: rgba(8, 12, 20, 0.45);
   text-decoration: none;
   color: inherit;
+  transition: border-color 0.15s, transform 0.15s;
 }
 
 .create-card:hover {
   text-decoration: none;
-  border-color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.35);
+  transform: translateY(-1px);
 }
 
 .create-card--primary {
-  border-color: rgba(59, 130, 246, 0.4);
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(37, 99, 235, 0.06));
-  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(37, 99, 235, 0.05));
 }
 
 .create-card--disabled {
   opacity: 0.5;
-  cursor: not-allowed;
   pointer-events: none;
+}
+
+.cc-icon {
+  color: #60a5fa;
+}
+
+.cc-icon--purple {
+  color: #a78bfa;
+}
+
+.cc-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.cc-desc {
+  font-size: 0.8rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+/* Bots list */
+.bots-list {
+  padding: 1.25rem;
+}
+
+.bots-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.bots-list h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.bots-list-meta {
+  margin: 0.25rem 0 0;
+  font-size: 0.8rem;
+}
+
+.bots-list-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
 }
 
 .bots-filters {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 12rem;
+}
+
+.search-icon {
+  position: absolute;
+  left: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+  pointer-events: none;
 }
 
 .search-input {
-  flex: 1;
-  min-width: 12rem;
-  padding: 0.5rem 0.75rem;
+  width: 100%;
+  padding: 0.55rem 0.75rem 0.55rem 2.25rem;
   font-size: 0.85rem;
 }
 
 .filter-select {
-  padding: 0.5rem 0.75rem;
+  padding: 0.55rem 0.75rem;
   font-size: 0.85rem;
   width: auto;
   min-width: 10rem;
 }
 
-.cc-title {
-  font-weight: 600;
-}
-
-.cc-desc {
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.bots-list {
-  padding: 1rem;
-}
-
-.bots-list .section-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-  margin-bottom: 0.75rem;
-}
-
-.bots-list h2 {
+.empty-bots {
   margin: 0;
-  flex: 1;
-  font-size: 1rem;
+}
+
+.bots-table-wrap {
+  overflow-x: auto;
+  margin: 0 -0.25rem;
+}
+
+.bots-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.bots-table th {
+  text-align: left;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.th-actions {
+  width: 2.5rem;
+}
+
+.bots-table td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.bots-table tbody tr {
+  transition: background 0.12s;
+}
+
+.bots-table tbody tr:hover {
+  background: rgba(59, 130, 246, 0.04);
+}
+
+.bots-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.bot-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 12rem;
+}
+
+.bot-avatar {
+  flex-shrink: 0;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.bot-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bot-avatar--green { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+.bot-avatar--purple { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+.bot-avatar--blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+.bot-avatar--orange { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+
+.bot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.bot-name {
+  font-weight: 600;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bot-handle {
+  font-size: 0.78rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+a.bot-handle:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.bot-kw {
+  font-size: 0.72rem;
+  color: var(--accent);
+}
+
+.account-cell {
+  min-width: 8rem;
+}
+
+.account-name {
+  display: block;
+  font-size: 0.85rem;
+}
+
+.account-phone {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.date-cell,
+.activity-cell {
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.activity-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--muted);
+}
+
+.activity-dot--active { background: #4ade80; }
+.activity-dot--creating,
+.activity-dot--running { background: #fbbf24; }
+.activity-dot--error,
+.activity-dot--failed { background: #f87171; }
+
+.actions-cell {
+  text-align: right;
+}
+
+.row-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.menu-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.menu-trigger:hover,
+.row-menu[open] .menu-trigger {
+  background: var(--surface-hover);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.menu-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 30;
+  min-width: 10.5rem;
+  padding: 0.3rem;
+  background: var(--surface-solid);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 0.5rem 0.7rem;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8125rem;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.menu-item:hover {
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+
+.menu-item--danger {
+  color: #f87171;
+}
+
+.menu-item--danger:hover {
+  background: rgba(239, 68, 68, 0.12);
 }
 
 .grid-2 {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
-  align-items: start;
-}
-
-@media (max-width: 800px) {
-  .grid-2 {
-    grid-template-columns: 1fr;
-  }
-}
-
-.section h3 {
-  margin: 0 0 0.75rem;
-  font-size: 0.95rem;
-}
-
-.mini-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.mini-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.875rem;
-}
-
-.mini-meta {
-  width: 100%;
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.bots li {
-  flex-direction: column;
-  align-items: flex-start;
-}
-
-.add-prepared {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-}
-
-.add-prepared .small {
-  margin: 0 0 0.5rem;
-  font-size: 0.8rem;
-}
-
-.btn-add {
-  width: 100%;
-  margin-top: 0.75rem;
-}
-
-.upload-more {
-  display: block;
-  margin-top: 0.75rem;
-  padding: 0.5rem;
-  text-align: center;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  color: var(--muted);
 }
 
 .side {
@@ -1164,51 +1553,4 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 1rem;
 }
-
-.header-btns {
-  display: flex;
-  gap: 0.35rem;
-  margin-left: auto;
-}
-
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.5rem;
-}
-
-.section-head h3 {
-  margin: 0;
-}
-
-.bot-li {
-  flex-direction: column;
-  align-items: stretch !important;
-  gap: 0.35rem;
-}
-
-.bot-li-main {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.tg-open {
-  font-size: 0.75rem;
-  color: var(--accent);
-}
-
-.clicks {
-  font-size: 0.75rem;
-  color: var(--muted);
-}
-
-.bot-li-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-
 </style>

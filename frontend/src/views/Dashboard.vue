@@ -253,7 +253,6 @@ onMounted(async () => {
 
 .campaign-card:hover {
   border-color: rgba(59, 130, 246, 0.3);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .item-link {

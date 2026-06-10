@@ -56,7 +56,6 @@ const isActive = computed(() =>
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 6px currentColor;
 }
 
 .badge--draft,

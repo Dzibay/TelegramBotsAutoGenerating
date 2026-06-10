@@ -80,7 +80,6 @@ const etaLabel = computed(() => {
   padding: 1.15rem 1.25rem;
   border-color: rgba(59, 130, 246, 0.3);
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.05));
-  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.08);
 }
 
 .job-banner-head {

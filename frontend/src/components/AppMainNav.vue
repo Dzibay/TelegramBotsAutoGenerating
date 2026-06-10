@@ -130,7 +130,6 @@ function onClick(item, event) {
   height: 60%;
   border-radius: 0 3px 3px 0;
   background: var(--accent);
-  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .nav-item--disabled {

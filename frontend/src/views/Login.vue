@@ -2,7 +2,9 @@
   <div class="auth-page">
     <form class="card auth-form" @submit.prevent="onSubmit">
       <div class="brand">
-        <img src="/favicon.svg" alt="" class="brand-icon" width="48" height="48" />
+        <div class="brand-icon-wrap">
+          <img src="/favicon.svg" alt="" class="brand-icon" width="40" height="40" />
+        </div>
         <h1>{{ siteName }}</h1>
       </div>
       <p class="muted">Вход в панель управления</p>
@@ -56,6 +58,7 @@ async function onSubmit() {
 .auth-form {
   width: 100%;
   max-width: 400px;
+  box-shadow: var(--shadow-md);
 }
 
 .brand {
@@ -66,19 +69,33 @@ async function onSubmit() {
   margin-bottom: 0.35rem;
 }
 
+.brand-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  box-shadow: 0 0 24px var(--accent-glow);
+}
+
 .brand-icon {
-  border-radius: 12px;
+  border-radius: 10px;
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
 }
 
 .muted {
   margin: 0 0 1.25rem;
   font-size: 0.875rem;
   color: var(--muted);
+  text-align: center;
 }
 
 .auth-form button {

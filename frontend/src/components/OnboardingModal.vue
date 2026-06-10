@@ -13,7 +13,7 @@
           <strong>Кампания</strong> — откройте её из списка, добавьте аккаунты и нажмите «Проверить все».
         </li>
         <li>
-          <strong>Боты</strong> (в шапке) — создание по одному или списком. Фраза для AI — только при генерации текстов.
+          <strong>Боты</strong> (в меню слева) — создание по одному или списком. Фраза для AI — только при генерации текстов.
         </li>
       </ol>
       <div class="onb-actions">
@@ -53,13 +53,15 @@ function dismiss() {
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
 }
 
 .onboarding {
   max-width: 480px;
   width: 100%;
-  padding: 1.5rem;
+  padding: 1.75rem;
+  box-shadow: var(--shadow-md);
 }
 
 .onboarding h2 {

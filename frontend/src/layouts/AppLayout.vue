@@ -1,43 +1,49 @@
 <template>
   <div class="layout">
-    <header class="app-header">
-      <div class="header-inner">
-        <RouterLink to="/app" class="logo">
-          <img src="/favicon.svg" alt="" class="logo-icon" width="32" height="32" />
-          <span class="logo-text">{{ siteName }}</span>
+    <aside class="sidebar">
+      <RouterLink to="/app" class="logo">
+        <img src="/favicon.svg" alt="" class="logo-icon" width="32" height="32" />
+        <span class="logo-text">{{ siteName }}</span>
+      </RouterLink>
+
+      <AppMainNav class="sidebar-nav" />
+
+      <div class="sidebar-footer">
+        <RouterLink
+          v-if="workflow.activeCampaignId"
+          :to="{
+            name: 'campaign-workspace',
+            params: { id: workflow.activeCampaignId },
+            query: { tab: 'guide' },
+          }"
+          class="campaign-chip"
+          :title="workflow.activeCampaignTitle || 'Текущая кампания'"
+        >
+          <span class="chip-dot" />
+          {{ workflow.activeCampaignTitle || `Кампания #${workflow.activeCampaignId}` }}
         </RouterLink>
 
-        <AppMainNav class="header-nav" />
-
-        <div class="header-right">
-          <VerboseLogToggle label="Детальные логи" />
-          <RouterLink
-            v-if="workflow.activeCampaignId"
-            :to="{
-              name: 'campaign-workspace',
-              params: { id: workflow.activeCampaignId },
-              query: { tab: 'guide' },
-            }"
-            class="campaign-chip"
-            :title="workflow.activeCampaignTitle || 'Текущая кампания'"
-          >
-            {{ workflow.activeCampaignTitle || `Кампания #${workflow.activeCampaignId}` }}
-          </RouterLink>
-          <button type="button" class="btn-ghost btn-sm btn-logout" @click="onLogout">Выйти</button>
-        </div>
+        <VerboseLogToggle label="Детальные логи" class="sidebar-verbose" />
+        <button type="button" class="btn-logout" @click="onLogout">
+          <LogOut :size="16" />
+          <span>Выйти</span>
+        </button>
       </div>
-    </header>
+    </aside>
 
-    <main class="main">
-      <TaskProgressBanner />
-      <PageBreadcrumb v-if="showBreadcrumb" />
-      <RouterView />
-    </main>
+    <div class="layout-main">
+      <main class="main">
+        <TaskProgressBanner />
+        <PageBreadcrumb v-if="showBreadcrumb" />
+        <RouterView />
+      </main>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import { LogOut } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import AppMainNav from '../components/AppMainNav.vue';
 import PageBreadcrumb from '../components/PageBreadcrumb.vue';
@@ -66,83 +72,77 @@ function onLogout() {
 .layout {
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
   background: var(--bg);
 }
 
-.app-header {
-  position: sticky;
+.sidebar {
+  position: fixed;
   top: 0;
-  z-index: 100;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(26, 35, 50, 0.98) 0%, rgba(15, 20, 25, 0.96) 100%);
-  backdrop-filter: blur(10px);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
-}
-
-.header-inner {
+  left: 0;
+  bottom: 0;
+  width: var(--sidebar-width);
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0.65rem 1.25rem;
-  width: 100%;
+  flex-direction: column;
+  padding: 1.25rem 0.85rem;
+  border-right: 1px solid var(--border);
+  background: rgba(10, 13, 20, 0.85);
+  backdrop-filter: blur(16px) saturate(1.3);
+  z-index: 100;
 }
 
 .logo {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  flex-shrink: 0;
+  gap: 0.6rem;
+  padding: 0.25rem 0.5rem 1.25rem;
   text-decoration: none;
   color: var(--text);
 }
 
 .logo:hover {
   text-decoration: none;
-  color: var(--accent);
+  color: var(--text);
 }
 
 .logo-icon {
   flex-shrink: 0;
   width: 2rem;
   height: 2rem;
-  border-radius: 8px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
 }
 
 .logo-text {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
-.header-nav {
+.sidebar-nav {
   flex: 1;
-  justify-content: center;
-  max-width: 420px;
-  margin: 0 auto;
 }
 
-.header-right {
+.sidebar-footer {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.5rem;
-  flex-shrink: 0;
-  margin-left: auto;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
 }
 
 .campaign-chip {
-  max-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0.35rem 0.7rem;
+  padding: 0.5rem 0.7rem;
   font-size: 0.75rem;
   font-weight: 500;
-  border-radius: 99px;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  background: rgba(59, 130, 246, 0.12);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  background: var(--accent-soft);
   color: #93c5fd;
   text-decoration: none;
   transition: border-color 0.15s, background 0.15s;
@@ -150,44 +150,68 @@ function onLogout() {
 
 .campaign-chip:hover {
   text-decoration: none;
-  border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.5);
+  background: rgba(59, 130, 246, 0.18);
   color: #fff;
 }
 
-.btn-logout {
+.chip-dot {
   flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.sidebar-verbose {
+  padding: 0 0.25rem;
+}
+
+.btn-logout {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.btn-logout:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.layout-main {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  min-width: 0;
 }
 
 .main {
-  flex: 1;
-  padding: 1.25rem 1.5rem 1.5rem;
-  max-width: 1280px;
-  margin: 0 auto;
+  padding: 1.5rem 2rem 2rem;
+  max-width: 1200px;
   width: 100%;
 }
 
-@media (max-width: 900px) {
-  .header-inner {
-    flex-wrap: wrap;
-    padding: 0.6rem 1rem;
+@media (max-width: 768px) {
+  .sidebar {
+    width: 64px;
+    padding: 1rem 0.5rem;
+    align-items: center;
   }
 
-  .header-nav {
-    order: 3;
-    width: 100%;
-    max-width: none;
-    margin: 0.25rem 0 0;
-    justify-content: stretch;
-  }
-
-  .header-nav :deep(.main-nav) {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .header-nav :deep(.nav-item) {
-    flex: 1;
+  .logo {
+    padding: 0.25rem 0 1rem;
     justify-content: center;
   }
 
@@ -195,8 +219,33 @@ function onLogout() {
     display: none;
   }
 
-  .header-right {
-    margin-left: 0;
+  .sidebar-footer {
+    align-items: center;
+  }
+
+  .campaign-chip span:not(.chip-dot),
+  .btn-logout span,
+  .sidebar-verbose :deep(.verbose-toggle-label) {
+    display: none;
+  }
+
+  .campaign-chip {
+    padding: 0.5rem;
+    justify-content: center;
+  }
+
+  .btn-logout {
+    width: auto;
+    padding: 0.55rem;
+    justify-content: center;
+  }
+
+  .layout-main {
+    margin-left: 64px;
+  }
+
+  .main {
+    padding: 1rem 1.25rem 1.5rem;
   }
 }
 </style>

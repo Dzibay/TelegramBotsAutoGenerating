@@ -90,16 +90,19 @@
 
     <div v-show="activeTab !== 'accounts'" class="stats">
       <div class="stat card">
+        <Users :size="18" class="stat-icon stat-icon--blue" />
         <span class="stat-val">{{ campaign.accounts_count }}</span>
-        <span class="stat-label">аккаунтов</span>
+        <span class="stat-label">Аккаунтов</span>
       </div>
       <div class="stat card">
+        <Bot :size="18" class="stat-icon stat-icon--purple" />
         <span class="stat-val">{{ campaign.bots_count }}</span>
-        <span class="stat-label">ботов</span>
+        <span class="stat-label">Ботов</span>
       </div>
       <div class="stat card">
+        <Zap :size="18" class="stat-icon stat-icon--green" />
         <span class="stat-val">{{ campaign.active_bots_count }}</span>
-        <span class="stat-label">активных</span>
+        <span class="stat-label">Активных</span>
       </div>
     </div>
 
@@ -251,6 +254,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { Bot, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
 import CampaignJobBanner from '../components/CampaignJobBanner.vue';
@@ -839,7 +843,9 @@ onUnmounted(() => {
 
 .title-row h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .resource {
@@ -861,18 +867,39 @@ onUnmounted(() => {
 }
 
 .stat {
-  text-align: center;
-  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 1.1rem 1.25rem;
+}
+
+.stat-icon {
+  margin-bottom: 0.15rem;
+}
+
+.stat-icon--blue {
+  color: #60a5fa;
+}
+
+.stat-icon--purple {
+  color: #a78bfa;
+}
+
+.stat-icon--green {
+  color: #4ade80;
 }
 
 .stat-val {
   display: block;
-  font-size: 1.5rem;
+  font-size: 1.75rem;
   font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
 }
 
 .stat-label {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
+  font-weight: 500;
   color: var(--muted);
 }
 
@@ -938,10 +965,11 @@ onUnmounted(() => {
 
 .next-step {
   margin-bottom: 1rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  background: rgba(59, 130, 246, 0.08);
-  border-radius: 8px;
+  padding: 1rem 1.15rem;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.06));
+  border-radius: var(--radius);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.08);
 }
 
 .next-step-label {
@@ -999,8 +1027,9 @@ onUnmounted(() => {
 }
 
 .create-card--primary {
-  border-color: rgba(59, 130, 246, 0.45);
-  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.4);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(37, 99, 235, 0.06));
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.1);
 }
 
 .create-card--disabled {

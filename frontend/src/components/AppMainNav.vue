@@ -9,18 +9,20 @@
         'router-link-active': isActive(item),
         'nav-item--disabled': item.disabled,
       }"
-      :title="item.disabled ? item.disabledTitle : undefined"
+      :title="item.disabled ? item.disabledTitle : item.label"
       :aria-disabled="item.disabled ? 'true' : undefined"
       @click="onClick(item, $event)"
     >
-      <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span>
+      <component :is="item.icon" :size="18" class="nav-icon" aria-hidden="true" />
       <span class="nav-label">{{ item.label }}</span>
+      <span v-if="isActive(item)" class="nav-indicator" aria-hidden="true" />
     </RouterLink>
   </nav>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import { Bot, Megaphone, Users } from 'lucide-vue-next';
 import { RouterLink, useRoute } from 'vue-router';
 import { useWorkflowStore } from '../stores/workflowStore';
 
@@ -37,21 +39,21 @@ const items = computed(() => {
     {
       key: 'campaigns',
       label: 'Кампании',
-      icon: '◆',
+      icon: Megaphone,
       to: { name: 'dashboard' },
       disabled: false,
     },
     {
       key: 'accounts',
       label: 'Аккаунты',
-      icon: '◎',
+      icon: Users,
       to: { name: 'account-prep' },
       disabled: false,
     },
     {
       key: 'bots',
       label: 'Боты',
-      icon: '◇',
+      icon: Bot,
       to: botsTo,
       disabled: !cid,
       disabledTitle: 'Сначала откройте кампанию в разделе «Кампании»',
@@ -84,28 +86,24 @@ function onClick(item, event) {
 <style scoped>
 .main-nav {
   display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .nav-item {
-  display: inline-flex;
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.45rem 0.9rem;
-  border-radius: 9px;
+  gap: 0.65rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--muted);
   text-decoration: none;
   transition:
     color 0.15s,
-    background 0.15s,
-    box-shadow 0.15s;
+    background 0.15s;
 }
 
 .nav-item:hover {
@@ -116,41 +114,63 @@ function onClick(item, event) {
 
 .nav-item.router-link-active {
   color: #fff;
-  background: var(--accent);
-  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.35);
+  background: var(--accent-soft);
 }
 
 .nav-item.router-link-active .nav-icon {
-  opacity: 1;
+  color: var(--accent);
+}
+
+.nav-indicator {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 60%;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 .nav-item--disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   pointer-events: none;
   cursor: not-allowed;
 }
 
 .nav-icon {
-  font-size: 0.65rem;
-  opacity: 0.7;
-  line-height: 1;
+  flex-shrink: 0;
+  color: var(--muted);
+  transition: color 0.15s;
+}
+
+.nav-item:hover .nav-icon {
+  color: var(--text);
 }
 
 .nav-label {
   line-height: 1.2;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .nav-label {
-    font-size: 0.8rem;
+    display: none;
   }
 
   .nav-item {
-    padding: 0.4rem 0.65rem;
+    justify-content: center;
+    padding: 0.65rem;
   }
 
-  .nav-icon {
-    display: none;
+  .nav-indicator {
+    left: auto;
+    right: 4px;
+    top: 4px;
+    transform: none;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
   }
 }
 </style>

@@ -6,30 +6,42 @@
         <h1>Кампании</h1>
         <p class="subtitle">Создайте группу для аккаунтов и ботов. Ключевая фраза нужна только при генерации текстов AI.</p>
       </div>
-      <RouterLink to="/app/campaigns/new" class="btn">+ Новая кампания</RouterLink>
+      <RouterLink to="/app/campaigns/new" class="btn">
+        <Plus :size="16" />
+        Новая кампания
+      </RouterLink>
     </header>
 
     <ol class="steps-guide card">
       <li :class="{ done: campaigns.length }">
-        <strong>Кампания</strong> — название и ссылка на ваш сервис
+        <span class="step-num">1</span>
+        <span><strong>Кампания</strong> — название и ссылка на ваш сервис</span>
       </li>
       <li>
-        <strong>Аккаунты</strong> —
-        <RouterLink to="/app/accounts/prepare">подготовьте Telegram</RouterLink>
-        и добавьте в кампанию
+        <span class="step-num">2</span>
+        <span>
+          <strong>Аккаунты</strong> —
+          <RouterLink to="/app/accounts/prepare">подготовьте Telegram</RouterLink>
+          и добавьте в кампанию
+        </span>
       </li>
       <li>
-        <strong>Боты</strong> — по одному или таблицей; фраза только если нужен AI
+        <span class="step-num">3</span>
+        <span><strong>Боты</strong> — по одному или таблицей; фраза только если нужен AI</span>
       </li>
     </ol>
 
     <p v-if="route.query.hint === 'select_campaign'" class="warn-banner card">
-      Откройте кампанию из списка ниже — затем в шапке станет доступен раздел «Боты».
+      Откройте кампанию из списка ниже — затем в меню станет доступен раздел «Боты».
     </p>
     <p v-else-if="createBotHint" class="warn-banner card">{{ createBotHint }}</p>
     <p v-if="loadError" class="error-text">{{ loadError }}</p>
     <p v-else-if="loading" class="muted">Загрузка…</p>
+
     <div v-else-if="!campaigns.length" class="card empty-onboarding">
+      <div class="empty-icon-wrap">
+        <Megaphone :size="32" />
+      </div>
       <p><strong>Начните с кампании</strong></p>
       <p class="muted">Группа для аккаунтов и ботов. Дальше — подготовка Telegram и создание ботов.</p>
       <div class="empty-actions">
@@ -38,19 +50,26 @@
       </div>
     </div>
 
-    <ul v-else class="list">
-      <li v-for="c in campaigns" :key="c.id" class="card item">
+    <ul v-else class="list campaign-grid">
+      <li v-for="c in campaigns" :key="c.id" class="card campaign-card">
         <button type="button" class="item-link" @click="openCampaign(c)">
           <div class="item-main">
             <div class="item-title">
               <strong>{{ c.title }}</strong>
               <StatusBadge :status="c.status" />
             </div>
-            <p class="meta">
-              {{ c.bots_count }} ботов · {{ c.accounts_count }} аккаунтов
-            </p>
+            <div class="meta-row">
+              <span class="meta-item">
+                <Bot :size="13" />
+                {{ c.bots_count }} ботов
+              </span>
+              <span class="meta-item">
+                <Users :size="13" />
+                {{ c.accounts_count }} аккаунтов
+              </span>
+            </div>
           </div>
-          <span class="chevron">→</span>
+          <ChevronRight :size="18" class="chevron" />
         </button>
         <div class="item-actions">
           <button type="button" class="btn-ghost btn-xs" @click="openCampaign(c)">Открыть</button>
@@ -66,6 +85,7 @@
 
 <script setup>
 import { onMounted, ref } from 'vue';
+import { Bot, ChevronRight, Megaphone, Plus, Users } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import OnboardingModal from '../components/OnboardingModal.vue';
 import StatusBadge from '../components/StatusBadge.vue';
@@ -133,40 +153,82 @@ onMounted(async () => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .dash-header h1 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.625rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .subtitle {
-  margin: 0.25rem 0 0;
+  margin: 0.35rem 0 0;
   font-size: 0.875rem;
   color: var(--muted);
   max-width: 32rem;
+  line-height: 1.5;
 }
 
 .steps-guide {
   margin-bottom: 1.25rem;
   padding: 1rem 1.25rem;
-  font-size: 0.88rem;
-  color: var(--muted);
-  line-height: 1.6;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .steps-guide li {
-  margin: 0.35rem 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  font-size: 0.875rem;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
 .steps-guide li.done {
-  color: #86efac;
+  color: #4ade80;
+}
+
+.steps-guide li.done .step-num {
+  background: var(--success-soft);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #4ade80;
+}
+
+.step-num {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border: 1px solid var(--border-strong);
+  background: rgba(8, 12, 20, 0.5);
+  color: var(--muted);
 }
 
 .empty-onboarding {
   text-align: center;
-  padding: 2rem;
+  padding: 2.5rem 2rem;
+}
+
+.empty-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  margin-bottom: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .empty-actions {
@@ -177,18 +239,21 @@ onMounted(async () => {
   margin-top: 1rem;
 }
 
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.campaign-grid {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
-.item {
+.campaign-card {
   padding: 0;
   overflow: hidden;
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.campaign-card:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .item-link {
@@ -196,47 +261,67 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 1rem;
+  padding: 1.1rem 1.25rem;
   border: none;
   background: transparent;
   text-align: left;
   color: inherit;
   font: inherit;
   cursor: pointer;
+  transition: background 0.15s;
+}
+
+.item-link:hover {
+  background: var(--surface-hover);
 }
 
 .item-actions {
   display: flex;
   gap: 0.5rem;
-  padding: 0 1rem 0.75rem;
+  padding: 0.6rem 1.25rem 0.85rem;
   border-top: 1px solid var(--border);
-  padding-top: 0.5rem;
 }
 
 .item-title {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   flex-wrap: wrap;
 }
 
-.meta {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
+.item-title strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.meta-row {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.4rem;
+}
+
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
   color: var(--muted);
 }
 
 .chevron {
+  flex-shrink: 0;
   color: var(--muted);
-  font-size: 1.25rem;
+  opacity: 0.6;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.campaign-card:hover .chevron {
+  opacity: 1;
+  transform: translateX(2px);
+  color: var(--accent);
 }
 
 .warn-banner {
   margin-bottom: 1rem;
-  padding: 0.75rem 1rem;
-  font-size: 0.9rem;
-  color: #fcd34d;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.35);
 }
 </style>

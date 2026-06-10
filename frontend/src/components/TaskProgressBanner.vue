@@ -103,8 +103,8 @@ const iconGlyph = computed(() => {
   position: sticky;
   top: 0;
   z-index: 50;
-  margin: -1.25rem -1.5rem 1rem;
-  padding: 0 1.5rem;
+  margin: -1.5rem -2rem 1rem;
+  padding: 0 2rem;
   pointer-events: none;
 }
 

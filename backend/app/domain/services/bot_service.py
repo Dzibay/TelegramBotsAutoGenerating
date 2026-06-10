@@ -20,6 +20,7 @@ from app.infrastructure.telegram.botfather_client import (
     set_bot_name,
     set_bot_photo,
 )
+from app.infrastructure.telegram.botfather_pacing import pace_botfather_op
 from app.utils.crypto import decrypt_token, encrypt_token
 from app.utils.telegram_username import build_username_from_keyword, normalize_bot_username
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
@@ -391,6 +392,7 @@ async def create_bot(
     auto_start: bool = False,
     avatar_bytes: Optional[bytes] = None,
     generate_avatar: bool = True,
+    telethon_client=None,
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     account = await _get_account_for_campaign(campaign_id, telegram_account_id)
@@ -432,14 +434,16 @@ async def create_bot(
 
     token = None
     avatar_path = None
-    client = None
+    client = telethon_client
+    owns_client = client is None
 
     try:
         if create_via_botfather:
-            session_file = (
-                Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{telegram_account_id}.session"
-            )
-            client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+            if owns_client:
+                session_file = (
+                    Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{telegram_account_id}.session"
+                )
+                client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
             final_username = await username_service.allocate_unique_username(
                 kw_for_user,
                 preferred=username,
@@ -467,6 +471,7 @@ async def create_bot(
                 ) from exc
             token = result["token"]
             final_username = result["username"]
+            await pace_botfather_op()
             avatar_path = await _apply_bot_avatar(
                 client,
                 campaign_id,
@@ -476,7 +481,9 @@ async def create_bot(
                 avatar_prompt=promo.get("avatar_prompt")
                 or f"telegram bot banner icon {keyword or display_name}",
             )
+            await pace_botfather_op()
             await set_bot_description(client, final_username, description)
+            await pace_botfather_op()
             await set_bot_about(client, final_username, about_final)
 
         status = "active" if auto_start and token else "stopped"
@@ -527,7 +534,7 @@ async def create_bot(
         )
         return _bot_row(row, include_welcome=True)
     finally:
-        if client:
+        if owns_client and client:
             await client.disconnect()
 
 

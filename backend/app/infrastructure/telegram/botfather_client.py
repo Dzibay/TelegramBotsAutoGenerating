@@ -7,14 +7,16 @@ from pathlib import Path
 
 from telethon.errors.rpcerrorlist import FloodWaitError
 
+from app.config import Config
 from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
+from app.infrastructure.telegram.botfather_pacing import pace_before_conversation
 from app.utils.telegram_username import normalize_bot_username
 
 logger = get_logger(__name__)
 
 # Короткие паузы ждём на сервере; длинные отдаём клиенту с wait_seconds.
-MAX_SERVER_FLOOD_WAIT = 120
+MAX_SERVER_FLOOD_WAIT = Config.BOTFATHER_MAX_SERVER_FLOOD_WAIT
 
 TOKEN_RE = re.compile(r"(\d{8,10}:[A-Za-z0-9_-]{30,})")
 BOT_USER_RE = re.compile(r"@?([a-z][a-z0-9_]{2,28}bot)\b", re.IGNORECASE)
@@ -108,6 +110,7 @@ async def _reset_botfather(conv) -> None:
 @asynccontextmanager
 async def _botfather_conv(client, timeout: float = 60) -> AsyncIterator:
     await _prepare_botfather_chat(client)
+    await pace_before_conversation()
     async with client.conversation("BotFather", timeout=timeout, total_timeout=180) as conv:
         await _reset_botfather(conv)
         yield conv

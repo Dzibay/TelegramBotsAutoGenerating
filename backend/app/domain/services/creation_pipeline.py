@@ -14,11 +14,17 @@ from app.infrastructure.telegram.botfather_client import (
     set_bot_description,
     set_bot_photo,
 )
+from app.infrastructure.telegram.botfather_pacing import (
+    batch_cooldown_sec,
+    batch_size,
+    inter_bot_delay_sec,
+    pace_botfather_op,
+    post_throttle_delay_sec,
+)
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 from app.utils.crypto import encrypt_token
 
 
-INTER_BOT_DELAY_SEC = 5
 FLOOD_MAX_RETRIES = 8
 # Дольше этого не ждём внутри задачи — отдаём ошибку, чтобы не висеть часами.
 FLOOD_MAX_WAIT_SEC = 600
@@ -75,6 +81,28 @@ class CreationPipeline:
                     "status": "skipped",
                 },
             )
+
+    async def _pace_between_bots(self, processed: int, total: int) -> bool:
+        """Пауза между ботами + пакетный cooldown. True = отменено."""
+        if processed >= total:
+            return False
+        delay = inter_bot_delay_sec()
+        await self.log(
+            f"Пауза {delay} сек. перед следующим ботом (лимиты BotFather)…",
+        )
+        if await self._sleep_cancellable(delay):
+            return True
+        every = batch_size()
+        if every > 0 and processed > 0 and processed % every == 0:
+            cooldown = batch_cooldown_sec()
+            mins = max(1, cooldown // 60)
+            await self.log(
+                f"Пакетная пауза ~{mins} мин (создано {processed} из {total} — защита от блокировки)…",
+                level="warn",
+            )
+            if await self._sleep_cancellable(cooldown):
+                return True
+        return False
 
     async def log(
         self,
@@ -187,91 +215,111 @@ class CreationPipeline:
 
         created_count = 0
         processed = 0
+        session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
+        client = None
 
-        for idx, plan in enumerate(plans):
-            if await self._is_cancelled():
-                await self.log("Создание остановлено пользователем", level="warn")
-                await self._mark_remaining_skipped(plans, idx)
-                break
+        try:
+            client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
 
-            processed += 1
-            uname = plan["username"]
-            row_id = plan.get("row_id", idx + 1)
-            await db.execute(
-                """
-                UPDATE creation_jobs
-                SET processed_accounts = $2, updated_at = NOW()
-                WHERE id = $1
-                """,
-                self.job_id,
-                processed,
-            )
-            await self.log(
-                f"[{processed}/{len(plans)}] @{uname} — старт",
-                progress=f"{processed - 1}/{len(plans)}: @{uname}",
-                context={
-                    "row_id": row_id,
-                    "plan_index": idx,
-                    "username": uname,
-                    "status": "creating",
-                },
-            )
-
-            avatar_bytes = None
-            avatar_path = plan.get("avatar_path")
-            if avatar_path:
-                path = Path(avatar_path)
-                if path.is_file():
-                    avatar_bytes = path.read_bytes()
-
-            try:
-                bot = await self._create_manual_bot_with_flood_retry(plan, avatar_bytes=avatar_bytes)
+            for idx, plan in enumerate(plans):
                 if await self._is_cancelled():
-                    await self._mark_remaining_skipped(plans, idx + 1)
+                    await self.log("Создание остановлено пользователем", level="warn")
+                    await self._mark_remaining_skipped(plans, idx)
                     break
-                created_count += 1
+
+                processed += 1
+                uname = plan["username"]
+                row_id = plan.get("row_id", idx + 1)
                 await db.execute(
                     """
                     UPDATE creation_jobs
-                    SET total_bots_created = $2, updated_at = NOW()
+                    SET processed_accounts = $2, updated_at = NOW()
                     WHERE id = $1
                     """,
                     self.job_id,
-                    created_count,
+                    processed,
                 )
                 await self.log(
-                    f"[{processed}/{len(plans)}] @{uname} — создан",
-                    level="info",
-                    progress=f"{processed}/{len(plans)}: готово",
+                    f"[{processed}/{len(plans)}] @{uname} — старт",
+                    progress=f"{processed - 1}/{len(plans)}: @{uname}",
                     context={
                         "row_id": row_id,
                         "plan_index": idx,
                         "username": uname,
-                        "status": "done",
-                        "bot_id": bot.get("id"),
-                    },
-                )
-            except Exception as exc:
-                if await self._is_cancelled():
-                    await self._mark_remaining_skipped(plans, idx)
-                    break
-                await self.log(
-                    f"[{processed}/{len(plans)}] @{uname} — {exc}",
-                    level="error",
-                    context={
-                        "row_id": row_id,
-                        "plan_index": idx,
-                        "username": uname,
-                        "status": "error",
-                        "error": str(exc)[:300],
+                        "status": "creating",
                     },
                 )
 
-            if processed < len(plans):
-                await self.log(f"Пауза {INTER_BOT_DELAY_SEC} сек. перед следующим ботом…")
-                if await self._sleep_cancellable(INTER_BOT_DELAY_SEC):
-                    await self._mark_remaining_skipped(plans, idx + 1)
-                    break
+                avatar_bytes = None
+                avatar_path = plan.get("avatar_path")
+                if avatar_path:
+                    path = Path(avatar_path)
+                    if path.is_file():
+                        avatar_bytes = path.read_bytes()
+
+                try:
+                    bot = await self._create_manual_bot_with_flood_retry(
+                        plan,
+                        avatar_bytes=avatar_bytes,
+                        client=client,
+                    )
+                    if await self._is_cancelled():
+                        await self._mark_remaining_skipped(plans, idx + 1)
+                        break
+                    created_count += 1
+                    await db.execute(
+                        """
+                        UPDATE creation_jobs
+                        SET total_bots_created = $2, updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        self.job_id,
+                        created_count,
+                    )
+                    await self.log(
+                        f"[{processed}/{len(plans)}] @{uname} — создан",
+                        level="info",
+                        progress=f"{processed}/{len(plans)}: готово",
+                        context={
+                            "row_id": row_id,
+                            "plan_index": idx,
+                            "username": uname,
+                            "status": "done",
+                            "bot_id": bot.get("id"),
+                        },
+                    )
+                except Exception as exc:
+                    if await self._is_cancelled():
+                        await self._mark_remaining_skipped(plans, idx)
+                        break
+                    details = getattr(exc, "details", None) or {}
+                    if details.get("botfather_blocked"):
+                        await self.log(
+                            f"[{processed}/{len(plans)}] @{uname} — аккаунт ограничен BotFather, "
+                            "остановка партии на этом аккаунте",
+                            level="error",
+                        )
+                        await self._mark_remaining_skipped(plans, idx + 1)
+                        break
+                    await self.log(
+                        f"[{processed}/{len(plans)}] @{uname} — {exc}",
+                        level="error",
+                        context={
+                            "row_id": row_id,
+                            "plan_index": idx,
+                            "username": uname,
+                            "status": "error",
+                            "error": str(exc)[:300],
+                        },
+                    )
+
+                if processed < len(plans):
+                    if await self._pace_between_bots(processed, len(plans)):
+                        await self._mark_remaining_skipped(plans, idx + 1)
+                        break
+        finally:
+            if client:
+                await client.disconnect()
 
         acc = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
         acc_status = "ready"
@@ -290,6 +338,7 @@ class CreationPipeline:
         plan: dict[str, Any],
         *,
         avatar_bytes: Optional[bytes],
+        client,
     ) -> dict[str, Any]:
         for attempt in range(FLOOD_MAX_RETRIES + 1):
             if await self._is_cancelled():
@@ -313,9 +362,12 @@ class CreationPipeline:
                     auto_start=bool(plan.get("auto_start", True)),
                     avatar_bytes=avatar_bytes,
                     generate_avatar=False,
+                    telethon_client=client,
                 )
             except BadRequestError as exc:
                 details = exc.details or {}
+                if details.get("botfather_blocked"):
+                    raise
                 wait = int(details.get("wait_seconds") or 0)
                 if wait > FLOOD_MAX_WAIT_SEC:
                     raise BadRequestError(
@@ -336,6 +388,11 @@ class CreationPipeline:
                     )
                     if await self._sleep_cancellable(wait + 2):
                         raise BadRequestError("Задача отменена")
+                    recovery = post_throttle_delay_sec()
+                    if recovery > 0:
+                        await self.log(f"Доп. пауза {recovery} сек. после лимита Telegram…")
+                        if await self._sleep_cancellable(recovery):
+                            raise BadRequestError("Задача отменена")
                     continue
                 raise
         raise BadRequestError(f"Не удалось создать @{plan['username']} после пауз лимита Telegram")
@@ -522,6 +579,9 @@ class CreationPipeline:
                         f"{label}: «{kw}» — {exc}",
                         level="error",
                     )
+                if idx + 1 < len(plan_items):
+                    if await self._pace_between_bots(idx + 1, len(plan_items)):
+                        break
 
             acc_status = "ready"
             if created_count + int(account["bots_created"]) >= account["max_bots_limit"]:
@@ -623,6 +683,9 @@ class CreationPipeline:
                         f"{label}: бот «{concept.get('display_name', '?')}» — {exc}",
                         level="error",
                     )
+                if idx + 1 < len(concepts):
+                    if await self._pace_between_bots(idx + 1, len(concepts)):
+                        break
 
             acc_status = "ready"
             if created_count >= account["max_bots_limit"]:
@@ -723,6 +786,7 @@ class CreationPipeline:
         )
         token = result["token"]
         username = result["username"]
+        await pace_botfather_op()
 
         defaults = bot_promo_service.campaign_text_defaults(campaign)
         try:
@@ -772,10 +836,12 @@ class CreationPipeline:
             avatar_path.parent.mkdir(parents=True, exist_ok=True)
             avatar_path.write_bytes(img)
             await set_bot_photo(client, username, avatar_path)
+            await pace_botfather_op()
         except Exception as exc:
             await self.log(f"Аватар @{username}: {exc}", level="warn")
 
         await set_bot_description(client, username, description)
+        await pace_botfather_op()
         await set_bot_about(client, username, about_text)
 
         token_enc = encrypt_token(token)

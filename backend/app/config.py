@@ -62,6 +62,22 @@ class Config:
     # Лимит ботов на аккаунт (ориентир Telegram)
     MAX_BOTS_PER_ACCOUNT = max(1, int(os.getenv("MAX_BOTS_PER_ACCOUNT", "20")))
 
+    # Паузы BotFather при массовом создании (снижение throttle / «cannot create new bots»)
+    # Между ботами: ~45 с; между командами внутри бота: ~4 с; каждые N ботов — длинная пауза.
+    BOTFATHER_INTER_BOT_DELAY_SEC = max(10, int(os.getenv("BOTFATHER_INTER_BOT_DELAY_SEC", "45")))
+    BOTFATHER_OP_DELAY_SEC = max(0, int(os.getenv("BOTFATHER_OP_DELAY_SEC", "4")))
+    BOTFATHER_CONV_DELAY_SEC = max(0, int(os.getenv("BOTFATHER_CONV_DELAY_SEC", "2")))
+    BOTFATHER_BATCH_SIZE = max(1, int(os.getenv("BOTFATHER_BATCH_SIZE", "5")))
+    BOTFATHER_BATCH_COOLDOWN_SEC = max(
+        30, int(os.getenv("BOTFATHER_BATCH_COOLDOWN_SEC", "180"))
+    )
+    BOTFATHER_POST_THROTTLE_DELAY_SEC = max(
+        0, int(os.getenv("BOTFATHER_POST_THROTTLE_DELAY_SEC", "30"))
+    )
+    BOTFATHER_MAX_SERVER_FLOOD_WAIT = max(
+        30, int(os.getenv("BOTFATHER_MAX_SERVER_FLOOD_WAIT", "180"))
+    )
+
     # AI
     AI_TEXT_PROVIDER = os.getenv("AI_TEXT_PROVIDER", "groq").lower()
     # При ошибке Groq/Ollama использовать шаблоны вместо 500

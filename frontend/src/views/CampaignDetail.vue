@@ -394,9 +394,12 @@ function stopPolling() {
 async function onStart() {
   starting.value = true;
   try {
-    job.value = await taskStore.run('START_CAMPAIGN', () =>
-      campaignService.start(campaignId.value)
-    );
+    job.value = await taskStore.run('START_CAMPAIGN', async ({ logStep }) => {
+      logStep('POST /start — постановка задачи в очередь', 'debug');
+      const j = await campaignService.start(campaignId.value);
+      logStep(`Job #${j.id} status=${j.status}`, 'info', j);
+      return j;
+    });
     logs.value = [];
     lastLogId.value = 0;
     await fetchLogs();
@@ -459,7 +462,12 @@ async function onAttachPrepared(ids) {
   try {
     const result = await taskStore.run(
       'ATTACH_ACCOUNTS',
-      () => campaignService.attachPreparedAccounts(campaignId.value, ids),
+      async ({ logStep }) => {
+        logStep(`Attach ${ids.length} prepared account(s)`, 'debug', { ids });
+        const res = await campaignService.attachPreparedAccounts(campaignId.value, ids);
+        logStep('Аккаунты добавлены, verify-all выполнен', 'info', res.verifySummary);
+        return res;
+      },
       { count: ids.length }
     );
     accounts.value = result.accounts ?? [];
@@ -483,7 +491,16 @@ async function onVerifyAccount(account) {
   try {
     const updated = await taskStore.run(
       'VERIFY_ACCOUNT',
-      () => campaignService.verifyAccount(campaignId.value, account.id),
+      async ({ logStep }) => {
+        logStep(`POST verify account #${account.id}`, 'debug');
+        const res = await campaignService.verifyAccount(campaignId.value, account.id);
+        logStep(res.verify_message || (res.verified ? 'Сессия OK' : 'Ошибка проверки'), res.verified ? 'info' : 'warn', {
+          verified: res.verified,
+          status: res.status,
+          bots_created: res.bots_created,
+        });
+        return res;
+      },
       { accountId: account.id, accountLabel: accountLabel(account) }
     );
     const idx = accounts.value.findIndex((a) => a.id === account.id);
@@ -502,7 +519,12 @@ async function onVerifyAllAccounts() {
   try {
     const result = await taskStore.run(
       'VERIFY_ALL_ACCOUNTS',
-      () => campaignService.verifyAllAccounts(campaignId.value),
+      async ({ logStep }) => {
+        logStep(`POST verify-all (${accounts.value.length} акк.)`, 'debug');
+        const res = await campaignService.verifyAllAccounts(campaignId.value);
+        logStep(`Итог: ${res.verified_ok} OK, ${res.verified_failed} ошибок`, 'info', res);
+        return res;
+      },
       { count: accounts.value.length }
     );
     accounts.value = result.accounts ?? accounts.value;
@@ -527,7 +549,15 @@ async function onLoadAccountBots(account) {
   try {
     const data = await taskStore.run(
       'LIST_ACCOUNT_BOTS',
-      () => campaignService.listAccountBots(campaignId.value, account.id),
+      async ({ logStep }) => {
+        logStep(`GET bots for account #${account.id}`, 'debug');
+        const res = await campaignService.listAccountBots(campaignId.value, account.id);
+        logStep(`Telegram: ${res.telegram_bots_count ?? res.bots?.length ?? 0} бот(ов)`, 'info', {
+          bots_in_app: res.bots_in_app,
+          bots_created: res.bots_created,
+        });
+        return res;
+      },
       { accountId: account.id, accountLabel: accountLabel(account) }
     );
     accountBotsLists.value = { ...accountBotsLists.value, [account.id]: data.bots ?? [] };

@@ -10,6 +10,7 @@
         <AppMainNav class="header-nav" />
 
         <div class="header-right">
+          <VerboseLogToggle label="Детальные логи" />
           <RouterLink
             v-if="workflow.activeCampaignId"
             :to="{
@@ -41,6 +42,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import AppMainNav from '../components/AppMainNav.vue';
 import PageBreadcrumb from '../components/PageBreadcrumb.vue';
 import TaskProgressBanner from '../components/TaskProgressBanner.vue';
+import VerboseLogToggle from '../components/VerboseLogToggle.vue';
 import { useAuthStore } from '../stores/authStore';
 import { useWorkflowStore } from '../stores/workflowStore';
 

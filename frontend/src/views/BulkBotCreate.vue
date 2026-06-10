@@ -669,9 +669,13 @@ function formatLogTime(iso) {
 
 function mapApiLog(entry) {
   return {
+    id: entry.id,
     time: formatLogTime(entry.created_at),
+    created_at: entry.created_at,
     message: entry.message,
-    level: entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warn' : entry.level,
+    level: entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warn' : entry.level || 'info',
+    context: entry.context,
+    source: 'server',
   };
 }
 
@@ -1098,9 +1102,21 @@ async function createAllAi() {
       createProgress.value = `${done}/${rowsWithDraft.value.length}`;
       const spec = buildAiCreateSpec(row);
       try {
-        await taskStore.run('CREATE_BOT', () => botService.create(spec), {
-          username: spec.username,
-        });
+        await taskStore.run(
+          'CREATE_BOT',
+          async ({ logStep }) => {
+            logStep(`[${done}/${rowsWithDraft.value.length}] @${spec.username}`, 'info');
+            try {
+              const b = await botService.create(spec);
+              logStep(`@${spec.username} OK`, 'success', { id: b.id });
+              return b;
+            } catch (e) {
+              logStep(`@${spec.username}: ${e.response?.data?.error || e.message}`, 'error');
+              throw e;
+            }
+          },
+          { username: spec.username }
+        );
       } catch (e) {
         row.error = e.response?.data?.error || 'Ошибка';
       }

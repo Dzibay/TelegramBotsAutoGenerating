@@ -1,6 +1,6 @@
 <template>
   <Transition name="task-banner">
-    <div v-if="taskStore.isActive" class="task-banner" role="status" aria-live="polite">
+    <div v-if="showBanner" class="task-banner" role="status" aria-live="polite">
       <div class="task-banner-inner">
         <div class="task-icon" :class="`task-icon--${taskStore.active?.icon || 'default'}`" aria-hidden="true">
           <span class="spinner-ring" />
@@ -9,14 +9,16 @@
 
         <div class="task-body">
           <div class="task-head">
-            <strong class="task-title">{{ taskStore.active?.title }}</strong>
+            <strong class="task-title">{{ bannerTitle }}</strong>
             <span v-if="contextLabel" class="task-context">{{ contextLabel }}</span>
             <span class="task-time">{{ elapsedLabel }}</span>
+            <VerboseLogToggle class="task-verbose-toggle" />
           </div>
 
-          <p class="task-step">{{ taskStore.currentStep }}</p>
+          <p v-if="taskStore.isActive" class="task-step">{{ taskStore.currentStep }}</p>
+          <p v-else-if="uiPrefs.verboseLogs" class="task-step task-step--done">Операция завершена — см. журнал ниже</p>
 
-          <div class="task-track">
+          <div v-if="taskStore.isActive" class="task-track">
             <div
               class="task-fill"
               :class="{ 'task-fill--done': taskStore.active?.done }"
@@ -24,20 +26,47 @@
             />
           </div>
 
-          <p class="task-hint">
+          <p v-if="taskStore.isActive" class="task-hint">
             Связь с Telegram может занять до 2 минут — не закрывайте страницу, пока идёт операция.
           </p>
         </div>
       </div>
+
+      <ProcessLogPanel
+        v-if="uiPrefs.verboseLogs && runtimeLogs.length"
+        class="task-log-panel"
+        :logs="runtimeLogs"
+        :polling="taskStore.isActive"
+        :show-progress="false"
+        :show-toggle="false"
+        title="Детальный журнал"
+        compact
+        :show-clear="!taskStore.isActive"
+        @clear="taskStore.clearLastLogs()"
+      />
     </div>
   </Transition>
 </template>
 
 <script setup>
 import { computed } from 'vue';
+import ProcessLogPanel from './ProcessLogPanel.vue';
+import VerboseLogToggle from './VerboseLogToggle.vue';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { useUiPrefsStore } from '../stores/uiPrefsStore';
 
 const taskStore = useAsyncTaskStore();
+const uiPrefs = useUiPrefsStore();
+
+const runtimeLogs = computed(() => taskStore.visibleRuntimeLogs);
+
+const showBanner = computed(
+  () => taskStore.isActive || (uiPrefs.verboseLogs && runtimeLogs.value.length > 0)
+);
+
+const bannerTitle = computed(
+  () => taskStore.active?.title || 'Последняя операция'
+);
 
 const contextLabel = computed(() => taskStore.contextLabel);
 
@@ -47,6 +76,7 @@ const displayProgress = computed(() =>
 
 const elapsedLabel = computed(() => {
   const s = taskStore.elapsedSec;
+  if (!taskStore.isActive && runtimeLogs.value.length) return '';
   if (s < 60) return `${s} с`;
   const m = Math.floor(s / 60);
   const r = s % 60;
@@ -66,7 +96,7 @@ const iconGlyph = computed(() => {
   position: sticky;
   top: 0;
   z-index: 50;
-  margin: -1.5rem -1.5rem 1rem;
+  margin: -1.25rem -1.5rem 1rem;
   padding: 0 1.5rem;
   pointer-events: none;
 }
@@ -80,6 +110,21 @@ const iconGlyph = computed(() => {
   border: 1px solid rgba(59, 130, 246, 0.45);
   background: linear-gradient(135deg, rgba(30, 58, 95, 0.95), rgba(26, 35, 50, 0.98));
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+}
+
+.task-log-panel {
+  pointer-events: auto;
+  margin-top: 0.5rem;
+  max-height: 260px;
+}
+
+.task-verbose-toggle {
+  margin-left: auto;
+}
+
+.task-step--done {
+  color: #86efac;
+  font-size: 0.78rem;
 }
 
 .task-icon {

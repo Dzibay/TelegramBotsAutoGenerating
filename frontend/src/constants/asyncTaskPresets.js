@@ -10,6 +10,13 @@ export const TASK_PRESETS = {
       'Получение списка ботов…',
       'Обновление данных…',
     ],
+    verboseSteps: [
+      'API: POST verify account',
+      'Telethon: load tdata session',
+      'Telegram: getMe()',
+      'BotFather: /mybots — подсчёт ботов',
+      'DB: status=ready, sync bots_created',
+    ],
   },
   VERIFY_ALL_ACCOUNTS: {
     title: 'Проверка аккаунтов',
@@ -20,6 +27,11 @@ export const TASK_PRESETS = {
       'Подключение к Telegram…',
       'Синхронизация списка ботов…',
       'Это может занять несколько минут…',
+    ],
+    verboseSteps: [
+      'API: POST verify-all',
+      'Для каждого аккаунта: tdata → Telegram → BotFather /mybots',
+      'Обновление статусов и счётчиков в БД',
     ],
   },
   LIST_ACCOUNT_BOTS: {
@@ -32,6 +44,11 @@ export const TASK_PRESETS = {
       'Загрузка данных…',
       'Если ботов много — читаем дальше…',
     ],
+    verboseSteps: [
+      'API: GET account bots',
+      'BotFather: /mybots (+ пагинация)',
+      'Сверка с bots в кампании',
+    ],
   },
   DELETE_ACCOUNT_BOT: {
     title: 'Удаление бота',
@@ -43,6 +60,12 @@ export const TASK_PRESETS = {
       'Подтверждение…',
       'Обновление списка…',
     ],
+    verboseSteps: [
+      'API: DELETE account bot',
+      'BotFather: /deletebot → подтверждение',
+      'DB: удаление записи (если in_app)',
+      'Повторный запрос списка ботов',
+    ],
   },
   ATTACH_ACCOUNTS: {
     title: 'Добавление аккаунтов',
@@ -52,6 +75,11 @@ export const TASK_PRESETS = {
       'Добавляем в кампанию…',
       'Проверка входа в Telegram…',
       'Синхронизация ботов…',
+    ],
+    verboseSteps: [
+      'API: attach prepared accounts',
+      'Копирование tdata на сервер',
+      'Авто verify-all для новых аккаунтов',
     ],
   },
   CREATE_BOT: {
@@ -65,6 +93,13 @@ export const TASK_PRESETS = {
       'Настройка описания и аватара…',
       'Сохранение…',
     ],
+    verboseSteps: [
+      'Telethon: сессия аккаунта',
+      'BotFather: /newbot → имя → username → token',
+      'BotFather: /setuserpic, /setdescription, /setabouttext',
+      'DB: INSERT bot, encrypt token',
+      'Bot runner: status active (если auto_start)',
+    ],
   },
   BULK_CREATE_BOTS: {
     title: 'Массовое создание ботов',
@@ -77,6 +112,11 @@ export const TASK_PRESETS = {
       'Описание и приветствие…',
       'Следующий бот в очереди…',
     ],
+    verboseSteps: [
+      'API: POST create bot (sequential)',
+      'Полный цикл BotFather на каждого бота',
+      'Паузы между ботами (rate limit)',
+    ],
   },
   DELETE_BOT: {
     title: 'Удаление бота',
@@ -87,6 +127,7 @@ export const TASK_PRESETS = {
       'Удаление в Telegram…',
       'Обновление в приложении…',
     ],
+    verboseSteps: ['API: DELETE bot', 'DB: CASCADE / soft delete'],
   },
   SYNC_BOTFATHER: {
     title: 'Обновление профиля бота',
@@ -98,6 +139,10 @@ export const TASK_PRESETS = {
       'Описание и текст «О боте»…',
       'Загрузка аватара…',
     ],
+    verboseSteps: [
+      'BotFather: /setname, /setdescription, /setabouttext, /setuserpic',
+      'DB: UPDATE bot texts',
+    ],
   },
   START_CAMPAIGN: {
     title: 'Массовое создание ботов',
@@ -106,7 +151,12 @@ export const TASK_PRESETS = {
     steps: [
       'Запуск задачи…',
       'Подключение к аккаунтам…',
-      'Создание ботов — смотрите журнал слева…',
+      'Создание ботов — смотрите журнал…',
+    ],
+    verboseSteps: [
+      'API: POST /campaigns/{id}/start',
+      'Redis: enqueue creation_job',
+      'Worker: CreationPipeline',
     ],
   },
   CREATE_CAMPAIGN_FULL: {
@@ -119,6 +169,11 @@ export const TASK_PRESETS = {
       'Проверка и синхронизация…',
       'Запуск создания ботов (если включено)…',
     ],
+    verboseSteps: [
+      'API: create-full (multipart)',
+      'Attach prepared + verify-all',
+      'Optional: start creation job',
+    ],
   },
   PREP_ACCOUNTS: {
     title: 'Подготовка аккаунтов',
@@ -128,6 +183,12 @@ export const TASK_PRESETS = {
       'Загрузка файлов…',
       'Постановка в очередь…',
       'Настройка безопасности и ботов…',
+    ],
+    verboseSteps: [
+      'API: POST account-prep/jobs',
+      'Worker: tdata extract, security steps',
+      'BotFather: delete_all_bots (если включено)',
+      'Pool: prepared_accounts',
     ],
   },
 };

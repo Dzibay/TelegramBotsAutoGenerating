@@ -98,15 +98,19 @@ async function onSubmit() {
   try {
     const data = await taskStore.run(
       'CREATE_CAMPAIGN_FULL',
-      () =>
-        campaignService.createFull({
+      async ({ logStep }) => {
+        logStep('POST create-full', 'debug', { accounts: selectedPreparedIds.value.length });
+        const res = await campaignService.createFull({
           payload: {
             title: form.value.title.trim(),
             resource_url: form.value.resource_url.trim() || null,
           },
           preparedAccountIds: selectedPreparedIds.value,
           autoStart: false,
-        }),
+        });
+        logStep(`Кампания #${res.campaign?.id} создана`, 'success', res.verify_summary);
+        return res;
+      },
       { count: selectedPreparedIds.value.length }
     );
     workflow.setCampaign(data.campaign?.id, data.campaign?.title);

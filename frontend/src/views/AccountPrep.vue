@@ -288,15 +288,19 @@ async function onSubmit() {
   try {
     const job = await taskStore.run(
       'PREP_ACCOUNTS',
-      () =>
-        prepService.createJob({
+      async ({ logStep }) => {
+        logStep(`Upload ${files.value.length} archive(s)`, 'debug', { options: options.value });
+        const j = await prepService.createJob({
           files: files.value,
           options: options.value,
           newPassword: newPassword.value || null,
           currentPassword: currentPassword.value || null,
           passwordHint: passwordHint.value,
           autoStart: autoStart.value,
-        }),
+        });
+        logStep(`Job #${j.id} queued`, 'info', j);
+        return j;
+      },
       { count: files.value.length }
     );
     files.value = [];

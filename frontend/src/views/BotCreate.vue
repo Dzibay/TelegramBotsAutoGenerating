@@ -389,7 +389,12 @@ async function onSubmit() {
   try {
     const bot = await taskStore.run(
       'CREATE_BOT',
-      () => createBotWithFloodRetry(uname),
+      async ({ logStep }) => {
+        logStep(`Создание @${uname} через BotFather`, 'info');
+        const b = await createBotWithFloodRetry(uname);
+        logStep(`Бот #${b.id} @${b.username} создан`, 'success', { bot_id: b.id });
+        return b;
+      },
       { username: uname }
     );
     router.push({ name: 'bot-edit', params: { id: bot.id }, query: { created: '1' } });

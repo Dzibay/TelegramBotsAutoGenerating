@@ -43,31 +43,23 @@
         </ul>
       </section>
 
-      <section class="queue-logs card-inner">
-        <h4>
-          Журнал
-          <span v-if="active" class="live-dot">● идёт</span>
-        </h4>
-        <div ref="scrollRef" class="log-body">
-          <p v-if="!logs.length" class="muted empty">Записи появятся после старта</p>
-          <div
-            v-for="(entry, idx) in logs"
-            :key="idx"
-            class="log-line"
-            :class="`log-line--${entry.level}`"
-          >
-            <time>{{ entry.time }}</time>
-            <span>{{ entry.message }}</span>
-          </div>
-        </div>
-      </section>
+      <ProcessLogPanel
+        class="queue-logs-panel"
+        :logs="logs"
+        :polling="creating"
+        title="Журнал"
+        empty-text="Записи появятся после старта"
+        compact
+        :show-progress="false"
+      />
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed } from 'vue';
 import InlineTaskIndicator from './InlineTaskIndicator.vue';
+import ProcessLogPanel from './ProcessLogPanel.vue';
 import { formatWaitLabel } from '../utils/floodWait';
 
 const props = defineProps({
@@ -83,8 +75,6 @@ const props = defineProps({
   jobCreated: { type: Number, default: null },
   jobMessage: { type: String, default: '' },
 });
-
-const scrollRef = ref(null);
 
 const totalCount = computed(() => props.items.filter((i) => i.username?.trim()).length);
 
@@ -130,15 +120,6 @@ function statusLabel(status) {
   };
   return map[status] || status;
 }
-
-watch(
-  () => props.logs.length,
-  async () => {
-    await nextTick();
-    const el = scrollRef.value;
-    if (el) el.scrollTop = el.scrollHeight;
-  }
-);
 </script>
 
 <style scoped>
@@ -188,6 +169,11 @@ watch(
   display: grid;
   grid-template-columns: 1fr 1.2fr;
   gap: 1rem;
+  align-items: stretch;
+}
+
+.queue-logs-panel {
+  min-height: 280px;
 }
 
 @media (max-width: 800px) {
@@ -273,43 +259,6 @@ watch(
 .status-item--error .status-label,
 .status-item--error .status-icon {
   color: #f87171;
-}
-
-.log-body {
-  max-height: 280px;
-  overflow-y: auto;
-  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
-  font-size: 0.78rem;
-}
-
-.empty {
-  margin: 0;
-  text-align: center;
-  padding: 0.5rem;
-}
-
-.log-line {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.2rem 0;
-  border-bottom: 1px solid rgba(45, 58, 77, 0.3);
-}
-
-.log-line time {
-  flex-shrink: 0;
-  color: var(--muted);
-}
-
-.log-line--error {
-  color: #f87171;
-}
-
-.log-line--warn {
-  color: #facc15;
-}
-
-.log-line--success {
-  color: #4ade80;
 }
 
 @keyframes pulse {

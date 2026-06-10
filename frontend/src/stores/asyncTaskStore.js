@@ -1,10 +1,15 @@
 import { defineStore } from 'pinia';
 import { TASK_PRESETS } from '../constants/asyncTaskPresets';
+import { useUiPrefsStore } from './uiPrefsStore';
+
+let logSeq = 0;
 
 export const useAsyncTaskStore = defineStore('asyncTask', {
   state: () => ({
     active: null,
     elapsedSec: 0,
+    runtimeLogs: [],
+    lastRuntimeLogs: [],
     _elapsedTimer: null,
     _stepTimer: null,
   }),
@@ -21,7 +26,6 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
       return steps[state.active.stepIndex % steps.length];
     },
 
-    /** Псевдо-прогресс до ~92%, пока задача не завершена. */
     progressPercent(state) {
       if (!state.active) return 0;
       const est = state.active.estimatedSec || 45;
@@ -37,25 +41,69 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
       if (ctx.count != null) return `${ctx.count} акк.`;
       return '';
     },
+
+    /** Логи текущей или последней синхронной операции. */
+    visibleRuntimeLogs(state) {
+      if (state.active && state.runtimeLogs.length) return state.runtimeLogs;
+      return state.lastRuntimeLogs;
+    },
   },
 
   actions: {
+    logStep(message, level = 'info', detail = null) {
+      const entry = {
+        id: `client-${++logSeq}`,
+        message: String(message),
+        level,
+        time: new Date().toISOString(),
+        context: detail,
+        source: 'client',
+      };
+      if (this.active) {
+        this.runtimeLogs.push(entry);
+      }
+      return entry;
+    },
+
     async run(presetKey, fn, context = {}) {
       const preset = TASK_PRESETS[presetKey];
       if (!preset) {
         throw new Error(`Unknown async task preset: ${presetKey}`);
       }
+
+      const uiPrefs = useUiPrefsStore();
+      this.runtimeLogs = [];
       this._start({ ...preset, presetKey, context });
+
+      const logStep = (message, level = 'info', detail = null) =>
+        this.logStep(message, level, detail);
+
+      if (uiPrefs.verboseLogs && preset.verboseSteps?.length) {
+        logStep('План операции:', 'debug');
+        for (const step of preset.verboseSteps) {
+          logStep(`  · ${step}`, 'debug');
+        }
+      }
+
+      logStep(`▶ ${preset.title}`, 'info', context);
+
       try {
-        return await fn();
+        const result = await fn({ logStep });
+        logStep('✓ Готово', 'success');
+        return result;
+      } catch (err) {
+        const msg = err?.response?.data?.error || err?.message || 'Ошибка';
+        logStep(`✗ ${msg}`, 'error', err?.response?.data?.details || null);
+        throw err;
       } finally {
         this._finishProgress();
+        this.lastRuntimeLogs = [...this.runtimeLogs];
         this._stop();
       }
     },
 
     _start(task) {
-      this._stop();
+      this._stopTimers();
       this.active = {
         ...task,
         stepIndex: 0,
@@ -90,7 +138,7 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
       }
     },
 
-    _stop() {
+    _stopTimers() {
       if (this._elapsedTimer) {
         clearInterval(this._elapsedTimer);
         this._elapsedTimer = null;
@@ -99,12 +147,21 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
         clearInterval(this._stepTimer);
         this._stepTimer = null;
       }
+    },
+
+    _stop() {
+      this._stopTimers();
       this.active = null;
       this.elapsedSec = 0;
     },
 
     matchesContext(field, value) {
       return this.active?.context?.[field] === value;
+    },
+
+    clearLastLogs() {
+      this.lastRuntimeLogs = [];
+      this.runtimeLogs = [];
     },
   },
 });

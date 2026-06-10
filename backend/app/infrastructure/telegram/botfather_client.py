@@ -18,6 +18,9 @@ MAX_SERVER_FLOOD_WAIT = 120
 
 TOKEN_RE = re.compile(r"(\d{8,10}:[A-Za-z0-9_-]{30,})")
 BOT_USER_RE = re.compile(r"@?([a-z][a-z0-9_]{2,28}bot)\b", re.IGNORECASE)
+# BotFather троттлит на уровне приложения: «too many attempts ... try again in N seconds».
+# Приходит обычным текстом (НЕ FloodWaitError), поэтому ловим отдельно.
+TRY_AGAIN_RE = re.compile(r"try again in (\d+)\s*second", re.IGNORECASE)
 _SKIP_BOT_USERNAMES = frozenset({"botfather"})
 
 
@@ -151,6 +154,54 @@ def _is_username_invalid_reply(text: str) -> bool:
     return "username is invalid" in low or "invalid username" in low
 
 
+def _is_cannot_create_now_reply(text: str) -> bool:
+    """BotFather: «you cannot create new bots at this time» — аккаунт ограничен."""
+    low = (text or "").lower()
+    return "cannot create new bots" in low or "can't create new bots" in low
+
+
+def _is_botfather_menu_reply(text: str) -> bool:
+    """Меню помощи BotFather. В середине диалога значит, что ввод не принят."""
+    low = (text or "").lower()
+    return "i can help you create and manage telegram bots" in low
+
+
+def _raise_botfather_blocked() -> None:
+    raise BadRequestError(
+        "BotFather заблокировал создание ботов на этом аккаунте "
+        "(«you cannot create new bots at this time»). "
+        "Разблокировка — через @SpamBot, либо используйте другой аккаунт.",
+        details={"botfather_blocked": True},
+    )
+
+
+def _is_too_many_bots_reply(text: str) -> bool:
+    """BotFather: «you can't add more than 20 bots» — достигнут лимит аккаунта."""
+    low = (text or "").lower()
+    return "more than" in low and "bots" in low
+
+
+def _raise_bots_limit() -> None:
+    raise BadRequestError(
+        "Достигнут лимит Telegram: на аккаунте уже 20 ботов. "
+        "Удалите лишних ботов или используйте другой аккаунт.",
+        details={"bots_limit_reached": True},
+    )
+
+
+def _check_botfather_throttle(text: str) -> None:
+    """
+    «Sorry, too many attempts. Please try again in N seconds.» — троттлинг BotFather.
+    Короткие паузы ждём здесь же, длинные отдаём наверх через wait_seconds.
+    """
+    match = TRY_AGAIN_RE.search(text or "")
+    if not match:
+        return
+    wait = max(1, int(match.group(1)))
+    logger.warning("BotFather throttle: try again in %s sec", wait)
+    _raise_flood_wait(wait)
+
+
 def _raise_botfather_error(text: str, *, field: str, username: str = "") -> None:
     low = (text or "").lower()
     if _is_username_invalid_reply(text):
@@ -184,12 +235,30 @@ async def create_bot_via_botfather(
 
     async with _botfather_conv(client) as conv:
         await _conv_send(conv, "/newbot")
-        await _wait_reply(conv)
+        reply = await _wait_reply(conv)
+        intro = reply.raw_text or ""
+        _check_botfather_throttle(intro)
+        if _is_too_many_bots_reply(intro):
+            _raise_bots_limit()
+        if _is_cannot_create_now_reply(intro):
+            _raise_botfather_blocked()
+        if _is_botfather_menu_reply(intro):
+            raise BadRequestError(
+                "BotFather не принял /newbot (вернул меню). Повторите позже или "
+                "используйте другой аккаунт."
+            )
 
         await _conv_send(conv, display_name[:64])
         reply = await _wait_reply(conv)
         text = reply.raw_text or ""
 
+        if _is_cannot_create_now_reply(text):
+            _raise_botfather_blocked()
+        if _is_botfather_menu_reply(text):
+            raise BadRequestError(
+                "BotFather прервал создание (вернул меню вместо запроса username). "
+                "Возможно, аккаунт ограничен — проверьте @SpamBot."
+            )
         if "invalid" in text.lower() and "username" not in text.lower():
             _raise_botfather_error(text, field="display_name")
 
@@ -206,6 +275,17 @@ async def create_bot_via_botfather(
                 logger.info("Bot created @%s (attempt %s)", final_username, attempt + 1)
                 return {"token": token, "username": final_username}
 
+            _check_botfather_throttle(text)
+            if _is_too_many_bots_reply(text):
+                _raise_bots_limit()
+            if _is_cannot_create_now_reply(text):
+                _raise_botfather_blocked()
+            if _is_botfather_menu_reply(text):
+                raise BadRequestError(
+                    "BotFather не принял username (вернул меню). Создание прервано — "
+                    "возможно, аккаунт ограничен. Проверьте @SpamBot."
+                )
+
             if _is_username_taken_reply(text) or _is_username_invalid_reply(text):
                 if username_factory and attempt + 1 < max_username_attempts:
                     attempt += 1
@@ -214,8 +294,8 @@ async def create_bot_via_botfather(
                     continue
                 _raise_botfather_error(text, field="username", username=current)
 
-            if "invalid" in text.lower() or "sorry" in text.lower():
-                _raise_botfather_error(text, field="username", username=current)
+            # Любой иной ответ не ожидался — не зацикливаемся на повторной отправке.
+            _raise_botfather_error(text, field="username", username=current)
 
         raise BadRequestError(
             f"Не удалось зарегистрировать бота после {max_username_attempts} попыток username."

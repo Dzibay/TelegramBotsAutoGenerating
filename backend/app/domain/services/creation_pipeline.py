@@ -20,6 +20,8 @@ from app.utils.crypto import encrypt_token
 
 INTER_BOT_DELAY_SEC = 5
 FLOOD_MAX_RETRIES = 8
+# Дольше этого не ждём внутри задачи — отдаём ошибку, чтобы не висеть часами.
+FLOOD_MAX_WAIT_SEC = 600
 
 
 class CreationPipeline:
@@ -250,6 +252,12 @@ class CreationPipeline:
             except BadRequestError as exc:
                 details = exc.details or {}
                 wait = int(details.get("wait_seconds") or 0)
+                if wait > FLOOD_MAX_WAIT_SEC:
+                    raise BadRequestError(
+                        f"Telegram требует паузу {wait // 60} мин для @{plan['username']} — "
+                        "это слишком долго для задачи. Попробуйте позже или другой аккаунт.",
+                        details=details,
+                    )
                 if details.get("flood_wait") and wait > 0 and attempt < FLOOD_MAX_RETRIES:
                     await self.log(
                         f"Лимит Telegram для @{plan['username']}, пауза {wait} сек…",

@@ -153,4 +153,9 @@ export const jobService = {
     const res = await apiClient.get(API_ENDPOINTS.JOBS.LOGS(jobId), { params: { after_id: afterId } });
     return res.data?.logs ?? [];
   },
+
+  async cancel(jobId) {
+    const res = await apiClient.post(API_ENDPOINTS.JOBS.CANCEL(jobId));
+    return res.data?.job;
+  },
 };

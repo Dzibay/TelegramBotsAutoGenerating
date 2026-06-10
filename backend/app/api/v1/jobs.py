@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 
+from app.constants import SuccessMessages
 from app.core.dependencies import get_current_user
 from app.domain.services import job_log_service, job_service
 from app.utils.response import success_response
@@ -11,6 +12,12 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 async def get_job(job_id: int, _user: dict = Depends(get_current_user)):
     job = await job_service.get_job(job_id)
     return success_response(data={"job": job})
+
+
+@router.post("/{job_id}/cancel")
+async def cancel_job(job_id: int, _user: dict = Depends(get_current_user)):
+    job = await job_service.cancel_job(job_id)
+    return success_response(data={"job": job}, message=SuccessMessages.JOB_CANCELLED)
 
 
 @router.get("/{job_id}/logs")

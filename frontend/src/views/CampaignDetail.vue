@@ -328,7 +328,7 @@ const canStart = computed(
   () =>
     campaign.value.accounts_count > 0 &&
     (!job.value || !['queued', 'running'].includes(job.value.status)) &&
-    ['draft', 'failed', 'completed'].includes(campaign.value.status)
+    ['draft', 'failed', 'completed', 'cancelled'].includes(campaign.value.status)
 );
 
 const canAddAccounts = computed(

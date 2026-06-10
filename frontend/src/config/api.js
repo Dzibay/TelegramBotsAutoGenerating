@@ -29,6 +29,7 @@ export const API_ENDPOINTS = {
   JOBS: {
     GET: (id) => `/jobs/${id}`,
     LOGS: (id) => `/jobs/${id}/logs`,
+    CANCEL: (id) => `/jobs/${id}/cancel`,
   },
   ACCOUNT_PREP: {
     JOBS: '/account-prep/jobs',

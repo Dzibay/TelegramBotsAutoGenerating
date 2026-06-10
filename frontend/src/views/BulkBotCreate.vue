@@ -224,10 +224,19 @@
           <button
             type="button"
             class="btn-ghost"
-            :disabled="startingJob"
+            :disabled="startingJob || cancellingJob"
             @click="wizardStep = 2"
           >
             ← К списку
+          </button>
+          <button
+            v-if="isJobActive"
+            type="button"
+            class="btn-ghost danger"
+            :disabled="cancellingJob"
+            @click="cancelActiveJob"
+          >
+            {{ cancellingJob ? 'Останавливаем…' : 'Остановить' }}
           </button>
           <button
             v-if="!isJobActive && !creationFinished"
@@ -238,6 +247,24 @@
           >
             {{ startingJob ? 'Запуск…' : 'Создать ботов в Telegram' }}
           </button>
+          <template v-else-if="creationFinished && retryRowsCount > 0">
+            <button
+              type="button"
+              class="btn-ghost"
+              :disabled="startingJob || cancellingJob"
+              @click="resetQueueRows"
+            >
+              Сбросить очередь
+            </button>
+            <button
+              type="button"
+              class="btn"
+              :disabled="startingJob || cancellingJob || !canCreateManual"
+              @click="resetAndRestartQueue"
+            >
+              {{ startingJob ? 'Запуск…' : `Перезапустить (${retryRowsCount})` }}
+            </button>
+          </template>
           <button
             v-else-if="creationFinished"
             type="button"
@@ -507,6 +534,7 @@ const currentCreatingLabel = ref('');
 const floodWaitRemaining = ref(0);
 const activeJob = ref(null);
 const startingJob = ref(false);
+const cancellingJob = ref(false);
 const lastLogId = ref(0);
 let pollTimer = null;
 
@@ -570,9 +598,17 @@ const canAddRow = computed(() => freeSlots.value > 0 && manualRows.value.length 
 const canCreateManual = computed(
   () =>
     readyRowsCount.value > 0 &&
+    retryRowsCount.value > 0 &&
     !manualValidation.value.errors.length &&
     !isJobActive.value &&
     !startingJob.value
+);
+
+const retryRowsCount = computed(
+  () =>
+    manualRows.value.filter(
+      (r) => r.displayName?.trim() && r.username?.trim() && r.queueStatus !== 'done'
+    ).length
 );
 
 const queueItems = computed(() =>
@@ -724,7 +760,12 @@ async function refreshActiveJob() {
     stopJobPolling();
     creationFinished.value = true;
     const created = activeJob.value.total_bots_created ?? 0;
-    creationSummary.value = activeJob.value.progress_message || `Готово: создано ${created}.`;
+    if (activeJob.value.status === 'cancelled') {
+      creationSummary.value =
+        activeJob.value.progress_message || `Остановлено. Создано: ${created}.`;
+    } else {
+      creationSummary.value = activeJob.value.progress_message || `Готово: создано ${created}.`;
+    }
     if (activeJob.value.status === 'failed' && created === 0) {
       submitError.value = activeJob.value.error_message || 'Задача завершилась с ошибкой';
     }
@@ -814,12 +855,61 @@ function removeManualRow(i) {
   manualRows.value.splice(i, 1);
 }
 
+function resetQueueRows() {
+  manualRows.value.forEach((r) => {
+    if (!r.displayName?.trim() || !r.username?.trim()) return;
+    if (r.queueStatus !== 'done') {
+      r.queueStatus = 'pending';
+      r.error = null;
+    }
+  });
+  creationFinished.value = false;
+  creationSummary.value = '';
+  creationLogs.value = [];
+  submitError.value = null;
+  activeJob.value = null;
+  lastLogId.value = 0;
+  currentCreatingUsername.value = '';
+  currentCreatingLabel.value = '';
+  floodWaitRemaining.value = 0;
+  clearJobSnapshot();
+  stopJobPolling();
+}
+
+async function cancelActiveJob() {
+  if (!activeJob.value?.id || !isJobActive.value) return;
+  cancellingJob.value = true;
+  submitError.value = null;
+  try {
+    activeJob.value = await jobService.cancel(activeJob.value.id);
+    await pollJob();
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось остановить задачу';
+  } finally {
+    cancellingJob.value = false;
+  }
+}
+
+async function resetAndRestartQueue() {
+  if (isJobActive.value) {
+    await cancelActiveJob();
+    if (isJobActive.value) return;
+  }
+  resetQueueRows();
+  wizardStep.value = 3;
+  await startManualCreation();
+}
+
 async function startManualCreation() {
   if (!canCreateManual.value) return;
 
   const rowsToCreate = manualRows.value.filter(
-    (r) => r.displayName?.trim() && r.username?.trim()
+    (r) =>
+      r.displayName?.trim() &&
+      r.username?.trim() &&
+      r.queueStatus !== 'done'
   );
+  if (!rowsToCreate.length) return;
 
   startingJob.value = true;
   submitError.value = null;
@@ -1177,6 +1267,15 @@ onUnmounted(() => {
 .field-details summary {
   cursor: pointer;
   color: var(--muted);
+}
+
+.btn-ghost.danger {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.btn-ghost.danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.12);
 }
 
 .wizard-nav {

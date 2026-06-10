@@ -29,6 +29,7 @@ class SuccessMessages:
     CAMPAIGN_UPDATED = "Кампания обновлена"
     CAMPAIGN_DELETED = "Кампания удалена"
     JOB_STARTED = "Задача создания ботов поставлена в очередь"
+    JOB_CANCELLED = "Задача отменена"
     ACCOUNT_UPLOADED = "Аккаунт загружен"
     BOT_CREATED = "Бот создан"
     BOT_UPDATED = "Бот обновлён"

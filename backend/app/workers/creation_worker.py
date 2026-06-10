@@ -30,6 +30,21 @@ async def process_job(
 ) -> None:
     from app.infrastructure.database import repository as db
 
+    existing = await db.fetch_one(
+        "SELECT status FROM creation_jobs WHERE id = $1",
+        job_id,
+    )
+    if not existing:
+        logger.warning("Job %s not found in DB", job_id)
+        return
+    if existing["status"] == "cancelled":
+        await job_log_service.append_log(
+            job_id,
+            "Задача была отменена до старта worker",
+            level="warn",
+        )
+        return
+
     await db.execute(
         """
         UPDATE creation_jobs

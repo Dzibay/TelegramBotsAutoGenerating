@@ -38,6 +38,44 @@ class CreationPipeline:
         self.manual_plans = manual_plans or []
         self.ai = AIService()
 
+    async def _is_cancelled(self) -> bool:
+        status = await db.fetch_val(
+            "SELECT status FROM creation_jobs WHERE id = $1",
+            self.job_id,
+        )
+        return status == "cancelled"
+
+    async def _sleep_cancellable(self, seconds: float) -> bool:
+        """Sleep in 1s chunks. Returns True if cancelled during wait."""
+        remaining = max(0.0, float(seconds))
+        while remaining > 0:
+            if await self._is_cancelled():
+                return True
+            step = min(1.0, remaining)
+            await asyncio.sleep(step)
+            remaining -= step
+        return await self._is_cancelled()
+
+    async def _mark_remaining_skipped(
+        self,
+        plans: list[dict[str, Any]],
+        start_index: int,
+    ) -> None:
+        for idx in range(start_index, len(plans)):
+            plan = plans[idx]
+            row_id = plan.get("row_id", idx + 1)
+            uname = plan.get("username", "?")
+            await self.log(
+                f"@{uname} — пропущен (задача остановлена)",
+                level="warn",
+                context={
+                    "row_id": row_id,
+                    "plan_index": idx,
+                    "username": uname,
+                    "status": "skipped",
+                },
+            )
+
     async def log(
         self,
         message: str,
@@ -87,6 +125,9 @@ class CreationPipeline:
         processed = 0
 
         for account in accounts:
+            if await self._is_cancelled():
+                await self.log("Создание остановлено пользователем", level="warn")
+                break
             processed += 1
             await db.execute(
                 """
@@ -115,7 +156,7 @@ class CreationPipeline:
                     str(exc)[:500],
                 )
 
-        await self._finish_job(total_created)
+        await self._finish_job(total_created, cancelled=await self._is_cancelled())
 
     async def _run_manual(self, campaign: dict) -> None:
         total = len(self.manual_plans)
@@ -148,6 +189,11 @@ class CreationPipeline:
         processed = 0
 
         for idx, plan in enumerate(plans):
+            if await self._is_cancelled():
+                await self.log("Создание остановлено пользователем", level="warn")
+                await self._mark_remaining_skipped(plans, idx)
+                break
+
             processed += 1
             uname = plan["username"]
             row_id = plan.get("row_id", idx + 1)
@@ -180,7 +226,19 @@ class CreationPipeline:
 
             try:
                 bot = await self._create_manual_bot_with_flood_retry(plan, avatar_bytes=avatar_bytes)
+                if await self._is_cancelled():
+                    await self._mark_remaining_skipped(plans, idx + 1)
+                    break
                 created_count += 1
+                await db.execute(
+                    """
+                    UPDATE creation_jobs
+                    SET total_bots_created = $2, updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    self.job_id,
+                    created_count,
+                )
                 await self.log(
                     f"[{processed}/{len(plans)}] @{uname} — создан",
                     level="info",
@@ -194,6 +252,9 @@ class CreationPipeline:
                     },
                 )
             except Exception as exc:
+                if await self._is_cancelled():
+                    await self._mark_remaining_skipped(plans, idx)
+                    break
                 await self.log(
                     f"[{processed}/{len(plans)}] @{uname} — {exc}",
                     level="error",
@@ -208,7 +269,9 @@ class CreationPipeline:
 
             if processed < len(plans):
                 await self.log(f"Пауза {INTER_BOT_DELAY_SEC} сек. перед следующим ботом…")
-                await asyncio.sleep(INTER_BOT_DELAY_SEC)
+                if await self._sleep_cancellable(INTER_BOT_DELAY_SEC):
+                    await self._mark_remaining_skipped(plans, idx + 1)
+                    break
 
         acc = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
         acc_status = "ready"
@@ -220,7 +283,7 @@ class CreationPipeline:
             acc_status,
         )
         await self.log(f"{label}: создано {created_count} из {len(plans)}")
-        await self._finish_job(created_count)
+        await self._finish_job(created_count, cancelled=await self._is_cancelled())
 
     async def _create_manual_bot_with_flood_retry(
         self,
@@ -229,6 +292,8 @@ class CreationPipeline:
         avatar_bytes: Optional[bytes],
     ) -> dict[str, Any]:
         for attempt in range(FLOOD_MAX_RETRIES + 1):
+            if await self._is_cancelled():
+                raise BadRequestError("Задача отменена")
             try:
                 return await bot_service.create_bot(
                     campaign_id=self.campaign_id,
@@ -269,7 +334,8 @@ class CreationPipeline:
                             "wait_seconds": wait,
                         },
                     )
-                    await asyncio.sleep(wait + 2)
+                    if await self._sleep_cancellable(wait + 2):
+                        raise BadRequestError("Задача отменена")
                     continue
                 raise
         raise BadRequestError(f"Не удалось создать @{plan['username']} после пауз лимита Telegram")
@@ -327,9 +393,9 @@ class CreationPipeline:
                     str(exc)[:500],
                 )
 
-        await self._finish_job(total_created)
+        await self._finish_job(total_created, cancelled=await self._is_cancelled())
 
-    async def _finish_job(self, total_created: int) -> None:
+    async def _finish_job(self, total_created: int, *, cancelled: bool = False) -> None:
         await db.execute(
             """
             UPDATE creation_jobs
@@ -339,6 +405,29 @@ class CreationPipeline:
             self.job_id,
             total_created,
         )
+        if cancelled:
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET progress_message = $2, updated_at = NOW()
+                WHERE id = $1 AND status = 'cancelled'
+                """,
+                self.job_id,
+                f"Отменено. Создано ботов: {total_created}",
+            )
+            camp_status = "completed" if total_created > 0 else "draft"
+            await db.execute(
+                "UPDATE campaigns SET status = $2, updated_at = NOW() WHERE id = $1",
+                self.campaign_id,
+                camp_status,
+            )
+            await self.log(
+                f"Задача остановлена. Создано ботов: {total_created}",
+                level="warn",
+                progress="Отменено",
+            )
+            return
+
         status = "completed" if total_created > 0 else "failed"
         await db.execute(
             """

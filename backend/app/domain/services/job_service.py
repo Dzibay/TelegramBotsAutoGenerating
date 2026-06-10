@@ -302,3 +302,61 @@ async def get_job(job_id: int) -> dict[str, Any]:
     if not row:
         raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
     return _job_row(row)
+
+
+async def _reset_creating_accounts(campaign_id: int) -> None:
+    await db.execute(
+        """
+        UPDATE telegram_accounts
+        SET status = CASE
+            WHEN bots_created >= max_bots_limit THEN 'exhausted'
+            ELSE 'ready'
+        END,
+        updated_at = NOW()
+        WHERE campaign_id = $1 AND status = 'creating'
+        """,
+        campaign_id,
+    )
+
+
+async def cancel_job(job_id: int) -> dict[str, Any]:
+    row = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    if not row:
+        raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
+    if row["status"] not in ("queued", "running"):
+        raise ConflictError("Задача уже завершена и не может быть отменена")
+
+    campaign_id = int(row["campaign_id"])
+    total_created = int(row.get("total_bots_created") or 0)
+
+    await db.execute(
+        """
+        UPDATE creation_jobs
+        SET status = 'cancelled',
+            finished_at = NOW(),
+            progress_message = 'Отменено пользователем',
+            updated_at = NOW()
+        WHERE id = $1
+        """,
+        job_id,
+    )
+    await _reset_creating_accounts(campaign_id)
+
+    camp_status = "completed" if total_created > 0 else "draft"
+    await db.execute(
+        "UPDATE campaigns SET status = $2, updated_at = NOW() WHERE id = $1",
+        campaign_id,
+        camp_status,
+    )
+
+    from app.domain.services import job_log_service
+
+    await job_log_service.append_log(
+        job_id,
+        "Задача отменена пользователем",
+        level="warn",
+        progress_message="Отменено",
+    )
+
+    updated = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    return _job_row(updated)

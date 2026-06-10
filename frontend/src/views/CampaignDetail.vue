@@ -923,7 +923,7 @@ onUnmounted(() => {
 
 .progress-bar-wrap {
   height: 6px;
-  background: var(--bg);
+  background: rgba(8, 12, 20, 0.6);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -1013,10 +1013,10 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  padding: 1rem;
-  border-radius: 12px;
+  padding: 1.15rem;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: rgba(8, 12, 20, 0.45);
   text-decoration: none;
   color: inherit;
 }
@@ -1048,21 +1048,15 @@ onUnmounted(() => {
 .search-input {
   flex: 1;
   min-width: 12rem;
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
 }
 
 .filter-select {
-  padding: 0.45rem 0.65rem;
+  padding: 0.5rem 0.75rem;
   font-size: 0.85rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
+  width: auto;
+  min-width: 10rem;
 }
 
 .cc-title {

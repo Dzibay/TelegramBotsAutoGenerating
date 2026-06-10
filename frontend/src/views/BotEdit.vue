@@ -280,55 +280,10 @@ onMounted(load);
   max-width: 1100px;
 }
 
-.optional {
-  font-weight: 400;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
 .title-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-top: 0.35rem;
-}
-
-.title-row h1 {
-  margin: 0;
-}
-
-.actions {
-  display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.success-banner {
-  margin-bottom: 1rem;
-  padding: 0.75rem 1rem;
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.35);
-  color: #86efac;
-  font-size: 0.9rem;
-}
-
-.field-hint {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin-top: 0.35rem;
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0.5rem 0;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.check input {
-  width: auto;
 }
 </style>

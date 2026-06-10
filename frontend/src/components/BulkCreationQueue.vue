@@ -133,10 +133,10 @@ function statusLabel(status) {
 }
 
 .queue-progress {
-  padding: 0.75rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(37, 99, 235, 0.04));
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
 }
 
 .queue-track {
@@ -150,7 +150,7 @@ function statusLabel(status) {
 .queue-fill {
   height: 100%;
   border-radius: 99px;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
   transition: width 0.4s ease;
 }
 
@@ -183,13 +183,6 @@ function statusLabel(status) {
   .queue-columns {
     grid-template-columns: 1fr;
   }
-}
-
-.card-inner {
-  padding: 0.85rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 .card-inner h4 {

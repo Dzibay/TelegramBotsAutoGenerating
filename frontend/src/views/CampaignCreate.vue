@@ -5,10 +5,12 @@
       <p class="subtitle">Название, ссылка на сервис и аккаунты. Ботов добавите на шаге «Боты» в кампании.</p>
     </header>
 
-    <div class="steps">
-      <div class="step" :class="{ active: step >= 1, done: step > 1 }">1. Название</div>
-      <div class="step" :class="{ active: step >= 2 }">2. Аккаунты</div>
-    </div>
+    <WizardSteps
+      :steps="[{ label: 'Название' }, { label: 'Аккаунты' }]"
+      :current="step"
+      :clickable="!submitting"
+      @go="step = $event"
+    />
 
     <form class="card form" @submit.prevent="onSubmit">
       <section v-show="step === 1">
@@ -73,6 +75,7 @@ import { ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
+import WizardSteps from '../components/WizardSteps.vue';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { useWorkflowStore } from '../stores/workflowStore';
@@ -128,99 +131,11 @@ async function onSubmit() {
   max-width: 640px;
 }
 
-.page-header {
-  margin-bottom: 1.5rem;
-}
-
-.back {
-  font-size: 0.875rem;
-  display: inline-block;
-  margin-bottom: 0.5rem;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 1.5rem;
-}
-
-.subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.steps {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.25rem;
-}
-
-.step {
-  flex: 1;
-  text-align: center;
-  padding: 0.5rem;
-  font-size: 0.8rem;
-  border-radius: 8px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-
-.step.active {
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.step.done {
-  color: #4ade80;
-  border-color: rgba(34, 197, 94, 0.4);
-}
-
-.field-hint {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
-.btn-next {
-  width: 100%;
-  margin-top: 0.5rem;
-}
-
-.nav-row {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
-.nav-row button:last-child {
-  flex: 1;
-}
-
 .summary ul {
   margin: 0;
   padding-left: 1.1rem;
   color: var(--muted);
   font-size: 0.9rem;
-}
-
-.card-inner {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-.checkbox-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  cursor: pointer;
-}
-
-.checkbox-row input {
-  width: auto;
+  line-height: 1.6;
 }
 </style>

@@ -116,14 +116,15 @@ watch(
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  backdrop-filter: var(--glass);
 }
 
 .process-log--compact {
   min-height: 200px;
   max-height: 320px;
-  background: var(--bg);
-  border: none;
-  border-radius: 8px;
+  background: rgba(8, 12, 20, 0.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .process-log-header {

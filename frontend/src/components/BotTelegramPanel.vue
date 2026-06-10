@@ -179,19 +179,21 @@ watch(
 
 .verify-result {
   margin-top: 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
 }
 
 .verify-result.ok {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: var(--success-soft);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #4ade80;
 }
 
 .verify-result.warn {
-  background: rgba(251, 191, 36, 0.12);
-  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: var(--warning-soft);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #fbbf24;
 }
 
 .verify-msg {

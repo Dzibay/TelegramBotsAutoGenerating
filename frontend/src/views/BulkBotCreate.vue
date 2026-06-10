@@ -1215,64 +1215,8 @@ onUnmounted(() => {
   max-width: 44rem;
 }
 
-.mode-tabs {
-  display: flex;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-}
-
-.mode-tab {
-  padding: 0.45rem 0.9rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-.mode-tab.active {
-  border-color: var(--accent);
-  color: var(--text);
-  background: rgba(59, 130, 246, 0.12);
-}
-
-.wizard-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-}
-
-.wizard-steps span {
-  flex: 1;
-  min-width: 6rem;
-  text-align: center;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-
-.wizard-steps span.active {
-  border-color: var(--accent);
-  color: var(--text);
-  background: rgba(59, 130, 246, 0.1);
-}
-
-.wizard-steps span.done {
-  color: #86efac;
-  border-color: rgba(34, 197, 94, 0.35);
-}
-
 .block {
   padding: 1.25rem;
-}
-
-.block-title {
-  margin: 0 0 0.35rem;
-  font-size: 1rem;
 }
 
 .block-hint {
@@ -1347,8 +1291,13 @@ onUnmounted(() => {
 }
 
 .bulk-row {
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(45, 58, 77, 0.45);
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.bulk-row:hover {
+  background: rgba(59, 130, 246, 0.03);
 }
 
 .bulk-main input,
@@ -1443,48 +1392,6 @@ onUnmounted(() => {
   margin: 0.75rem 0 0;
   font-size: 0.9rem;
   color: #86efac;
-}
-
-.info-banner {
-  margin: 0 0 1rem;
-  padding: 0.65rem 0.85rem;
-  border-radius: 8px;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  background: rgba(59, 130, 246, 0.1);
-  font-size: 0.85rem;
-  color: #93c5fd;
-  line-height: 1.45;
-}
-
-.url-from-campaign {
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.url-value {
-  margin: 0.35rem 0;
-  font-size: 0.85rem;
-  word-break: break-all;
-}
-
-.url-value a {
-  color: var(--accent);
-}
-
-.check {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  margin: 0.5rem 0;
-}
-
-.check input {
-  width: auto;
 }
 
 .expand-layout {

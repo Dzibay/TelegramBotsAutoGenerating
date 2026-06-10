@@ -81,17 +81,18 @@ function formatSize(bytes) {
 
 <style scoped>
 .dropzone {
-  border: 2px dashed var(--border);
+  border: 2px dashed var(--border-strong);
   border-radius: var(--radius);
-  padding: 1.25rem;
+  padding: 1.5rem;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-  background: rgba(15, 20, 25, 0.5);
+  transition: border-color 0.18s, background 0.18s, box-shadow 0.18s;
+  background: rgba(8, 12, 20, 0.45);
 }
 
 .dropzone--active {
   border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--accent-soft);
+  box-shadow: 0 0 20px var(--accent-glow);
 }
 
 .dropzone--has-files {
@@ -127,10 +128,15 @@ function formatSize(bytes) {
   display: flex;
   align-items: center;
   gap: 0.65rem;
-  padding: 0.5rem 0.65rem;
-  background: var(--bg);
-  border-radius: 8px;
+  padding: 0.55rem 0.75rem;
+  background: rgba(8, 12, 20, 0.6);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border);
+  transition: border-color 0.15s;
+}
+
+.file-item:hover {
+  border-color: var(--border-strong);
 }
 
 .file-icon {

@@ -55,16 +55,23 @@ const emit = defineEmits(['update:modelValue']);
   display: flex;
   gap: 0.5rem;
   align-items: flex-start;
-  padding: 0.6rem 0.75rem;
+  padding: 0.7rem 0.85rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 0.875rem;
+  background: rgba(8, 12, 20, 0.35);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.radio-option:hover {
+  border-color: var(--border-strong);
 }
 
 .radio-option:has(input:checked) {
-  border-color: var(--accent);
-  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.5);
+  background: var(--accent-soft);
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.1);
 }
 
 .radio-option input {

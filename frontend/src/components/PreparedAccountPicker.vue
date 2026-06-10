@@ -90,18 +90,24 @@ defineExpose({ reload: load });
   margin: 0;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   max-height: 280px;
   overflow-y: auto;
+  background: rgba(8, 12, 20, 0.4);
 }
 
 .pick-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
+  padding: 0.7rem 0.9rem;
   cursor: pointer;
   border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+
+.pick-row:hover {
+  background: var(--surface-hover);
 }
 
 .pick-row:last-child {

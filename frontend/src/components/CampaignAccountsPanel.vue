@@ -222,7 +222,7 @@ defineExpose({
 
 <style scoped>
 .accounts-panel {
-  padding: 1rem;
+  padding: 1.25rem;
 }
 
 .panel-head {
@@ -251,8 +251,8 @@ defineExpose({
 
 .summary {
   margin: 0 0 0.75rem;
-  padding: 0.5rem 0.65rem;
-  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
 }
 
@@ -282,18 +282,21 @@ defineExpose({
 }
 
 .account-card {
-  padding: 0.75rem;
+  padding: 0.9rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 20, 0.45);
+  transition: border-color 0.15s;
 }
 
 .account-card--ok {
   border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.04);
 }
 
 .account-card--err {
   border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.04);
 }
 
 .acc-top {

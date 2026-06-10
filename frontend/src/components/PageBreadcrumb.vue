@@ -49,19 +49,24 @@ const crumbs = computed(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-  font-size: 0.8rem;
+  gap: 0.4rem;
+  margin-bottom: 1.25rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  background: rgba(8, 12, 20, 0.35);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 
 .sep {
   color: var(--muted);
-  opacity: 0.6;
+  opacity: 0.5;
 }
 
 .crumb {
   color: var(--muted);
   text-decoration: none;
+  transition: color 0.15s;
 }
 
 .crumb:hover {
@@ -71,6 +76,6 @@ const crumbs = computed(() => {
 
 .crumb--current {
   color: var(--text);
-  font-weight: 500;
+  font-weight: 600;
 }
 </style>

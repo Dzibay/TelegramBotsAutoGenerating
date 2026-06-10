@@ -5,11 +5,12 @@
       <p class="subtitle">Аккаунт и ссылка → тексты (вручную или через AI) → создание в Telegram.</p>
     </header>
 
-    <div class="wizard-steps">
-      <span :class="{ active: wizardStep >= 1, done: wizardStep > 1 }">1. Основное</span>
-      <span :class="{ active: wizardStep >= 2, done: wizardStep > 2 }">2. Тексты</span>
-      <span :class="{ active: wizardStep >= 3 }">3. Создание</span>
-    </div>
+    <WizardSteps
+      :steps="[{ label: 'Основное' }, { label: 'Тексты' }, { label: 'Создание' }]"
+      :current="wizardStep"
+      :clickable="!submitting && !generating"
+      @go="wizardStep = $event"
+    />
 
     <div :class="['bot-create-body', { 'form-with-preview': wizardStep >= 2 }]">
       <form class="card form" @submit.prevent="onSubmit">
@@ -144,6 +145,7 @@ import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
+import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
@@ -414,87 +416,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.bot-create {
-  max-width: 100%;
-}
-
 .bot-create-body.form-with-preview {
   max-width: 1100px;
-}
-
-.wizard-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-bottom: 1rem;
-}
-
-.wizard-steps span {
-  flex: 1;
-  min-width: 5rem;
-  text-align: center;
-  padding: 0.4rem 0.5rem;
-  font-size: 0.75rem;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-}
-
-.wizard-steps span.active {
-  border-color: var(--accent);
-  color: var(--text);
-  background: rgba(59, 130, 246, 0.1);
-}
-
-.wizard-steps span.done {
-  color: #86efac;
-  border-color: rgba(34, 197, 94, 0.35);
-}
-
-.ai-block {
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.optional {
-  font-weight: 400;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.wizard-nav {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.wizard-nav .btn-next {
-  flex: 1;
-}
-
-.btn-ai {
-  width: 100%;
-  margin-top: 0.5rem;
-}
-
-.url-from-campaign {
-  margin-bottom: 1rem;
-  padding: 0.75rem;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.url-value {
-  margin: 0.35rem 0;
-  font-size: 0.85rem;
-  word-break: break-all;
-}
-
-.url-value a {
-  color: var(--accent);
 }
 </style>

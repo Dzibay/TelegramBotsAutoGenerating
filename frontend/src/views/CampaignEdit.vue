@@ -137,38 +137,16 @@ onMounted(load);
   max-width: 640px;
 }
 
-.actions {
-  display: flex;
-  gap: 0.75rem;
-  margin-top: 1rem;
-}
-
 .actions button {
   flex: 1;
 }
 
-.field-hint {
-  margin: 0.35rem 0 0;
-  font-size: 0.8rem;
-  color: var(--muted);
-}
-
 .defaults-block {
   margin: 1rem 0;
-  padding: 0.65rem 0.85rem;
+  padding: 0.85rem 1rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-}
-
-.defaults-block summary {
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.defaults-block[open] summary {
-  margin-bottom: 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 20, 0.4);
 }
 
 .block-hint {

@@ -264,15 +264,15 @@ const linkPreviewDesc = computed(() => {
 .tg-tabs {
   display: flex;
   gap: 0.25rem;
-  padding: 0.2rem;
-  background: var(--bg);
+  padding: 0.25rem;
+  background: rgba(8, 12, 20, 0.5);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .tg-tab {
   flex: 1;
-  padding: 0.35rem 0.4rem;
+  padding: 0.4rem 0.45rem;
   border: none;
   border-radius: 6px;
   background: transparent;
@@ -281,11 +281,12 @@ const linkPreviewDesc = computed(() => {
   font-size: 0.68rem;
   font-weight: 500;
   cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
 .tg-tab.active {
-  background: var(--surface);
-  color: var(--text);
+  background: var(--accent-soft);
+  color: #93c5fd;
 }
 
 /* Phone frame */

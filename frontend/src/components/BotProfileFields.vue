@@ -338,10 +338,10 @@ defineExpose({ avatarFile, clearAvatar });
 
 .field-details {
   margin: 0.65rem 0;
-  padding: 0.5rem 0.65rem;
+  padding: 0.65rem 0.85rem;
   border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 20, 0.4);
 }
 
 .field-details summary {

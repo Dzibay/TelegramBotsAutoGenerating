@@ -66,15 +66,17 @@ function dismiss() {
 
 .onboarding h2 {
   margin: 0 0 1rem;
-  font-size: 1.15rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 .onb-steps {
   margin: 0 0 1.25rem;
   padding-left: 1.2rem;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--muted);
-  line-height: 1.65;
+  line-height: 1.7;
 }
 
 .onb-steps li {

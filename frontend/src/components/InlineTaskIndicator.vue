@@ -61,7 +61,7 @@ const label = computed(() => {
 .inline-fill {
   height: 100%;
   border-radius: 99px;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
   transition: width 0.5s ease;
 }
 

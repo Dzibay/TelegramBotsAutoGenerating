@@ -96,7 +96,7 @@
           <p class="meta">
             {{ activeJob.succeeded_accounts }}/{{ activeJob.total_accounts }} успешно
           </p>
-          <ul v-if="accounts.length" class="acc-list">
+          <ul v-if="accounts.length" class="data-list acc-list">
             <li v-for="a in accounts" :key="a.id">
               <span>{{ a.label || a.phone || `#${a.id}` }}</span>
               <StatusBadge :status="a.status" />
@@ -108,7 +108,7 @@
           <h3>Готовые аккаунты</h3>
           <p class="hint">После успешной подготовки добавьте их в кампанию.</p>
           <p v-if="poolLoading" class="muted">Загрузка…</p>
-          <ul v-else-if="poolAccounts.length" class="pool-list">
+          <ul v-else-if="poolAccounts.length" class="data-list pool-list">
             <li v-for="a in poolAccounts" :key="a.id">
               <span>{{ a.label || a.phone || `#${a.id}` }}</span>
               <StatusBadge :status="a.status" />
@@ -326,26 +326,7 @@ onUnmounted(stopPolling);
   max-width: 1100px;
 }
 
-.page-header {
-  margin-bottom: 1.5rem;
-}
-
-.back {
-  display: inline-block;
-  font-size: 0.875rem;
-  color: var(--muted);
-  margin-bottom: 0.5rem;
-}
-
-.page-header h1 {
-  margin: 0;
-  font-size: 1.4rem;
-}
-
 .subtitle {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-  font-size: 0.9rem;
   max-width: 640px;
 }
 
@@ -362,48 +343,10 @@ onUnmounted(stopPolling);
   }
 }
 
-.form-section h2 {
-  margin: 0 0 1rem;
-  font-size: 1.05rem;
-}
-
-.field-hint {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin: 0.5rem 0 0;
-}
-
-.options-block h3,
 .password-block h3 {
-  margin: 1rem 0 0.5rem;
-  font-size: 0.95rem;
-}
-
-.check {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin: 0 0 0.65rem;
   font-size: 0.875rem;
-  cursor: pointer;
-}
-
-.check input {
-  width: auto;
-  margin-top: 0.2rem;
-}
-
-.hint {
-  font-size: 0.8rem;
-  color: var(--muted);
-  margin: 0 0 0.75rem;
-}
-
-.password-block {
-  padding: 0.75rem;
-  background: var(--bg);
-  border-radius: 8px;
-  border: 1px solid var(--border);
+  font-weight: 600;
 }
 
 .form-section > button {
@@ -419,12 +362,16 @@ onUnmounted(stopPolling);
 
 .hint-card {
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 1.5rem 1rem;
 }
 
-.job-summary h3 {
+.job-summary h3,
+.pool-card h3 {
   margin: 0 0 0.5rem;
   font-size: 0.95rem;
+  font-weight: 600;
 }
 
 .progress {
@@ -438,55 +385,10 @@ onUnmounted(stopPolling);
   color: var(--muted);
 }
 
-.acc-list,
 .history {
   list-style: none;
   margin: 0.75rem 0 0;
   padding: 0;
-}
-
-.acc-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.35rem 0;
-  font-size: 0.85rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.link-btn {
-  background: none;
-  border: none;
-  color: var(--accent);
-  padding: 0.35rem 0;
-  text-align: left;
-  width: 100%;
-  font-size: 0.85rem;
-}
-
-.link-btn:hover {
-  background: none;
-  text-decoration: underline;
-}
-
-.pool-card h3 {
-  margin: 0 0 0.35rem;
-  font-size: 0.95rem;
-}
-
-.pool-list {
-  list-style: none;
-  margin: 0.5rem 0 0;
-  padding: 0;
-}
-
-.pool-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.35rem 0;
-  font-size: 0.85rem;
-  border-bottom: 1px solid var(--border);
 }
 
 .add-campaign-cta {
@@ -501,7 +403,7 @@ onUnmounted(stopPolling);
 .cta-text {
   margin: 0;
   font-size: 0.85rem;
-  color: #86efac;
+  color: #4ade80;
 }
 
 .add-campaign-cta .btn {

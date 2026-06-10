@@ -77,9 +77,10 @@ const etaLabel = computed(() => {
 <style scoped>
 .job-banner {
   margin-bottom: 1.25rem;
-  padding: 1rem;
-  border-color: rgba(59, 130, 246, 0.35);
-  background: linear-gradient(135deg, rgba(30, 58, 95, 0.35), rgba(26, 35, 50, 0.6));
+  padding: 1.15rem 1.25rem;
+  border-color: rgba(59, 130, 246, 0.3);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(139, 92, 246, 0.05));
+  box-shadow: 0 4px 24px rgba(59, 130, 246, 0.08);
 }
 
 .job-banner-head {
@@ -133,7 +134,7 @@ const etaLabel = computed(() => {
 .job-fill {
   height: 100%;
   border-radius: 99px;
-  background: var(--accent);
+  background: linear-gradient(90deg, var(--accent), #60a5fa);
   transition: width 0.4s ease;
 }
 </style>

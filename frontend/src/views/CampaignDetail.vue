@@ -25,8 +25,50 @@
 
     <WorkspaceTabs v-model="activeTab" :tabs="workspaceTabs" />
 
+    <CampaignJobBanner
+      v-if="job && isPolling"
+      :job="job"
+      :logs="logs"
+      :logs-loading="logsLoading"
+      :active="isPolling"
+      :cancelling="cancellingJob"
+      :bulk-link="bulkCreateLink"
+      :elapsed-sec="jobElapsedSec"
+      @cancel="onCancelJob"
+    />
+
     <section v-show="activeTab === 'guide'" class="guide card">
       <h2>Что делать дальше</h2>
+      <div v-if="nextStepGuide" class="next-step card-inner">
+        <p class="next-step-label">{{ nextStepGuide.title }}</p>
+        <p v-if="nextStepGuide.hint" class="next-step-hint muted">{{ nextStepGuide.hint }}</p>
+        <div class="next-step-actions">
+          <RouterLink
+            v-if="nextStepGuide.route"
+            :to="nextStepGuide.route"
+            class="btn btn-sm"
+          >
+            {{ nextStepGuide.actionLabel }}
+          </RouterLink>
+          <button
+            v-else-if="nextStepGuide.action"
+            type="button"
+            class="btn btn-sm"
+            @click="nextStepGuide.action()"
+          >
+            {{ nextStepGuide.actionLabel }}
+          </button>
+          <button
+            v-if="canStart && nextStepGuide.showAutoStart"
+            type="button"
+            class="btn btn-sm btn-ghost"
+            :disabled="starting"
+            @click="onStart"
+          >
+            {{ starting ? 'Запуск…' : 'Авто-создание по ключевым словам' }}
+          </button>
+        </div>
+      </div>
       <ol class="checklist">
         <li :class="{ ok: campaign.resource_url }">
           <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }">Ссылка на сервис</RouterLink>
@@ -154,8 +196,19 @@
         </select>
       </div>
 
-      <p v-if="!bots.length" class="muted empty-bots">
-        Пока нет ботов. Перейдите на вкладку «Создание».
+      <p v-if="!bots.length" class="empty-bots">
+        <EmptyState
+          icon="🤖"
+          title="Пока нет ботов"
+          description="Создайте одного бота пошагово или запустите массовое создание на вкладке «Создание»."
+        >
+          <RouterLink v-if="canOpenCreate" :to="{ name: 'campaign-bot-create', params: { id: campaignId } }" class="btn btn-sm">
+            Один бот
+          </RouterLink>
+          <RouterLink v-if="canOpenCreate" :to="{ name: 'bulk-bot-create', params: { id: campaignId } }" class="btn btn-sm btn-ghost">
+            Несколько ботов
+          </RouterLink>
+        </EmptyState>
       </p>
       <p v-else-if="!filteredBots.length" class="muted empty-bots">Ничего не найдено. Измените поиск или фильтр.</p>
       <ul v-else class="mini-list bots">
@@ -192,9 +245,6 @@
           </div>
         </li>
       </ul>
-      <div v-if="job && isPolling" class="job-inline">
-        <JobLogPanel :logs="logs" :loading="logsLoading" :polling="isPolling" />
-      </div>
     </section>
   </div>
 </template>
@@ -203,16 +253,19 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
-import JobLogPanel from '../components/JobLogPanel.vue';
+import CampaignJobBanner from '../components/CampaignJobBanner.vue';
+import EmptyState from '../components/EmptyState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import WorkspaceTabs from '../components/WorkspaceTabs.vue';
 import { useWorkflowStore } from '../stores/workflowStore';
+import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { telegramBotUrl } from '../utils/botLink';
 
 const taskStore = useAsyncTaskStore();
+const uiPrefs = useUiPrefsStore();
 
 function accountLabel(account) {
   return account?.label || account?.phone || `Аккаунт #${account?.id}`;
@@ -256,6 +309,9 @@ const logs = ref([]);
 const logsLoading = ref(false);
 const lastLogId = ref(0);
 const starting = ref(false);
+const cancellingJob = ref(false);
+const jobElapsedSec = ref(0);
+const jobStartedAt = ref(null);
 const attaching = ref(false);
 const verifyingAll = ref(false);
 const accountBusy = ref(false);
@@ -267,6 +323,7 @@ const accountBotsErrors = ref({});
 const attachMessage = ref(null);
 const accountsPanelRef = ref(null);
 let pollTimer = null;
+let elapsedTimer = null;
 
 const readyAccountsCount = computed(
   () => accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots).length
@@ -316,12 +373,61 @@ const isPolling = computed(
   () => job.value && ['queued', 'running'].includes(job.value.status)
 );
 
-const progressPercent = computed(() => {
-  if (!job.value?.total_accounts) return 0;
-  return Math.min(
-    100,
-    Math.round((job.value.processed_accounts / job.value.total_accounts) * 100)
-  );
+const bulkCreateLink = computed(() =>
+  campaignId.value
+    ? { name: 'bulk-bot-create', params: { id: campaignId.value }, query: { step: 3 } }
+    : null
+);
+
+const campaignKeywords = computed(() => {
+  const kw = campaign.value.keywords;
+  return Array.isArray(kw) ? kw.filter(Boolean) : [];
+});
+
+const nextStepGuide = computed(() => {
+  if (isPolling.value) {
+    return {
+      title: 'Идёт фоновая задача создания ботов',
+      hint: 'Прогресс и журнал — в блоке выше. Можно переключаться между вкладками.',
+      actionLabel: 'Открыть очередь',
+      route: bulkCreateLink.value,
+    };
+  }
+  if (!hasServiceUrl.value) {
+    return {
+      title: 'Шаг 1: укажите ссылку на сервис',
+      hint: 'Без неё боты не смогут вести пользователей на ваш ресурс.',
+      actionLabel: 'Настройки кампании',
+      route: { name: 'campaign-edit', params: { id: campaignId.value } },
+    };
+  }
+  if (campaign.value.accounts_count === 0) {
+    return {
+      title: 'Шаг 2: добавьте Telegram-аккаунты',
+      hint: 'Выберите подготовленные аккаунты из пула и привяжите к кампании.',
+      actionLabel: 'Перейти к аккаунтам',
+      action: () => {
+        activeTab.value = 'accounts';
+      },
+    };
+  }
+  if (readyAccountsCount.value === 0) {
+    return {
+      title: 'Шаг 3: проверьте аккаунты',
+      hint: 'Нужен статус «Готов» и свободные слоты для создания ботов.',
+      actionLabel: 'Проверить аккаунты',
+      action: () => {
+        activeTab.value = 'accounts';
+      },
+    };
+  }
+  return {
+    title: 'Шаг 4: создайте ботов',
+    hint: 'Один бот — пошагово. Несколько — массовая очередь с паузами BotFather.',
+    actionLabel: 'Массовое создание',
+    route: { name: 'bulk-bot-create', params: { id: campaignId.value } },
+    showAutoStart: campaignKeywords.value.length > 0,
+  };
 });
 
 const canStart = computed(
@@ -355,7 +461,9 @@ async function fetchLogs() {
   if (!job.value?.id) return;
   logsLoading.value = true;
   try {
-    const batch = await jobService.getLogs(job.value.id, lastLogId.value);
+    const batch = await jobService.getLogs(job.value.id, lastLogId.value, {
+      minLevel: uiPrefs.verboseLogs ? 'debug' : 'info',
+    });
     if (batch.length) {
       logs.value = [...logs.value, ...batch];
       lastLogId.value = batch[batch.length - 1].id;
@@ -369,8 +477,26 @@ async function refreshJob() {
   if (!job.value?.id) return;
   job.value = await jobService.get(job.value.id);
   if (!['queued', 'running'].includes(job.value.status)) {
+    stopElapsedTimer();
     await loadCampaign();
     await loadExtras();
+  }
+}
+
+function startElapsedTimer() {
+  stopElapsedTimer();
+  if (!jobStartedAt.value) jobStartedAt.value = Date.now();
+  elapsedTimer = setInterval(() => {
+    if (jobStartedAt.value) {
+      jobElapsedSec.value = Math.floor((Date.now() - jobStartedAt.value) / 1000);
+    }
+  }, 1000);
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
   }
 }
 
@@ -381,6 +507,7 @@ async function poll() {
 
 function startPolling() {
   stopPolling();
+  startElapsedTimer();
   pollTimer = setInterval(poll, 2000);
 }
 
@@ -402,12 +529,27 @@ async function onStart() {
     });
     logs.value = [];
     lastLogId.value = 0;
+    jobStartedAt.value = Date.now();
+    jobElapsedSec.value = 0;
     await fetchLogs();
     startPolling();
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Не удалось запустить';
   } finally {
     starting.value = false;
+  }
+}
+
+async function onCancelJob() {
+  if (!job.value?.id || cancellingJob.value) return;
+  cancellingJob.value = true;
+  try {
+    job.value = await jobService.cancel(job.value.id);
+    await poll();
+  } catch (e) {
+    loadError.value = e.response?.data?.error || 'Не удалось остановить задачу';
+  } finally {
+    cancellingJob.value = false;
   }
 }
 
@@ -644,13 +786,26 @@ watch(isPolling, (v) => {
   else stopPolling();
 });
 
+watch(
+  () => uiPrefs.verboseLogs,
+  async () => {
+    if (!job.value?.id) return;
+    logs.value = [];
+    lastLogId.value = 0;
+    await fetchLogs();
+  }
+);
+
 onMounted(async () => {
   try {
     await loadCampaign();
     await loadExtras();
     if (job.value?.id) {
       await fetchLogs();
-      if (isPolling.value) startPolling();
+      if (isPolling.value) {
+        jobStartedAt.value = Date.now();
+        startPolling();
+      }
     }
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
@@ -659,7 +814,10 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(stopPolling);
+onUnmounted(() => {
+  stopPolling();
+  stopElapsedTimer();
+});
 </script>
 
 <style scoped>
@@ -776,6 +934,35 @@ onUnmounted(stopPolling);
 
 .checklist li.ok {
   color: #86efac;
+}
+
+.next-step {
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.08);
+  border-radius: 8px;
+}
+
+.next-step-label {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.next-step-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.82rem;
+}
+
+.next-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.empty-bots {
+  margin: 0;
 }
 
 .create-hub {

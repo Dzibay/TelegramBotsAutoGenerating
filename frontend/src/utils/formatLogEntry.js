@@ -45,6 +45,17 @@ export function formatContext(ctx) {
   }
 }
 
+export function mapApiLog(entry) {
+  return normalizeLogEntry({
+    id: entry.id,
+    created_at: entry.created_at,
+    message: entry.message,
+    level: entry.level || 'info',
+    context: entry.context,
+    source: 'server',
+  });
+}
+
 export function levelLabel(level) {
   const map = {
     info: 'INFO',

@@ -3,8 +3,8 @@
     <header class="app-header">
       <div class="header-inner">
         <RouterLink to="/app" class="logo">
-          <span class="logo-mark">TG</span>
-          <span class="logo-text">Bots Generator</span>
+          <img src="/favicon.svg" alt="" class="logo-icon" width="32" height="32" />
+          <span class="logo-text">{{ siteName }}</span>
         </RouterLink>
 
         <AppMainNav class="header-nav" />
@@ -43,8 +43,11 @@ import AppMainNav from '../components/AppMainNav.vue';
 import PageBreadcrumb from '../components/PageBreadcrumb.vue';
 import TaskProgressBanner from '../components/TaskProgressBanner.vue';
 import VerboseLogToggle from '../components/VerboseLogToggle.vue';
+import { SITE_NAME } from '../constants/site';
 import { useAuthStore } from '../stores/authStore';
 import { useWorkflowStore } from '../stores/workflowStore';
+
+const siteName = SITE_NAME;
 
 const auth = useAuthStore();
 const workflow = useWorkflowStore();
@@ -101,19 +104,11 @@ function onLogout() {
   color: var(--accent);
 }
 
-.logo-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.logo-icon {
+  flex-shrink: 0;
   width: 2rem;
   height: 2rem;
   border-radius: 8px;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: #fff;
-  background: linear-gradient(135deg, #3b82f6, #6366f1);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.4);
 }
 
 .logo-text {

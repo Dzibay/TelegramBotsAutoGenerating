@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
+import { SITE_NAME } from '../constants/site';
 import { useAuthStore } from '../stores/authStore';
 
 const Home = () => import('../views/Home.vue');
@@ -13,31 +14,31 @@ const CampaignEdit = () => import('../views/CampaignEdit.vue');
 const AppLayout = () => import('../layouts/AppLayout.vue');
 
 const routes = [
-  { path: '/', name: 'home', component: Home },
-  { path: '/login', name: 'login', component: Login, meta: { guest: true } },
+  { path: '/', name: 'home', component: Home, meta: { title: 'Главная' } },
+  { path: '/login', name: 'login', component: Login, meta: { guest: true, title: 'Вход' } },
   {
     path: '/app',
     component: AppLayout,
     meta: { requiresAuth: true },
     children: [
-      { path: '', name: 'dashboard', component: Dashboard },
-      { path: 'campaigns/new', name: 'campaign-create', component: CampaignCreate, meta: { hideWorkflowNav: true } },
-      { path: 'campaigns/:id', name: 'campaign-workspace', component: CampaignDetail },
+      { path: '', name: 'dashboard', component: Dashboard, meta: { title: 'Кампании' } },
+      { path: 'campaigns/new', name: 'campaign-create', component: CampaignCreate, meta: { hideWorkflowNav: true, title: 'Новая кампания' } },
+      { path: 'campaigns/:id', name: 'campaign-workspace', component: CampaignDetail, meta: { title: 'Кампания' } },
       {
         path: 'campaigns/:id/bots/bulk',
         name: 'bulk-bot-create',
         component: () => import('../views/BulkBotCreate.vue'),
-        meta: { hideWorkflowNav: true },
+        meta: { hideWorkflowNav: true, title: 'Массовое создание ботов' },
       },
-      { path: 'campaigns/:id/bots/new', name: 'campaign-bot-create', component: BotCreate, meta: { hideWorkflowNav: true } },
-      { path: 'campaigns/:id/edit', name: 'campaign-edit', component: CampaignEdit, meta: { hideWorkflowNav: true } },
+      { path: 'campaigns/:id/bots/new', name: 'campaign-bot-create', component: BotCreate, meta: { hideWorkflowNav: true, title: 'Новый бот' } },
+      { path: 'campaigns/:id/edit', name: 'campaign-edit', component: CampaignEdit, meta: { hideWorkflowNav: true, title: 'Редактирование кампании' } },
       { path: 'bots', redirect: { name: 'dashboard' } },
       {
         path: 'bots/new',
         redirect: () => ({ name: 'dashboard', query: { open: 'create_bot' } }),
       },
-      { path: 'bots/:id/edit', name: 'bot-edit', component: BotEdit, meta: { hideWorkflowNav: true } },
-      { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep },
+      { path: 'bots/:id/edit', name: 'bot-edit', component: BotEdit, meta: { hideWorkflowNav: true, title: 'Редактирование бота' } },
+      { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep, meta: { title: 'Подготовка аккаунтов' } },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
@@ -61,6 +62,11 @@ router.beforeEach(async (to) => {
     return { name: 'dashboard' };
   }
   return true;
+});
+
+router.afterEach((to) => {
+  const pageTitle = to.meta.title;
+  document.title = pageTitle ? `${pageTitle} — ${SITE_NAME}` : SITE_NAME;
 });
 
 export default router;

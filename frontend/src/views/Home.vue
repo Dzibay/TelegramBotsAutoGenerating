@@ -1,7 +1,8 @@
 <template>
   <div class="page">
     <section class="hero card">
-      <h1>Telegram Bots Generator</h1>
+      <img src="/favicon.svg" alt="" class="hero-icon" width="64" height="64" />
+      <h1>{{ siteName }}</h1>
       <p class="muted">
         Создавайте и ведите Telegram-ботов для рекламных кампаний: подготовка аккаунтов,
         генерация текстов и массовый запуск из одного интерфейса.
@@ -17,9 +18,11 @@
 <script setup>
 import { onMounted } from 'vue';
 import { RouterLink } from 'vue-router';
+import { SITE_NAME } from '../constants/site';
 import { useAuthStore } from '../stores/authStore';
 
 const auth = useAuthStore();
+const siteName = SITE_NAME;
 
 onMounted(() => {
   if (localStorage.getItem('access_token')) auth.fetchUser();
@@ -38,6 +41,11 @@ onMounted(() => {
 .hero {
   max-width: 560px;
   text-align: center;
+}
+
+.hero-icon {
+  margin-bottom: 0.75rem;
+  border-radius: 16px;
 }
 
 .hero h1 {

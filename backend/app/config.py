@@ -13,7 +13,7 @@ load_dotenv()
 
 
 class Config:
-    APP_NAME = os.getenv("APP_NAME", "Telegram Bots Generator")
+    APP_NAME = os.getenv("APP_NAME", "SeoBot")
 
     # Вход на сайт — один пароль из env
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")

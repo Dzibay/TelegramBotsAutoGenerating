@@ -149,8 +149,10 @@ export const jobService = {
     return res.data?.job;
   },
 
-  async getLogs(jobId, afterId = 0) {
-    const res = await apiClient.get(API_ENDPOINTS.JOBS.LOGS(jobId), { params: { after_id: afterId } });
+  async getLogs(jobId, afterId = 0, { minLevel = 'info' } = {}) {
+    const res = await apiClient.get(API_ENDPOINTS.JOBS.LOGS(jobId), {
+      params: { after_id: afterId, min_level: minLevel },
+    });
     return res.data?.logs ?? [];
   },
 

@@ -39,18 +39,29 @@ async def append_log(
     return _log_row(row)
 
 
-async def list_logs(job_id: int, after_id: int = 0, limit: int = 200) -> list[dict[str, Any]]:
+async def list_logs(
+    job_id: int,
+    after_id: int = 0,
+    limit: int = 200,
+    *,
+    min_level: str = "info",
+) -> list[dict[str, Any]]:
+    if min_level == "debug":
+        level_clause = ""
+        params: list[Any] = [job_id, after_id, limit]
+    else:
+        level_clause = "AND level != 'debug'"
+        params = [job_id, after_id, limit]
+
     rows = await db.fetch_all(
-        """
+        f"""
         SELECT id, job_id, level, message, context, created_at
         FROM job_logs
-        WHERE job_id = $1 AND id > $2
+        WHERE job_id = $1 AND id > $2 {level_clause}
         ORDER BY id ASC
         LIMIT $3
         """,
-        job_id,
-        after_id,
-        limit,
+        *params,
     )
     return [_log_row(r) for r in rows]
 

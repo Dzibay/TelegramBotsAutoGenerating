@@ -11,6 +11,7 @@
           <div class="task-head">
             <strong class="task-title">{{ bannerTitle }}</strong>
             <span v-if="contextLabel" class="task-context">{{ contextLabel }}</span>
+            <span v-if="taskStore.isActive && etaLabel" class="task-eta">{{ etaLabel }}</span>
             <span class="task-time">{{ elapsedLabel }}</span>
             <VerboseLogToggle class="task-verbose-toggle" />
           </div>
@@ -54,6 +55,7 @@ import ProcessLogPanel from './ProcessLogPanel.vue';
 import VerboseLogToggle from './VerboseLogToggle.vue';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
+import { formatEtaRemaining } from '../utils/estimateJobTime';
 
 const taskStore = useAsyncTaskStore();
 const uiPrefs = useUiPrefsStore();
@@ -81,6 +83,11 @@ const elapsedLabel = computed(() => {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
+});
+
+const etaLabel = computed(() => {
+  if (!taskStore.isActive || !taskStore.active?.estimatedSec) return '';
+  return formatEtaRemaining(taskStore.elapsedSec, taskStore.active.estimatedSec);
 });
 
 const iconGlyph = computed(() => {
@@ -178,6 +185,12 @@ const iconGlyph = computed(() => {
 .task-context {
   font-size: 0.78rem;
   color: #93c5fd;
+}
+
+.task-eta {
+  font-size: 0.75rem;
+  color: #facc15;
+  font-variant-numeric: tabular-nums;
 }
 
 .task-time {

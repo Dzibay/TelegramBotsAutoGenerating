@@ -90,6 +90,11 @@ class CreationPipeline:
         await self.log(
             f"Пауза {delay} сек. перед следующим ботом (лимиты BotFather)…",
         )
+        await self.log(
+            f"Rate limit pacing: inter-bot {delay}s",
+            level="debug",
+            context={"delay_sec": delay, "processed": processed, "total": total},
+        )
         if await self._sleep_cancellable(delay):
             return True
         every = batch_size()
@@ -99,6 +104,11 @@ class CreationPipeline:
             await self.log(
                 f"Пакетная пауза ~{mins} мин (создано {processed} из {total} — защита от блокировки)…",
                 level="warn",
+            )
+            await self.log(
+                f"Batch cooldown after {processed} bots",
+                level="debug",
+                context={"cooldown_sec": cooldown, "batch_size": every},
             )
             if await self._sleep_cancellable(cooldown):
                 return True
@@ -220,6 +230,11 @@ class CreationPipeline:
 
         try:
             client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+            await self.log(
+                f"Telethon session loaded for account #{account_id}",
+                level="debug",
+                context={"account_id": account_id, "plans": len(plans)},
+            )
 
             for idx, plan in enumerate(plans):
                 if await self._is_cancelled():
@@ -771,6 +786,11 @@ class CreationPipeline:
         about_text = texts["about_text"] or promo["about_text"]
 
         await self.log(f"BotFather: создание @{username}…")
+        await self.log(
+            f"BotFather pipeline start @{username}",
+            level="debug",
+            context={"keyword": keyword, "account_id": account_id, "variant": variant_index},
+        )
         reserved = await username_service.get_reserved_usernames()
         username_factory = username_service.make_username_factory(
             keyword,
@@ -873,4 +893,9 @@ class CreationPipeline:
         )
         bot_id = row["id"]
         await self.log(f"✓ Бот @{username} создан", context={"bot_id": bot_id, "username": username})
+        await self.log(
+            f"DB insert bot id={bot_id}",
+            level="debug",
+            context={"bot_id": bot_id, "username": username, "account_id": account_id},
+        )
         return bot_id

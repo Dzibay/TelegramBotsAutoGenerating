@@ -31,11 +31,12 @@
 
     <!-- ─── РУЧНОЙ РЕЖИМ ─── -->
     <template v-else-if="mode === 'manual'">
-      <div class="wizard-steps">
-        <span :class="{ active: wizardStep >= 1, done: wizardStep > 1 }">1. Тексты и аккаунт</span>
-        <span :class="{ active: wizardStep >= 2, done: wizardStep > 2 }">2. Список ботов</span>
-        <span :class="{ active: wizardStep >= 3 }">3. Создание</span>
-      </div>
+      <WizardSteps
+        :steps="manualWizardSteps"
+        :current="wizardStep"
+        :clickable="!isJobActive && !creationFinished"
+        @go="wizardStep = $event"
+      />
 
       <!-- Шаг 1 -->
       <section v-show="wizardStep === 1" class="card block">
@@ -202,6 +203,7 @@
         <p v-else-if="!creationFinished" class="field-hint block-hint">
           После старта боты создаются в фоне с паузами между запросами к BotFather
           (~45 сек между ботами, ~3 мин каждые 5 ботов) — так снижается риск блокировки.
+          Оценка времени для {{ pendingBotCount }} бот(ов): <strong>{{ creationEta }}</strong>.
           При лимите Telegram сервер подождёт и продолжит автоматически.
         </p>
 
@@ -449,10 +451,14 @@ import BulkAvatarCell from '../components/BulkAvatarCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
+import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
+import { estimateBulkCreationSec, formatDurationSec } from '../utils/estimateJobTime';
+import { mapApiLog } from '../utils/formatLogEntry';
 import {
   rowTargetUrl,
   validateBulkBatch,
@@ -498,6 +504,13 @@ function newAiRow() {
 const route = useRoute();
 const router = useRouter();
 const taskStore = useAsyncTaskStore();
+const uiPrefs = useUiPrefsStore();
+
+const manualWizardSteps = [
+  { id: 'texts', label: 'Тексты и аккаунт' },
+  { id: 'list', label: 'Список ботов' },
+  { id: 'create', label: 'Создание' },
+];
 const campaignId = computed(() => Number(route.params.id));
 
 const mode = ref('manual');
@@ -624,6 +637,15 @@ const queueItems = computed(() =>
     }))
 );
 
+const pendingBotCount = computed(() => {
+  const pending = queueItems.value.filter((i) => i.queueStatus !== 'done').length;
+  return pending || readyRowsCount.value;
+});
+
+const creationEta = computed(() =>
+  formatDurationSec(estimateBulkCreationSec(pendingBotCount.value))
+);
+
 const aiValidation = computed(() => validateBulkBatch(aiRows.value, readyAccounts.value));
 
 const rowsWithAccountCount = computed(() => aiRows.value.filter((r) => r.accountId).length);
@@ -659,24 +681,6 @@ function accountLabel(a) {
 function useCampaignUrl() {
   useCustomUrl.value = false;
   targetUrl.value = campaignResourceUrl.value;
-}
-
-function formatLogTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
-function mapApiLog(entry) {
-  return {
-    id: entry.id,
-    time: formatLogTime(entry.created_at),
-    created_at: entry.created_at,
-    message: entry.message,
-    level: entry.level === 'error' ? 'error' : entry.level === 'warn' ? 'warn' : entry.level || 'info',
-    context: entry.context,
-    source: 'server',
-  };
 }
 
 function applyLogContext(entry) {
@@ -750,7 +754,9 @@ function clearJobSnapshot() {
 
 async function fetchJobLogs() {
   if (!activeJob.value?.id) return;
-  const batch = await jobService.getLogs(activeJob.value.id, lastLogId.value);
+  const batch = await jobService.getLogs(activeJob.value.id, lastLogId.value, {
+    minLevel: uiPrefs.verboseLogs ? 'debug' : 'info',
+  });
   if (!batch.length) return;
   for (const entry of batch) {
     applyLogContext(entry);

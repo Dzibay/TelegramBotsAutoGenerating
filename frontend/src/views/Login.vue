@@ -1,7 +1,10 @@
 <template>
   <div class="auth-page">
     <form class="card auth-form" @submit.prevent="onSubmit">
-      <h1>Telegram Bots Generator</h1>
+      <div class="brand">
+        <img src="/favicon.svg" alt="" class="brand-icon" width="48" height="48" />
+        <h1>{{ siteName }}</h1>
+      </div>
       <p class="muted">Вход в панель управления</p>
       <div class="form-group">
         <label for="password">Пароль</label>
@@ -23,7 +26,10 @@
 <script setup>
 import { ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { SITE_NAME } from '../constants/site';
 import { useAuthStore } from '../stores/authStore';
+
+const siteName = SITE_NAME;
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -52,8 +58,20 @@ async function onSubmit() {
   max-width: 400px;
 }
 
-.auth-form h1 {
-  margin: 0 0 0.35rem;
+.brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+
+.brand-icon {
+  border-radius: 12px;
+}
+
+.brand h1 {
+  margin: 0;
   font-size: 1.35rem;
 }
 

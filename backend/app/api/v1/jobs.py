@@ -24,8 +24,9 @@ async def cancel_job(job_id: int, _user: dict = Depends(get_current_user)):
 async def get_job_logs(
     job_id: int,
     after_id: int = Query(0, ge=0),
+    min_level: str = Query("info", pattern="^(debug|info)$"),
     _user: dict = Depends(get_current_user),
 ):
     await job_service.get_job(job_id)
-    logs = await job_log_service.list_logs(job_id, after_id=after_id)
+    logs = await job_log_service.list_logs(job_id, after_id=after_id, min_level=min_level)
     return success_response(data={"logs": logs})

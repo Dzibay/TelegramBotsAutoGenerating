@@ -24,7 +24,10 @@
 
     <div class="queue-columns">
       <section class="queue-list card-inner">
-        <h4>Очередь</h4>
+        <h4>
+          Очередь
+          <span v-if="creating" class="live-dot" title="Создание идёт">●</span>
+        </h4>
         <ul class="status-list">
           <li
             v-for="(item, i) in items"

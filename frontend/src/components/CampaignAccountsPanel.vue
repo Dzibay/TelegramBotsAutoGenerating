@@ -23,7 +23,14 @@
       {{ summary }}
     </div>
 
-    <p v-if="!accounts.length" class="muted empty">Нет аккаунтов в кампании</p>
+    <p v-if="!accounts.length" class="empty">
+      <EmptyState
+        icon="📱"
+        title="Нет аккаунтов в кампании"
+        description="Добавьте подготовленные Telegram-аккаунты из пула — они нужны для создания ботов через BotFather."
+        compact
+      />
+    </p>
 
     <ul v-else class="account-list">
       <li
@@ -145,6 +152,7 @@
 <script setup>
 import { computed, reactive, ref } from 'vue';
 import InlineTaskIndicator from './InlineTaskIndicator.vue';
+import EmptyState from './EmptyState.vue';
 import PreparedAccountPicker from './PreparedAccountPicker.vue';
 import StatusBadge from './StatusBadge.vue';
 

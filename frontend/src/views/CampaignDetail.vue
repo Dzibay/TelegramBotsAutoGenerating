@@ -290,7 +290,7 @@
               <td>
                 <div class="bot-cell">
                   <div class="bot-avatar" :class="avatarColorClass(b)">
-                    <BotAvatar :bot="b" :size="36" />
+                    <BotAvatar :bot="b" :size="36" :cache-key="b.updated_at || ''" />
                   </div>
                   <div class="bot-info">
                     <span class="bot-name">{{ b.display_name || 'Без имени' }}</span>

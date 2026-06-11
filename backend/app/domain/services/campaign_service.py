@@ -269,27 +269,6 @@ async def delete_campaign(campaign_id: int) -> None:
 
 async def list_campaign_bots(campaign_id: int) -> list[dict[str, Any]]:
     await get_campaign(campaign_id)
-    rows = await db.fetch_all(
-        """
-        SELECT id, campaign_id, telegram_account_id, keyword, username,
-               display_name, description, status, created_at
-        FROM bots
-        WHERE campaign_id = $1
-        ORDER BY created_at DESC
-        """,
-        campaign_id,
-    )
-    return [
-        {
-            "id": r["id"],
-            "campaign_id": r["campaign_id"],
-            "telegram_account_id": r.get("telegram_account_id"),
-            "keyword": r.get("keyword"),
-            "username": r.get("username"),
-            "display_name": r["display_name"],
-            "description": r.get("description"),
-            "status": r["status"],
-            "created_at": _iso(r.get("created_at")),
-        }
-        for r in rows
-    ]
+    from app.domain.services import bot_service
+
+    return await bot_service.list_bots(campaign_id=campaign_id)

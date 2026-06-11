@@ -25,7 +25,7 @@ let objectUrl = null;
 const resolvedId = computed(() => props.bot?.id ?? props.botId ?? null);
 const resolvedHasAvatar = computed(() => {
   if (props.hasAvatar != null) return props.hasAvatar;
-  return !!props.bot?.has_avatar;
+  return !!(props.bot?.has_avatar || props.bot?.avatar_url);
 });
 
 const initial = computed(() => {

@@ -282,6 +282,17 @@ async def start_campaign(
     return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
 
 
+@router.get("/{campaign_id}/jobs")
+async def list_campaign_jobs(
+    campaign_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    _user: dict = Depends(get_current_user),
+):
+    jobs = await job_service.list_creation_jobs(campaign_id, limit=limit, offset=offset)
+    return success_response(data={"jobs": jobs})
+
+
 @router.post("/{campaign_id}/start-manual-bulk")
 async def start_manual_bulk(
     campaign_id: int,

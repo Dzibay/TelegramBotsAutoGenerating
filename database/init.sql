@@ -71,11 +71,16 @@ CREATE TABLE IF NOT EXISTS creation_jobs (
     campaign_id BIGINT NOT NULL REFERENCES campaigns (id) ON DELETE CASCADE,
     status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+    job_mode TEXT
+        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'planned', 'auto')),
     total_accounts INT NOT NULL DEFAULT 0,
     processed_accounts INT NOT NULL DEFAULT 0,
     total_bots_created INT NOT NULL DEFAULT 0,
     progress_message TEXT,
     error_message TEXT,
+    input_snapshot JSONB,
+    result_snapshot JSONB,
+    retried_from_job_id BIGINT REFERENCES creation_jobs (id) ON DELETE SET NULL,
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

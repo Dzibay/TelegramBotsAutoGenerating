@@ -43,6 +43,7 @@ def _migration_files() -> list[Path]:
         "migrate_ai_generations.sql",
         "migrate_campaign_default_texts.sql",
         "migrate_campaign_referral.sql",
+        "migrate_creation_job_history.sql",
     )
     files: list[Path] = []
     for name in names:

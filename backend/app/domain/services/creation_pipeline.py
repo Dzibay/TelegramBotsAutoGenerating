@@ -8,6 +8,7 @@ from app.core.exceptions import BadRequestError
 from app.domain.services import (
     bot_promo_service,
     bot_service,
+    job_history_service,
     job_log_service,
     referral_link_service,
     username_service,
@@ -87,6 +88,27 @@ class CreationPipeline:
         self.plans = plans or []
         self.manual_plans = manual_plans or []
         self.ai = AIService()
+        self._row_results: list[dict[str, Any]] = []
+
+    def _record_row_result(
+        self,
+        plan: dict[str, Any],
+        idx: int,
+        status: str,
+        **extra: Any,
+    ) -> None:
+        row_id = plan.get("row_id", idx + 1)
+        entry = {
+            "row_id": row_id,
+            "username": plan.get("username"),
+            "status": status,
+            **extra,
+        }
+        for i, existing in enumerate(self._row_results):
+            if existing.get("row_id") == row_id:
+                self._row_results[i] = entry
+                return
+        self._row_results.append(entry)
 
     async def _is_cancelled(self) -> bool:
         status = await db.fetch_val(
@@ -115,6 +137,7 @@ class CreationPipeline:
             plan = plans[idx]
             row_id = plan.get("row_id", idx + 1)
             uname = plan.get("username", "?")
+            self._record_row_result(plan, idx, "skipped")
             await self.log(
                 f"@{uname} — пропущен (задача остановлена)",
                 level="warn",
@@ -363,6 +386,12 @@ class CreationPipeline:
                             "bot_id": bot.get("id"),
                         },
                     )
+                    self._record_row_result(
+                        plan,
+                        idx,
+                        "done",
+                        bot_id=bot.get("id"),
+                    )
                 except Exception as exc:
                     if await self._is_cancelled():
                         await self._mark_remaining_skipped(plans, idx)
@@ -387,6 +416,12 @@ class CreationPipeline:
                             "error": _format_creation_error(exc),
                             "step": (getattr(exc, "details", None) or {}).get("step"),
                         },
+                    )
+                    self._record_row_result(
+                        plan,
+                        idx,
+                        "error",
+                        error=_format_creation_error(exc),
                     )
 
                 if processed < len(plans):
@@ -554,6 +589,12 @@ class CreationPipeline:
             total_created,
         )
         if cancelled:
+            await job_history_service.save_result_snapshot(
+                self.job_id,
+                row_results=self._row_results,
+                total_created=total_created,
+                finished_status="cancelled",
+            )
             await db.execute(
                 """
                 UPDATE creation_jobs
@@ -577,6 +618,14 @@ class CreationPipeline:
             return
 
         status = "completed" if total_created > 0 else "failed"
+        error_message = "" if total_created > 0 else "Не удалось создать ни одного бота"
+        await job_history_service.save_result_snapshot(
+            self.job_id,
+            row_results=self._row_results,
+            total_created=total_created,
+            finished_status=status,
+            error_message=error_message or None,
+        )
         await db.execute(
             """
             UPDATE creation_jobs

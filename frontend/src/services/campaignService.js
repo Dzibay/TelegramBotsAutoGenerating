@@ -115,6 +115,13 @@ export const campaignService = {
     return res.data?.job;
   },
 
+  async listJobs(campaignId, { limit = 50, offset = 0 } = {}) {
+    const res = await apiClient.get(API_ENDPOINTS.CAMPAIGNS.JOBS(campaignId), {
+      params: { limit, offset },
+    });
+    return res.data?.jobs ?? [];
+  },
+
   async update(id, payload) {
     const res = await apiClient.patch(API_ENDPOINTS.CAMPAIGNS.GET(id), payload);
     return res.data?.campaign;
@@ -144,8 +151,10 @@ export const campaignService = {
 };
 
 export const jobService = {
-  async get(jobId) {
-    const res = await apiClient.get(API_ENDPOINTS.JOBS.GET(jobId));
+  async get(jobId, { includeSnapshots = false } = {}) {
+    const res = await apiClient.get(API_ENDPOINTS.JOBS.GET(jobId), {
+      params: includeSnapshots ? { include_snapshots: true } : {},
+    });
     return res.data?.job;
   },
 
@@ -159,5 +168,28 @@ export const jobService = {
   async cancel(jobId) {
     const res = await apiClient.post(API_ENDPOINTS.JOBS.CANCEL(jobId));
     return res.data?.job;
+  },
+
+  async retry(jobId) {
+    const res = await apiClient.post(API_ENDPOINTS.JOBS.RETRY(jobId));
+    return res.data?.job;
+  },
+
+  async fetchSnapshotAvatarBlob(jobId, rowId) {
+    const res = await apiClient.get(API_ENDPOINTS.JOBS.SNAPSHOT_AVATAR(jobId, rowId), {
+      responseType: 'blob',
+    });
+    return res.data;
+  },
+
+  async loadSnapshotAvatarObjectUrl(jobId, rowId) {
+    const blob = await this.fetchSnapshotAvatarBlob(jobId, rowId);
+    return URL.createObjectURL(blob);
+  },
+
+  snapshotAvatarToFile(blob, rowId) {
+    return new File([blob], `avatar_${rowId}.jpg`, {
+      type: blob.type || 'image/jpeg',
+    });
   },
 };

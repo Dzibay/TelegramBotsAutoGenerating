@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 
 from app.constants import SuccessMessages
 from app.core.dependencies import get_current_user
@@ -9,9 +10,29 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.get("/{job_id}")
-async def get_job(job_id: int, _user: dict = Depends(get_current_user)):
-    job = await job_service.get_job(job_id)
+async def get_job(
+    job_id: int,
+    include_snapshots: bool = Query(False),
+    _user: dict = Depends(get_current_user),
+):
+    job = await job_service.get_job(job_id, include_snapshots=include_snapshots)
     return success_response(data={"job": job})
+
+
+@router.get("/{job_id}/snapshot-avatar/{row_id}")
+async def get_job_snapshot_avatar(
+    job_id: int,
+    row_id: int,
+    _user: dict = Depends(get_current_user),
+):
+    path = await job_service.get_job_snapshot_avatar_path(job_id, row_id)
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.post("/{job_id}/retry")
+async def retry_job(job_id: int, _user: dict = Depends(get_current_user)):
+    job = await job_service.retry_creation_job(job_id)
+    return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
 
 
 @router.post("/{job_id}/cancel")

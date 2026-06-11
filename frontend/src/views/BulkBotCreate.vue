@@ -271,6 +271,59 @@
           </button>
         </div>
       </section>
+
+      <section v-if="jobHistory.length" class="card block history-block">
+        <h3 class="block-title">История задач</h3>
+        <p class="field-hint block-hint">
+          Завершённые задачи сохраняются с настройками и аватарами. Неудачные боты можно быстро перезапустить.
+        </p>
+        <ul class="job-history-list">
+          <li v-for="j in jobHistory" :key="j.id" class="job-history-item">
+            <div class="job-history-main">
+              <button type="button" class="link-btn" @click="openHistoryJob(j)">
+                #{{ j.id }}
+                <span v-if="j.retried_from_job_id" class="muted">← из #{{ j.retried_from_job_id }}</span>
+                · {{ jobStatusLabel(j.status) }}
+                · {{ j.total_bots_created }}/{{ j.total_accounts }} ботов
+                <span v-if="j.total_failed" class="history-failed">({{ j.total_failed }} ошибок)</span>
+              </button>
+              <span class="muted job-history-date">{{ formatJobDate(j.finished_at || j.created_at) }}</span>
+            </div>
+            <div class="job-history-actions">
+              <button
+                v-if="j.job_mode === 'manual'"
+                type="button"
+                class="btn btn-xs btn-ghost"
+                @click="restoreFromHistory(j)"
+              >
+                В форму
+              </button>
+              <button
+                v-if="j.retry_available"
+                type="button"
+                class="btn btn-xs"
+                :disabled="startingJob || isJobActive"
+                @click="retryFromHistory(j)"
+              >
+                Повторить ({{ j.retry_count }})
+              </button>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section v-if="historyViewJob" class="card block">
+        <div class="history-view-head">
+          <h3 class="block-title">Задача #{{ historyViewJob.id }}</h3>
+          <button type="button" class="btn btn-xs btn-ghost" @click="historyViewJob = null">Закрыть</button>
+        </div>
+        <p class="muted history-view-meta">
+          {{ jobStatusLabel(historyViewJob.status) }}
+          · создано {{ historyViewJob.total_bots_created }}/{{ historyViewJob.total_accounts }}
+          <span v-if="historyViewJob.error_message"> · {{ historyViewJob.error_message }}</span>
+        </p>
+        <JobLogPanel :logs="historyLogs" :loading="historyLogsLoading" />
+      </section>
     </template>
 
     <!-- ─── AI РЕЖИМ (прежняя логика) ─── -->
@@ -433,6 +486,7 @@ import BulkAvatarCell from '../components/BulkAvatarCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BulkLinkSourceField from '../components/BulkLinkSourceField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
+import JobLogPanel from '../components/JobLogPanel.vue';
 import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
@@ -547,6 +601,11 @@ const startingJob = ref(false);
 const cancellingJob = ref(false);
 const lastLogId = ref(0);
 let pollTimer = null;
+
+const jobHistory = ref([]);
+const historyViewJob = ref(null);
+const historyLogs = ref([]);
+const historyLogsLoading = ref(false);
 
 const isJobActive = computed(
   () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
@@ -690,6 +749,158 @@ const canCreateAi = computed(
   () => rowsReadyCount.value > 0 && !aiValidation.value.errors.length
 );
 
+function formatJobDate(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString('ru-RU', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function jobStatusLabel(status) {
+  const map = {
+    queued: 'В очереди',
+    running: 'Выполняется',
+    completed: 'Завершена',
+    failed: 'Ошибка',
+    cancelled: 'Отменена',
+  };
+  return map[status] || status;
+}
+
+async function loadJobHistory() {
+  try {
+    const items = await campaignService.listJobs(campaignId.value);
+    jobHistory.value = items.filter((j) =>
+      ['completed', 'failed', 'cancelled'].includes(j.status)
+    );
+  } catch {
+    jobHistory.value = [];
+  }
+}
+
+async function openHistoryJob(job) {
+  historyViewJob.value = job;
+  historyLogs.value = [];
+  historyLogsLoading.value = true;
+  try {
+    const full = await jobService.get(job.id, { includeSnapshots: true });
+    historyViewJob.value = full;
+    historyLogs.value = (await jobService.getLogs(job.id, 0, {
+      minLevel: uiPrefs.verboseLogs ? 'debug' : 'info',
+    })).map(mapApiLog);
+  } finally {
+    historyLogsLoading.value = false;
+  }
+}
+
+function applySnapshotToForm(payload, sourceJobId) {
+  if (!payload || payload.mode !== 'manual') return false;
+
+  accountId.value = payload.telegram_account_id;
+  linkSource.value = payload.link_source || LINK_SOURCE.BATCH;
+  if (payload.link_source === LINK_SOURCE.BATCH && payload.default_target_url) {
+    targetUrl.value = payload.default_target_url;
+  }
+  trackClicks.value = (payload.link_mode || 'redirect') === 'redirect';
+  autoStart.value = payload.auto_start !== false;
+  if (payload.shared_texts) {
+    sharedTexts.value = {
+      description: payload.shared_texts.description || '',
+      welcome_message: payload.shared_texts.welcome_message || '',
+      about_text: payload.shared_texts.about_text || '',
+      welcome_button_enabled: payload.shared_texts.welcome_button_enabled !== false,
+      welcome_button_text: payload.shared_texts.welcome_button_text || 'Перейти по ссылке',
+    };
+  }
+
+  const bots = payload.bots || [];
+  const maxId = Math.max(...bots.map((b) => b.row_id || 0), 0);
+  rowSeq = Math.max(rowSeq, maxId);
+  manualRows.value = bots.map((bot) => ({
+    id: bot.row_id,
+    displayName: bot.display_name || '',
+    username: (bot.username || '').replace(/^@/, ''),
+    targetUrl: bot.target_url || '',
+    avatarFile: null,
+    avatarPreview: null,
+    queueStatus: 'pending',
+    error: null,
+    createdBotId: null,
+    _snapshotJobId: sourceJobId,
+    _hasSnapshotAvatar: !!bot.avatar_storage_path,
+  }));
+  return true;
+}
+
+async function hydrateSnapshotAvatars(sourceJobId) {
+  await Promise.all(
+    manualRows.value.map(async (row) => {
+      if (!row._hasSnapshotAvatar || !sourceJobId) return;
+      try {
+        const blob = await jobService.fetchSnapshotAvatarBlob(sourceJobId, row.id);
+        row.avatarPreview = URL.createObjectURL(blob);
+        row.avatarFile = jobService.snapshotAvatarToFile(blob, row.id);
+      } catch {
+        /* avatar missing on disk */
+      }
+    })
+  );
+}
+
+async function restoreFromHistory(job) {
+  submitError.value = null;
+  const full = job.input_snapshot
+    ? job
+    : await jobService.get(job.id, { includeSnapshots: true });
+  const payload = full.result_snapshot?.retry_payload || full.input_snapshot;
+  if (!applySnapshotToForm(payload, job.id)) {
+    submitError.value = 'Восстановление доступно только для ручных партий';
+    return;
+  }
+  await hydrateSnapshotAvatars(job.id);
+  manualRows.value.forEach((r) => {
+    if (r.displayName?.trim() && r.username?.trim()) {
+      r.queueStatus = 'pending';
+      r.error = null;
+    }
+  });
+  creationFinished.value = false;
+  creationSummary.value = '';
+  creationLogs.value = [];
+  activeJob.value = null;
+  wizardStep.value = 2;
+}
+
+async function retryFromHistory(job) {
+  if (startingJob.value || isJobActive.value) return;
+  startingJob.value = true;
+  submitError.value = null;
+  try {
+    const newJob = await jobService.retry(job.id);
+    await restoreFromHistory(job);
+    activeJob.value = newJob;
+    wizardStep.value = 3;
+    creationFinished.value = false;
+    lastLogId.value = 0;
+    creationLogs.value = [];
+    saveJobSnapshot(newJob.id);
+    startJobPolling();
+    await pollJob();
+    await loadJobHistory();
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось перезапустить задачу';
+  } finally {
+    startingJob.value = false;
+  }
+}
+
 function accountLabel(a) {
   return a.label || a.phone || `#${a.id}`;
 }
@@ -805,6 +1016,7 @@ async function refreshActiveJob() {
     } catch {
       /* ignore */
     }
+    await loadJobHistory();
   }
 }
 
@@ -1228,6 +1440,7 @@ onMounted(async () => {
     if (first) accountId.value = first.id;
 
     await tryResumeActiveJob();
+    await loadJobHistory();
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   }
@@ -1269,6 +1482,78 @@ onUnmounted(() => {
 
 .block-hint {
   margin: 0 0 1rem;
+}
+
+.history-block {
+  margin-top: 1rem;
+}
+
+.job-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.job-history-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.job-history-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.job-history-date {
+  font-size: 0.78rem;
+}
+
+.job-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.history-failed {
+  color: #f87171;
+}
+
+.history-view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.history-view-meta {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #93c5fd;
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
 }
 
 .link-api-hint {

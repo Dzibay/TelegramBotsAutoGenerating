@@ -23,6 +23,7 @@ export const API_ENDPOINTS = {
     UPLOAD_BATCH: (id) => `/campaigns/${id}/accounts/batch`,
     START: (id) => `/campaigns/${id}/start`,
     START_MANUAL_BULK: (id) => `/campaigns/${id}/start-manual-bulk`,
+    JOBS: (id) => `/campaigns/${id}/jobs`,
     GENERATE_KEYWORDS: (id) => `/campaigns/${id}/generate-keywords`,
     SUGGEST_KEYWORD: (id) => `/campaigns/${id}/suggest-keyword`,
   },
@@ -30,6 +31,8 @@ export const API_ENDPOINTS = {
     GET: (id) => `/jobs/${id}`,
     LOGS: (id) => `/jobs/${id}/logs`,
     CANCEL: (id) => `/jobs/${id}/cancel`,
+    RETRY: (id) => `/jobs/${id}/retry`,
+    SNAPSHOT_AVATAR: (jobId, rowId) => `/jobs/${jobId}/snapshot-avatar/${rowId}`,
   },
   ACCOUNT_PREP: {
     JOBS: '/account-prep/jobs',

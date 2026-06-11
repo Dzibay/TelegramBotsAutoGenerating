@@ -7,6 +7,7 @@ from app.constants import ErrorMessages
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.domain.models.campaign_models import StartManualBulkRequest
 from app.domain.services import bot_promo_service, campaign_service, referral_link_service
+from app.domain.services import job_history_service
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database import repository as db
 from app.utils.telegram_username import normalize_bot_username
@@ -16,11 +17,14 @@ def _iso(dt) -> Optional[str]:
     return dt.isoformat() if dt else None
 
 
-def _job_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _job_row(row: dict[str, Any], *, include_snapshots: bool = False) -> dict[str, Any]:
+    summary = job_history_service.job_history_summary(row)
+    out = {
         "id": row["id"],
         "campaign_id": row["campaign_id"],
         "status": row["status"],
+        "job_mode": row.get("job_mode"),
+        "retried_from_job_id": row.get("retried_from_job_id"),
         "total_accounts": row["total_accounts"],
         "processed_accounts": row["processed_accounts"],
         "total_bots_created": row["total_bots_created"],
@@ -29,7 +33,15 @@ def _job_row(row: dict[str, Any]) -> dict[str, Any]:
         "started_at": _iso(row.get("started_at")),
         "finished_at": _iso(row.get("finished_at")),
         "created_at": _iso(row.get("created_at")),
+        "retry_available": summary["retry_available"],
+        "retry_count": summary["retry_count"],
+        "total_failed": summary["total_failed"],
+        "total_skipped": summary["total_skipped"],
     }
+    if include_snapshots:
+        out["input_snapshot"] = job_history_service.parse_json_field(row.get("input_snapshot"))
+        out["result_snapshot"] = job_history_service.parse_json_field(row.get("result_snapshot"))
+    return out
 
 
 async def start_creation_job(
@@ -111,13 +123,26 @@ async def start_creation_job(
 
     row = await db.fetch_one(
         """
-        INSERT INTO creation_jobs (campaign_id, status, total_accounts, progress_message)
-        VALUES ($1, 'queued', $2, $3)
+        INSERT INTO creation_jobs (campaign_id, status, total_accounts, progress_message, job_mode)
+        VALUES ($1, 'queued', $2, $3, $4)
         RETURNING *
         """,
         campaign_id,
         total_accounts or 0,
         progress,
+        "planned" if plan_list else "auto",
+    )
+
+    job_mode = "planned" if plan_list else "auto"
+    snapshot = (
+        job_history_service.build_planned_input_snapshot(plan_list)
+        if plan_list
+        else job_history_service.build_auto_input_snapshot()
+    )
+    await job_history_service.persist_input_snapshot(
+        row["id"],
+        job_mode=job_mode,
+        snapshot=snapshot,
     )
 
     await db.execute(
@@ -173,6 +198,7 @@ async def start_manual_creation_job(
     *,
     body: StartManualBulkRequest,
     avatars: dict[int, bytes],
+    retried_from_job_id: int | None = None,
 ) -> dict[str, Any]:
     """Очередь ручного массового создания (worker + логи)."""
     campaign = await campaign_service.get_campaign(campaign_id)
@@ -289,13 +315,16 @@ async def start_manual_creation_job(
     total = len(manual_plans)
     row = await db.fetch_one(
         """
-        INSERT INTO creation_jobs (campaign_id, status, total_accounts, progress_message)
-        VALUES ($1, 'queued', $2, $3)
+        INSERT INTO creation_jobs (
+            campaign_id, status, total_accounts, progress_message, job_mode, retried_from_job_id
+        )
+        VALUES ($1, 'queued', $2, $3, 'manual', $4)
         RETURNING *
         """,
         campaign_id,
         total,
         f"В очереди: {total} бот(ов), ручная партия",
+        retried_from_job_id,
     )
     job_id = row["id"]
 
@@ -308,6 +337,20 @@ async def start_manual_creation_job(
             path = staging / f"{rid}.jpg"
             path.write_bytes(raw)
             plan["avatar_path"] = str(path)
+
+    input_snapshot = job_history_service.build_manual_input_snapshot(
+        job_id=job_id,
+        body=body,
+        manual_plans=manual_plans,
+        link_source=link_source,
+        use_referral=use_referral,
+        default_url=default_url,
+    )
+    await job_history_service.persist_input_snapshot(
+        job_id,
+        job_mode="manual",
+        snapshot=input_snapshot,
+    )
 
     await db.execute(
         "UPDATE campaigns SET status = 'queued', updated_at = NOW() WHERE id = $1",
@@ -340,11 +383,71 @@ async def start_manual_creation_job(
     return _job_row(row)
 
 
-async def get_job(job_id: int) -> dict[str, Any]:
+async def get_job(job_id: int, *, include_snapshots: bool = False) -> dict[str, Any]:
     row = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
     if not row:
         raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
-    return _job_row(row)
+    return _job_row(row, include_snapshots=include_snapshots)
+
+
+async def list_creation_jobs(
+    campaign_id: int,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    await campaign_service.get_campaign(campaign_id)
+    rows = await db.fetch_all(
+        """
+        SELECT * FROM creation_jobs
+        WHERE campaign_id = $1
+        ORDER BY id DESC
+        LIMIT $2 OFFSET $3
+        """,
+        campaign_id,
+        max(1, min(limit, 100)),
+        max(0, offset),
+    )
+    return [_job_row(r) for r in rows]
+
+
+async def get_job_snapshot_avatar_path(job_id: int, row_id: int) -> Path:
+    row = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    if not row:
+        raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
+    input_snapshot = job_history_service.parse_json_field(row.get("input_snapshot"))
+    result = job_history_service.parse_json_field(row.get("result_snapshot"))
+    retry_payload = (result or {}).get("retry_payload")
+    path = job_history_service.resolve_snapshot_avatar_path(
+        job_id,
+        row_id,
+        input_snapshot=input_snapshot,
+        retry_payload=retry_payload,
+    )
+    if not path:
+        raise NotFoundError("Аватар не найден в снимке задачи")
+    return path
+
+
+async def retry_creation_job(job_id: int) -> dict[str, Any]:
+    row = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    if not row:
+        raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
+    result = job_history_service.parse_json_field(row.get("result_snapshot"))
+    retry_payload = (result or {}).get("retry_payload")
+    if not retry_payload or retry_payload.get("mode") != "manual":
+        raise BadRequestError(
+            "Для этой задачи нет сохранённых несозданных ботов. "
+            "История доступна только для ручных партий с частичным результатом."
+        )
+    body = job_history_service.retry_payload_to_request(retry_payload)
+    avatars = job_history_service.load_retry_avatars(retry_payload)
+    return await start_manual_creation_job(
+        int(row["campaign_id"]),
+        body=body,
+        avatars=avatars,
+        retried_from_job_id=job_id,
+    )
 
 
 async def _reset_creating_accounts(campaign_id: int) -> None:
@@ -382,6 +485,12 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
         WHERE id = $1
         """,
         job_id,
+    )
+    await job_history_service.save_result_snapshot(
+        job_id,
+        row_results=[],
+        total_created=total_created,
+        finished_status="cancelled",
     )
     await _reset_creating_accounts(campaign_id)
 

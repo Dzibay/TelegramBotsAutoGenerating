@@ -6,7 +6,16 @@
       <label>Аватар</label>
       <div class="avatar-row">
         <div class="avatar-preview">
-          <img v-if="avatarPreviewUrl" :src="avatarPreviewUrl" alt="Аватар" />
+          <img v-if="avatarObjectUrl" :src="avatarObjectUrl" alt="Аватар" />
+          <BotAvatar
+            v-else-if="botId && hasAvatar"
+            :bot-id="botId"
+            :has-avatar="hasAvatar"
+            :display-name="modelValue.display_name"
+            :username="modelValue.username"
+            :cache-key="avatarCacheKey"
+            :size="72"
+          />
           <span v-else class="avatar-placeholder">?</span>
         </div>
         <div class="avatar-actions">
@@ -140,8 +149,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
 import apiClient from '../utils/apiClient';
+import BotAvatar from './BotAvatar.vue';
 
 const props = defineProps({
   modelValue: {
@@ -153,7 +163,9 @@ const props = defineProps({
   showGenerateOnCreate: { type: Boolean, default: false },
   collapseLongFields: { type: Boolean, default: false },
   generateAvatar: { type: Boolean, default: true },
-  avatarUrl: { type: String, default: null },
+  botId: { type: Number, default: null },
+  hasAvatar: { type: Boolean, default: false },
+  avatarCacheKey: { type: String, default: '' },
   keyword: { type: String, default: '' },
   avatarPrompt: { type: String, default: '' },
   publicLink: { type: String, default: '' },
@@ -178,7 +190,7 @@ const generateAvatarLocal = computed({
 
 const canGenerateAvatar = computed(() => props.keyword || props.avatarPrompt || props.modelValue.display_name);
 
-const avatarPreviewUrl = computed(() => avatarObjectUrl.value || props.avatarUrl || null);
+const avatarPreviewUrl = computed(() => avatarObjectUrl.value || null);
 
 function patch(key, value) {
   emit('update:modelValue', { ...props.modelValue, [key]: value });
@@ -196,19 +208,6 @@ function onFileChange(e) {
   avatarObjectUrl.value = URL.createObjectURL(file);
   emit('update:avatarFile', file);
   emit('update:avatarPreview', avatarObjectUrl.value);
-}
-
-watch(avatarPreviewUrl, (url) => {
-  if (url && !avatarFile.value) emit('update:avatarPreview', url);
-});
-
-function clearAvatar() {
-  if (avatarObjectUrl.value) URL.revokeObjectURL(avatarObjectUrl.value);
-  avatarFile.value = null;
-  avatarObjectUrl.value = null;
-  if (fileInput.value) fileInput.value.value = '';
-  emit('update:avatarFile', null);
-  emit('update:avatarPreview', null);
 }
 
 async function onGenerateAvatar() {
@@ -236,26 +235,14 @@ async function onGenerateAvatar() {
   }
 }
 
-async function loadAvatarFromApi(url) {
-  if (!url || avatarFile.value) return;
-  try {
-    const path = url.includes('/api/v1') ? url.split('/api/v1')[1] : url;
-    const res = await apiClient.get(path, { responseType: 'blob' });
-    if (avatarObjectUrl.value) URL.revokeObjectURL(avatarObjectUrl.value);
-    avatarObjectUrl.value = URL.createObjectURL(res.data);
-    emit('update:avatarPreview', avatarObjectUrl.value);
-  } catch {
-    /* ignore */
-  }
+function clearAvatar() {
+  if (avatarObjectUrl.value) URL.revokeObjectURL(avatarObjectUrl.value);
+  avatarFile.value = null;
+  avatarObjectUrl.value = null;
+  if (fileInput.value) fileInput.value.value = '';
+  emit('update:avatarFile', null);
+  emit('update:avatarPreview', null);
 }
-
-watch(
-  () => props.avatarUrl,
-  (url) => {
-    if (url) loadAvatarFromApi(url);
-  },
-  { immediate: true }
-);
 
 defineExpose({ avatarFile, clearAvatar });
 </script>

@@ -57,6 +57,10 @@ def _sql_files() -> list[Path]:
     return [_find_sql_path(), *_migration_files()]
 
 
+# Один процесс за раз: api + worker + prep-worker + bot-runner стартуют параллельно
+_SCHEMA_ADVISORY_LOCK_KEY = 839204712
+
+
 async def apply_schema(
     *,
     host: str | None = None,
@@ -73,8 +77,12 @@ async def apply_schema(
         database=database or os.getenv("DB_NAME", "tg_bots"),
     )
     try:
-        for sql_path in _sql_files():
-            await conn.execute(sql_path.read_text(encoding="utf-8"))
+        await conn.execute(f"SELECT pg_advisory_lock({_SCHEMA_ADVISORY_LOCK_KEY})")
+        try:
+            for sql_path in _sql_files():
+                await conn.execute(sql_path.read_text(encoding="utf-8"))
+        finally:
+            await conn.execute(f"SELECT pg_advisory_unlock({_SCHEMA_ADVISORY_LOCK_KEY})")
     finally:
         await conn.close()
 

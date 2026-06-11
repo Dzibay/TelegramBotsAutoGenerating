@@ -74,6 +74,7 @@ services:
     command: ["python", "-m", "app.workers.creation_worker"]
     env_file: .env
     environment:
+      SKIP_DB_INIT: "1"
       ENVIRONMENT: production
       DB_HOST: postgres
       DB_PORT: 5432
@@ -101,6 +102,7 @@ services:
     command: ["python", "-m", "app.workers.prep_worker"]
     env_file: .env
     environment:
+      SKIP_DB_INIT: "1"
       ENVIRONMENT: production
       DB_HOST: postgres
       DB_PORT: 5432
@@ -128,6 +130,7 @@ services:
     command: ["python", "-m", "app.bot_runner.main"]
     env_file: .env
     environment:
+      SKIP_DB_INIT: "1"
       ENVIRONMENT: production
       DB_HOST: postgres
       DB_PORT: 5432

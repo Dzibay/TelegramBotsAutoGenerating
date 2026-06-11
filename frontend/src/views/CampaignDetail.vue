@@ -290,8 +290,7 @@
               <td>
                 <div class="bot-cell">
                   <div class="bot-avatar" :class="avatarColorClass(b)">
-                    <img v-if="botAvatarUrl(b)" :src="botAvatarUrl(b)" alt="" />
-                    <Bot v-else :size="16" />
+                    <BotAvatar :bot="b" :size="36" />
                   </div>
                   <div class="bot-info">
                     <span class="bot-name">{{ b.display_name || 'Без имени' }}</span>
@@ -368,6 +367,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Bot, Check, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import BotAvatar from '../components/BotAvatar.vue';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
 import CampaignJobBanner from '../components/CampaignJobBanner.vue';
 import EmptyState from '../components/EmptyState.vue';
@@ -391,10 +391,6 @@ function accountLabel(account) {
 
 function botLink(b) {
   return b.telegram_url || telegramBotUrl(b.username);
-}
-
-function botAvatarUrl(b) {
-  return b.has_avatar ? botService.avatarUrl(b) : null;
 }
 
 function avatarColorClass(b) {
@@ -1383,6 +1379,12 @@ onUnmounted(() => {
   justify-content: center;
   overflow: hidden;
   border: 1px solid var(--border);
+}
+
+.bot-avatar :deep(.bot-avatar-image) {
+  width: 100%;
+  height: 100%;
+  border: none;
 }
 
 .bot-avatar img {

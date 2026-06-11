@@ -4,6 +4,12 @@
   <div v-else class="bot-edit">
     <header class="page-header">
       <div class="title-row">
+        <BotAvatar
+          v-if="bot.id"
+          :bot="bot"
+          :size="48"
+          class="title-avatar"
+        />
         <h1>@{{ bot.username || bot.id }}</h1>
         <StatusBadge :status="bot.status" />
       </div>
@@ -32,7 +38,9 @@
         username-readonly
         :keyword="form.keyword"
         :public-link="linkPreview"
-        :avatar-url="avatarDisplayUrl"
+        :bot-id="bot.id"
+        :has-avatar="bot.has_avatar"
+        :avatar-cache-key="bot.updated_at"
         collapse-long-fields
         @update:avatar-file="pendingAvatarFile = $event"
         @update:avatar-preview="avatarPreviewUrl = $event"
@@ -88,7 +96,10 @@
       :welcome-message="profile.welcome_message"
       :welcome-button-enabled="profile.welcome_button_enabled"
       :welcome-button-text="profile.welcome_button_text"
-      :avatar-url="avatarPreviewUrl || avatarDisplayUrl"
+      :avatar-preview-url="avatarPreviewUrl"
+      :bot-id="bot.id"
+      :has-avatar="bot.has_avatar"
+      :avatar-cache-key="bot.updated_at"
       :public-link="linkPreview"
     />
     </div>
@@ -98,6 +109,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import BotAvatar from '../components/BotAvatar.vue';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPanel from '../components/BotTelegramPanel.vue';
@@ -150,11 +162,6 @@ const profile = ref({
   welcome_message: '',
   welcome_button_enabled: true,
   welcome_button_text: 'Перейти по ссылке',
-});
-
-const avatarDisplayUrl = computed(() => {
-  if (pendingAvatarFile.value || !bot.value?.has_avatar) return null;
-  return botService.avatarUrl(bot.value);
 });
 
 const linkPreview = computed(() => {

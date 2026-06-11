@@ -30,7 +30,16 @@
           <span class="tg-modal-close" aria-hidden="true">×</span>
           <div class="tg-profile-top">
             <div class="tg-avatar-lg">
-              <img v-if="avatarUrl" :src="avatarUrl" alt="" />
+              <img v-if="resolvedPreviewUrl" :src="resolvedPreviewUrl" alt="" />
+              <BotAvatar
+                v-else-if="showServerAvatar"
+                :bot-id="botId"
+                :has-avatar="hasAvatar"
+                :display-name="displayName"
+                :username="usernameLine"
+                :cache-key="avatarCacheKey"
+                :size="88"
+              />
               <span v-else class="tg-avatar-ph">{{ avatarInitial }}</span>
             </div>
             <p class="tg-profile-name">{{ displayName || 'Имя бота' }}</p>
@@ -136,8 +145,18 @@
                   <p class="tg-lp-title">{{ displayName || 'Бот' }}</p>
                   <p class="tg-lp-desc">{{ linkPreviewDesc }}</p>
                 </div>
-                <div v-if="avatarUrl" class="tg-lp-thumb">
-                  <img :src="avatarUrl" alt="" />
+                <BotAvatar
+                  v-if="showServerAvatar"
+                  :bot-id="botId"
+                  :has-avatar="hasAvatar"
+                  :display-name="displayName"
+                  :username="usernameLine"
+                  :cache-key="avatarCacheKey"
+                  :size="48"
+                  class="tg-lp-thumb"
+                />
+                <div v-else-if="resolvedPreviewUrl" class="tg-lp-thumb">
+                  <img :src="resolvedPreviewUrl" alt="" />
                 </div>
                 <div v-else class="tg-lp-thumb tg-lp-thumb--ph">{{ avatarInitial }}</div>
               </div>
@@ -164,6 +183,7 @@
 
 <script setup>
 import { computed, ref } from 'vue';
+import BotAvatar from './BotAvatar.vue';
 
 const props = defineProps({
   displayName: { type: String, default: '' },
@@ -174,8 +194,20 @@ const props = defineProps({
   welcomeButtonEnabled: { type: Boolean, default: true },
   welcomeButtonText: { type: String, default: 'Перейти по ссылке' },
   avatarUrl: { type: String, default: null },
+  avatarPreviewUrl: { type: String, default: null },
+  botId: { type: Number, default: null },
+  hasAvatar: { type: Boolean, default: false },
+  avatarCacheKey: { type: String, default: '' },
   publicLink: { type: String, default: '' },
 });
+
+const resolvedPreviewUrl = computed(
+  () => props.avatarPreviewUrl || props.avatarUrl || null
+);
+
+const showServerAvatar = computed(
+  () => !resolvedPreviewUrl.value && props.botId && props.hasAvatar
+);
 
 const tabs = [
   { id: 'profile', label: 'Профиль' },
@@ -340,6 +372,15 @@ const linkPreviewDesc = computed(() => {
   padding: 1.75rem 1rem 1rem;
   text-align: center;
   border-bottom: 1px solid #e8e8ed;
+}
+
+.tg-avatar-lg :deep(.bot-avatar-image) {
+  margin: 0 auto;
+  border: none;
+}
+
+.tg-lp-thumb :deep(.bot-avatar-image) {
+  border: none;
 }
 
 .tg-avatar-lg {

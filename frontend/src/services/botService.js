@@ -17,12 +17,31 @@ export const botService = {
     return res.data?.bot;
   },
 
+  avatarApiPath(botOrId) {
+    const id = typeof botOrId === 'object' ? botOrId?.id : botOrId;
+    if (!id) return null;
+    return `/bots/${id}/avatar`;
+  },
+
+  /** @deprecated Прямой URL не работает в <img> — нужен Authorization. Используйте loadAvatarObjectUrl. */
   avatarUrl(bot) {
-    if (!bot?.avatar_url) return null;
+    if (!bot?.has_avatar && !bot?.avatar_url) return null;
+    const path = this.avatarApiPath(bot);
+    if (!path) return null;
     const base = import.meta.env.DEV
       ? (import.meta.env.VITE_API_BASE_URL || '/api/v1')
       : '/api/v1';
-    return `${base.replace(/\/$/, '')}${bot.avatar_url}`;
+    const normalized = path.startsWith('/') ? path : `/${path}`;
+    if (normalized.startsWith('/api/v1')) return normalized;
+    return `${base.replace(/\/$/, '')}${normalized}`;
+  },
+
+  async loadAvatarObjectUrl(botId, cacheKey = '') {
+    const path = this.avatarApiPath(botId);
+    if (!path) return null;
+    const q = cacheKey ? `?v=${encodeURIComponent(String(cacheKey))}` : '';
+    const res = await apiClient.get(`${path}${q}`, { responseType: 'blob' });
+    return URL.createObjectURL(res.data);
   },
 
   async generateDraft({ campaignId, accountId, targetUrl, keyword, redirectSlug, linkMode = 'redirect' }) {

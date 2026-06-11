@@ -43,6 +43,6 @@ class BotfatherPacingSettings(BaseModel):
     max_server_flood_wait: int = Field(
         180,
         ge=30,
-        le=600,
-        description="Макс. ожидание FloodWait от Telegram (сек.)",
+        le=86400,
+        description="Макс. ожидание FloodWait от Telegram (сек., до 24 ч)",
     )

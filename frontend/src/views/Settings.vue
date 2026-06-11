@@ -98,11 +98,14 @@
             v-model.number="form.max_server_flood_wait"
             type="number"
             min="30"
-            max="600"
+            max="86400"
+            step="1"
             required
           />
           <p class="field-hint">
-            Если Telegram просит подождать дольше — задача вернёт ошибку вместо многочасового ожидания.
+            Сколько ждать ответ «try again in N seconds» от BotFather/Telegram внутри задачи.
+            Сейчас: <strong>{{ floodWaitHuman }}</strong> (макс. 24 ч).
+            Если лимит меньше, чем просит Telegram — задача остановится с ошибкой.
           </p>
         </div>
       </div>
@@ -163,6 +166,8 @@ const sampleEta = computed(() =>
 );
 
 const pacingSummary = computed(() => formatPacingSummary(form.value));
+
+const floodWaitHuman = computed(() => formatDurationSec(form.value.max_server_flood_wait));
 
 function applyFromStore() {
   form.value = { ...settingsStore.botfatherPacing };

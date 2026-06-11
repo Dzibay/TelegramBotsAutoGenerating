@@ -24,6 +24,7 @@ from app.infrastructure.telegram.botfather_pacing import (
     batch_cooldown_sec,
     batch_size,
     inter_bot_delay_sec,
+    max_server_flood_wait_sec,
     pace_botfather_op,
     post_throttle_delay_sec,
 )
@@ -32,8 +33,17 @@ from app.utils.crypto import encrypt_token
 
 
 FLOOD_MAX_RETRIES = 8
-# Дольше этого не ждём внутри задачи — отдаём ошибку, чтобы не висеть часами.
-FLOOD_MAX_WAIT_SEC = 600
+
+
+def _format_flood_wait_human(seconds: int) -> str:
+    sec = max(0, int(seconds))
+    if sec < 60:
+        return f"{sec} сек"
+    minutes, remainder = divmod(sec, 60)
+    if minutes < 60:
+        return f"{minutes} мин {remainder} сек" if remainder else f"{minutes} мин"
+    hours, mins = divmod(minutes, 60)
+    return f"{hours} ч {mins} мин" if mins else f"{hours} ч"
 
 CREATION_STEP_LABELS = {
     "username": "Подбор username",
@@ -445,15 +455,20 @@ class CreationPipeline:
                 if details.get("botfather_blocked"):
                     raise
                 wait = int(details.get("wait_seconds") or 0)
-                if wait > FLOOD_MAX_WAIT_SEC:
+                max_wait = max_server_flood_wait_sec()
+                if wait > max_wait:
                     raise BadRequestError(
-                        f"Telegram требует паузу {wait // 60} мин для @{plan['username']} — "
-                        "это слишком долго для задачи. Попробуйте позже или другой аккаунт.",
+                        f"Telegram требует паузу {_format_flood_wait_human(wait)} "
+                        f"для @{plan['username']} — больше лимита в настройках "
+                        f"({_format_flood_wait_human(max_wait)}). "
+                        "Увеличьте «Макс. ожидание FloodWait» в Настройках, "
+                        "подождите и перезапустите задачу или используйте другой аккаунт.",
                         details=details,
                     )
                 if details.get("flood_wait") and wait > 0 and attempt < FLOOD_MAX_RETRIES:
                     await self.log(
-                        f"Лимит Telegram для @{plan['username']}, пауза {wait} сек…",
+                        f"Лимит Telegram для @{plan['username']}, "
+                        f"пауза {_format_flood_wait_human(wait)}…",
                         level="warn",
                         context={
                             "row_id": plan.get("row_id"),

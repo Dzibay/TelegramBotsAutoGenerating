@@ -61,20 +61,22 @@
           </p>
         </div>
 
-        <p v-if="usesReferralApi" class="link-source-block">
+        <div v-if="usesReferralApi" class="link-source-block">
           <span class="block-label">Источник ссылок для ботов</span>
-          <label class="radio-opt">
-            <input v-model="linkSource" type="radio" value="referral" />
-            Автоматически через API кампании
-          </label>
-          <label class="radio-opt">
-            <input v-model="linkSource" type="radio" value="manual" />
-            Вручную — общая или своя ссылка для каждого бота
-          </label>
-          <span v-if="useReferralLinks" class="field-hint">
+          <div class="radio-group">
+            <label class="radio-opt">
+              <input v-model="linkSource" type="radio" value="referral" />
+              <span>Автоматически через API кампании</span>
+            </label>
+            <label class="radio-opt">
+              <input v-model="linkSource" type="radio" value="manual" />
+              <span>Вручную — общая или своя ссылка для каждого бота</span>
+            </label>
+          </div>
+          <p v-if="useReferralLinks" class="field-hint link-source-hint">
             После создания в BotFather для каждого бота будет запрошена уникальная ссылка.
-          </span>
-        </p>
+          </p>
+        </div>
 
         <div
           v-if="campaignResourceUrl && !useCustomUrl && !useReferralLinks"
@@ -309,17 +311,19 @@
         Таблица ботов: аккаунт, фраза для AI, имя и username. Фраза нужна только для генерации текстов нейросетью.
       </p>
 
-      <p v-if="usesReferralApi" class="link-source-block">
+      <div v-if="usesReferralApi" class="link-source-block">
         <span class="block-label">Источник ссылок для ботов</span>
-        <label class="radio-opt">
-          <input v-model="linkSource" type="radio" value="referral" />
-          Автоматически через API кампании
-        </label>
-        <label class="radio-opt">
-          <input v-model="linkSource" type="radio" value="manual" />
-          Вручную — ссылка из формы ниже
-        </label>
-      </p>
+        <div class="radio-group">
+          <label class="radio-opt">
+            <input v-model="linkSource" type="radio" value="referral" />
+            <span>Автоматически через API кампании</span>
+          </label>
+          <label class="radio-opt">
+            <input v-model="linkSource" type="radio" value="manual" />
+            <span>Вручную — ссылка из формы ниже</span>
+          </label>
+        </div>
+      </div>
 
       <div
         v-if="campaignResourceUrl && !useCustomUrl && !useReferralLinks"
@@ -1294,7 +1298,7 @@ onUnmounted(() => {
 .link-source-block {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.65rem;
   margin: 0 0 1rem;
   padding: 0.85rem 1rem;
   border-radius: 8px;
@@ -1303,16 +1307,49 @@ onUnmounted(() => {
 }
 
 .link-source-block .block-label {
+  display: block;
   font-weight: 600;
   font-size: 0.9rem;
 }
 
+.link-source-block .radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .radio-opt {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
+  line-height: 1.35;
   cursor: pointer;
+  background: rgba(8, 12, 20, 0.35);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.radio-opt:hover {
+  border-color: var(--border-strong);
+}
+
+.radio-opt:has(input:checked) {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: var(--accent-soft);
+}
+
+.radio-opt input {
+  width: auto;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  padding: 0;
+}
+
+.link-source-hint {
+  margin: 0;
 }
 
 .link-api-hint {

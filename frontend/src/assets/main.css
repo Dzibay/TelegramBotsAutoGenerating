@@ -371,6 +371,14 @@ input[type='checkbox'] {
   cursor: pointer;
 }
 
+input[type='radio'] {
+  width: auto;
+  flex-shrink: 0;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .checkbox-row,
 .check {
   display: flex;

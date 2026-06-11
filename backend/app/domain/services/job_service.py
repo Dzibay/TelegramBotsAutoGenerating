@@ -202,13 +202,20 @@ async def start_manual_creation_job(
     use_referral = (
         body.use_referral_api
         if body.use_referral_api is not None
+        else body.link_source == "referral"
+        if body.link_source
         else referral_link_service.is_referral_configured(campaign)
     )
     if body.use_referral_api is True and not referral_link_service.is_referral_configured(campaign):
         raise BadRequestError(
             "Реферальный API не настроен в кампании. "
-            "Укажите эндпоинт и ключ в настройках или выберите «Ссылки вручную»."
+            "Укажите эндпоинт и ключ в настройках или выберите другой источник ссылок."
         )
+
+    link_source = (body.link_source or "").strip()
+    if not link_source:
+        link_source = "referral" if use_referral else "batch"
+
     if use_referral:
         raw_default = (body.default_target_url or campaign.get("resource_url") or "").strip()
         default_url = (
@@ -216,13 +223,22 @@ async def start_manual_creation_job(
             if raw_default
             else "https://referral.pending"
         )
+    elif link_source == "per_bot":
+        missing = [item.row_id for item in bots if not (item.target_url or "").strip()]
+        if missing:
+            raise BadRequestError(
+                f"Укажите ссылку для каждого бота (строки: {', '.join(map(str, missing))})"
+            )
+        default_url = ""
+    elif link_source == "campaign":
+        if not campaign.get("resource_url"):
+            raise BadRequestError("В кампании не задана ссылка на сервис")
+        default_url = bot_promo_service.normalize_target_url(campaign["resource_url"])
     else:
-        if not (body.default_target_url or "").strip() and not campaign.get("resource_url"):
-            raise BadRequestError("Укажите ссылку на сервис по умолчанию")
-        if not (body.default_target_url or "").strip():
-            default_url = bot_promo_service.normalize_target_url(campaign["resource_url"])
-        else:
-            default_url = bot_promo_service.normalize_target_url(body.default_target_url)
+        default_raw = (body.default_target_url or "").strip()
+        if not default_raw:
+            raise BadRequestError("Укажите общую ссылку для партии")
+        default_url = bot_promo_service.normalize_target_url(default_raw)
     usernames_seen: set[str] = set()
     manual_plans: list[dict[str, Any]] = []
 
@@ -236,6 +252,8 @@ async def start_manual_creation_job(
         usernames_seen.add(key)
 
         row_url = (item.target_url or "").strip() or default_url
+        if not row_url:
+            raise BadRequestError(f"Укажите ссылку для бота в строке {item.row_id}")
         row_url = bot_promo_service.normalize_target_url(row_url)
         manual_plans.append(
             {
@@ -252,6 +270,7 @@ async def start_manual_creation_job(
                 "link_mode": bot_promo_service.normalize_link_mode(body.link_mode),
                 "auto_start": body.auto_start,
                 "use_referral_api": use_referral,
+                "link_source": link_source,
                 "avatar_path": None,
             }
         )

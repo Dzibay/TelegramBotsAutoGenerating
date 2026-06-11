@@ -60,5 +60,10 @@ class StartManualBulkRequest(BaseModel):
         None,
         description="True — ссылки через API кампании; False — из формы; None — по настройкам кампании",
     )
+    link_source: Optional[str] = Field(
+        None,
+        max_length=32,
+        description="referral | per_bot | campaign | batch",
+    )
     shared_texts: ManualSharedTexts
     bots: list[ManualBotItem] = Field(..., min_length=1, max_length=50)

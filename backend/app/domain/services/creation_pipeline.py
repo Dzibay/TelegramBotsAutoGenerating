@@ -253,10 +253,21 @@ class CreationPipeline:
             progress=f"0/{len(plans)}",
         )
         use_referral = bool(plans[0].get("use_referral_api"))
+        src = (plans[0].get("link_source") or "") if plans else ""
+        mode = plans[0].get("link_mode") if plans else bot_promo_service.LINK_MODE_REDIRECT
+        mode_label = "с подсчётом переходов" if mode == bot_promo_service.LINK_MODE_REDIRECT else "прямые"
         if use_referral:
             await self.log("Ссылки: автоматически через реферальный API кампании")
+        elif src == "per_bot":
+            await self.log(f"Ссылки: своя для каждого бота ({mode_label})")
+        elif src == "campaign":
+            sample = (plans[0].get("target_url") or "")[:60] if plans else ""
+            suffix = f" — {sample}…" if sample else ""
+            await self.log(f"Ссылки: из кампании ({mode_label}){suffix}")
         else:
-            await self.log("Ссылки: из формы (общая или для каждого бота)")
+            sample = (plans[0].get("target_url") or "")[:60] if plans else ""
+            suffix = f" — {sample}…" if sample else ""
+            await self.log(f"Ссылки: общая для партии ({mode_label}){suffix}")
         await db.execute(
             "UPDATE telegram_accounts SET status = 'creating', updated_at = NOW() WHERE id = $1",
             account_id,

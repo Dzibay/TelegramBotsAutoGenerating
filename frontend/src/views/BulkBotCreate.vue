@@ -61,47 +61,14 @@
           </p>
         </div>
 
-        <div v-if="usesReferralApi" class="link-source-block">
-          <span class="block-label">Источник ссылок для ботов</span>
-          <div class="radio-group">
-            <label class="radio-opt">
-              <input v-model="linkSource" type="radio" value="referral" />
-              <span>Автоматически через API кампании</span>
-            </label>
-            <label class="radio-opt">
-              <input v-model="linkSource" type="radio" value="manual" />
-              <span>Вручную — общая или своя ссылка для каждого бота</span>
-            </label>
-          </div>
-          <p v-if="useReferralLinks" class="field-hint link-source-hint">
-            После создания в BotFather для каждого бота будет запрошена уникальная ссылка.
-          </p>
-        </div>
-
-        <div
-          v-if="campaignResourceUrl && !useCustomUrl && !useReferralLinks"
-          class="url-from-campaign card-inner"
-        >
-          <label>Ссылка на сервис по умолчанию</label>
-          <p class="url-value">
-            <a :href="campaignResourceUrl" target="_blank" rel="noopener noreferrer">{{ campaignResourceUrl }}</a>
-          </p>
-          <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для партии</button>
-        </div>
-        <div v-else-if="!useReferralLinks || useCustomUrl" class="form-group">
-          <label>Ссылка на сервис по умолчанию{{ useReferralLinks ? '' : ' *' }}</label>
-          <input v-model="targetUrl" type="url" placeholder="https://example.com" />
-          <p class="field-hint">
-            {{ useReferralLinks
-              ? 'Необязательно: реферальные ссылки придут с API.'
-              : 'Используется, если у бота не указана своя ссылка.' }}
-          </p>
-          <button v-if="campaignResourceUrl" type="button" class="link-btn" @click="useCampaignUrl">
-            ← Вернуть ссылку из кампании
-          </button>
-        </div>
-
-        <BotLinkModeField v-model="linkMode" :preview-url="defaultLinkPreview" />
+        <BulkLinkSourceField
+          v-model:link-source="linkSource"
+          v-model:batch-url="targetUrl"
+          v-model:track-clicks="trackClicks"
+          :uses-referral-api="usesReferralApi"
+          :campaign-resource-url="campaignResourceUrl"
+          :link-preview="linkPreviewUrl"
+        />
 
         <div class="form-group">
           <label>Описание в чате до Start (плакат) *</label>
@@ -169,7 +136,7 @@
               <span>Аватар</span>
               <span>Имя *</span>
               <span>Username *</span>
-              <span>Ссылка</span>
+              <span>{{ linkSource === 'per_bot' ? 'Ссылка *' : 'Ссылка' }}</span>
               <span></span>
             </div>
 
@@ -188,12 +155,13 @@
                   @input="row.username = $event.target.value.replace(/^@/, '')"
                 />
                 <input
-                  v-if="!useReferralLinks"
+                  v-if="linkSource === 'per_bot'"
                   v-model="row.targetUrl"
                   type="url"
-                  :placeholder="effectiveTargetUrl || 'Своя ссылка'"
+                  placeholder="https://..."
                 />
-                <span v-else class="muted link-api-hint">через API</span>
+                <span v-else-if="linkSource === 'referral'" class="muted link-api-hint">через API</span>
+                <span v-else class="muted link-api-hint">{{ sharedBatchUrl || 'общая' }}</span>
                 <button
                   type="button"
                   class="btn btn-xs btn-ghost danger"
@@ -311,39 +279,15 @@
         Таблица ботов: аккаунт, фраза для AI, имя и username. Фраза нужна только для генерации текстов нейросетью.
       </p>
 
-      <div v-if="usesReferralApi" class="link-source-block">
-        <span class="block-label">Источник ссылок для ботов</span>
-        <div class="radio-group">
-          <label class="radio-opt">
-            <input v-model="linkSource" type="radio" value="referral" />
-            <span>Автоматически через API кампании</span>
-          </label>
-          <label class="radio-opt">
-            <input v-model="linkSource" type="radio" value="manual" />
-            <span>Вручную — ссылка из формы ниже</span>
-          </label>
-        </div>
-      </div>
-
-      <div
-        v-if="campaignResourceUrl && !useCustomUrl && !useReferralLinks"
-        class="url-from-campaign card-inner"
-      >
-        <label>Ссылка на сервис</label>
-        <p class="url-value">
-          <a :href="campaignResourceUrl" target="_blank" rel="noopener noreferrer">{{ campaignResourceUrl }}</a>
-        </p>
-        <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для этой партии</button>
-      </div>
-      <div v-else-if="!useReferralLinks || useCustomUrl" class="form-group">
-        <label>Ссылка на сервис *</label>
-        <input v-model="targetUrl" type="url" placeholder="https://example.com" />
-        <button v-if="campaignResourceUrl" type="button" class="link-btn" @click="useCampaignUrl">
-          ← Вернуть ссылку из кампании
-        </button>
-      </div>
-
-      <BotLinkModeField v-model="linkMode" :preview-url="aiLinkPreview" />
+      <BulkLinkSourceField
+        v-model:link-source="linkSource"
+        v-model:batch-url="targetUrl"
+        v-model:track-clicks="trackClicks"
+        :uses-referral-api="usesReferralApi"
+        :campaign-resource-url="campaignResourceUrl"
+        :show-per-bot-option="false"
+        :link-preview="linkPreviewUrl"
+      />
 
       <p v-if="rowsWithAccountCount" class="rows-summary muted">
         Строк с аккаунтом: {{ rowsWithAccountCount }} · готово: {{ rowsReadyCount }}
@@ -487,7 +431,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BulkAvatarCell from '../components/BulkAvatarCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
-import BotLinkModeField from '../components/BotLinkModeField.vue';
+import BulkLinkSourceField from '../components/BulkLinkSourceField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
@@ -503,7 +447,14 @@ import {
 } from '../utils/estimateJobTime';
 import { mapApiLog } from '../utils/formatLogEntry';
 import {
-  rowTargetUrl,
+  effectiveLinkMode,
+  isLinkStepValid,
+  pickDefaultLinkSource,
+  sharedLinkUrl,
+  usesReferralLinks as isReferralLinkSource,
+  LINK_SOURCE,
+} from '../utils/bulkLinkSource';
+import {
   validateBulkBatch,
   validateManualBulkBatch,
 } from '../utils/bulkBatchValidate';
@@ -563,10 +514,9 @@ const loadError = ref(null);
 const campaign = ref({});
 const accounts = ref([]);
 const campaignResourceUrl = ref('');
-const useCustomUrl = ref(false);
 const targetUrl = ref('');
-const linkMode = ref('redirect');
-const linkSource = ref('referral');
+const linkSource = ref(LINK_SOURCE.BATCH);
+const trackClicks = ref(true);
 const accountId = ref(null);
 const autoStart = ref(true);
 
@@ -620,30 +570,29 @@ const usesReferralApi = computed(
     !!(campaign.value?.referral_endpoint_url?.trim() && campaign.value?.referral_api_key?.trim())
 );
 
-const useReferralLinks = computed(
-  () => usesReferralApi.value && linkSource.value === 'referral'
+const useReferralLinks = computed(() => isReferralLinkSource(linkSource.value));
+
+const sharedBatchUrl = computed(() =>
+  sharedLinkUrl(linkSource.value, {
+    campaignResourceUrl: campaignResourceUrl.value,
+    batchUrl: targetUrl.value,
+  })
 );
 
-const effectiveTargetUrl = computed(() => {
-  if (campaignResourceUrl.value && !useCustomUrl.value) return campaignResourceUrl.value;
-  return targetUrl.value;
-});
+const resolvedLinkMode = computed(() => effectiveLinkMode(linkSource.value, trackClicks.value));
 
-const defaultLinkPreview = computed(() => {
-  if (linkMode.value === 'direct' && effectiveTargetUrl.value.trim()) {
-    return effectiveTargetUrl.value.trim();
-  }
-  return '';
+const linkPreviewUrl = computed(() => {
+  if (useReferralLinks.value || trackClicks.value) return '';
+  if (linkSource.value === LINK_SOURCE.PER_BOT) return '';
+  return sharedBatchUrl.value;
 });
 
 const manualValidation = computed(() =>
-  validateManualBulkBatch(
-    manualRows.value,
-    selectedAccount.value,
-    sharedTexts.value,
-    effectiveTargetUrl.value,
-    { requireUrls: !useReferralLinks.value }
-  )
+  validateManualBulkBatch(manualRows.value, selectedAccount.value, sharedTexts.value, {
+    linkSource: linkSource.value,
+    campaignResourceUrl: campaignResourceUrl.value,
+    batchUrl: targetUrl.value,
+  })
 );
 
 const readyRowsCount = computed(
@@ -656,7 +605,11 @@ const canGoStep2 = computed(
     selectedAccount.value &&
     sharedTexts.value.description?.trim() &&
     sharedTexts.value.welcome_message?.trim() &&
-    (useReferralLinks.value || effectiveTargetUrl.value.trim() || campaignResourceUrl.value)
+    isLinkStepValid(linkSource.value, {
+      usesReferralApi: usesReferralApi.value,
+      campaignResourceUrl: campaignResourceUrl.value,
+      batchUrl: targetUrl.value,
+    })
 );
 
 const canGoStep3 = computed(
@@ -718,12 +671,16 @@ const rowsAiReadyCount = computed(
 
 const aiLinkPreview = computed(() => {
   const first = aiRows.value.find((r) => r.draft?.public_link);
-  return first?.draft?.public_link || effectiveTargetUrl.value.trim() || '';
+  return first?.draft?.public_link || linkPreviewUrl.value || sharedBatchUrl.value || '';
 });
 
 const canGenerate = computed(
   () =>
-    (useReferralLinks.value || effectiveTargetUrl.value.trim()) &&
+    isLinkStepValid(linkSource.value, {
+      usesReferralApi: usesReferralApi.value,
+      campaignResourceUrl: campaignResourceUrl.value,
+      batchUrl: targetUrl.value,
+    }) &&
     readyAccounts.value.length &&
     rowsAiReadyCount.value > 0 &&
     !aiValidation.value.errors.length
@@ -737,9 +694,11 @@ function accountLabel(a) {
   return a.label || a.phone || `#${a.id}`;
 }
 
-function useCampaignUrl() {
-  useCustomUrl.value = false;
-  targetUrl.value = campaignResourceUrl.value;
+function targetUrlForDraft() {
+  if (useReferralLinks.value) {
+    return sharedBatchUrl.value || 'https://referral.pending';
+  }
+  return sharedBatchUrl.value;
 }
 
 function applyLogContext(entry) {
@@ -1000,16 +959,18 @@ async function startManualCreation() {
     'data',
     JSON.stringify({
       telegram_account_id: accountId.value,
-      default_target_url: effectiveTargetUrl.value.trim(),
-      link_mode: linkMode.value,
+      default_target_url: linkSource.value === LINK_SOURCE.PER_BOT ? '' : sharedBatchUrl.value,
+      link_mode: resolvedLinkMode.value,
       auto_start: autoStart.value,
+      link_source: linkSource.value,
       use_referral_api: useReferralLinks.value,
       shared_texts: sharedTexts.value,
       bots: rowsToCreate.map((r) => ({
         row_id: r.id,
         display_name: r.displayName.trim(),
         username: r.username.replace(/^@/, '').trim(),
-        target_url: r.targetUrl?.trim() || null,
+        target_url:
+          linkSource.value === LINK_SOURCE.PER_BOT ? r.targetUrl?.trim() || null : null,
       })),
     })
   );
@@ -1098,9 +1059,9 @@ async function generateOne(row) {
     const draft = await botService.generateDraft({
       campaignId: campaignId.value,
       accountId: row.accountId,
-      targetUrl: effectiveTargetUrl.value.trim(),
+      targetUrl: targetUrlForDraft(),
       keyword: row.keyword.trim(),
-      linkMode: linkMode.value,
+      linkMode: resolvedLinkMode.value,
     });
     applyDraftFromApi(row, draft);
   } catch (e) {
@@ -1121,9 +1082,9 @@ async function generateAll() {
       const draft = await botService.generateDraft({
         campaignId: campaignId.value,
         accountId: row.accountId,
-        targetUrl: effectiveTargetUrl.value.trim(),
+        targetUrl: targetUrlForDraft(),
         keyword: row.keyword.trim(),
-        linkMode: linkMode.value,
+        linkMode: resolvedLinkMode.value,
       });
       applyDraftFromApi(row, draft);
     } catch (e) {
@@ -1136,11 +1097,11 @@ async function generateAll() {
 
 function buildAiCreateSpec(row) {
   const d = row.draft;
-  const url = effectiveTargetUrl.value.trim();
+  const url = targetUrlForDraft();
   return {
     campaign_id: campaignId.value,
     telegram_account_id: row.accountId,
-    target_url: useReferralLinks.value ? url || 'https://referral.pending' : url,
+    target_url: url,
     display_name: d.display_name.trim(),
     username: d.username.replace(/^@/, '').trim(),
     description: d.description,
@@ -1150,7 +1111,7 @@ function buildAiCreateSpec(row) {
     welcome_button_text: d.welcome_button_text,
     keyword: row.keyword.trim() || null,
     redirect_slug: d.redirect_slug,
-    link_mode: linkMode.value,
+    link_mode: resolvedLinkMode.value,
     create_via_botfather: true,
     auto_start: autoStart.value,
     generate_avatar: true,
@@ -1231,6 +1192,18 @@ watch(freeSlots, (slots) => {
   }
 });
 
+watch([linkSource, campaignResourceUrl, usesReferralApi], () => {
+  if (linkSource.value === LINK_SOURCE.REFERRAL && !usesReferralApi.value) {
+    linkSource.value = pickDefaultLinkSource({
+      usesReferralApi: false,
+      campaignResourceUrl: campaignResourceUrl.value,
+    });
+  }
+  if (linkSource.value === LINK_SOURCE.CAMPAIGN && !campaignResourceUrl.value?.trim()) {
+    linkSource.value = LINK_SOURCE.BATCH;
+  }
+});
+
 onMounted(async () => {
   try {
     await settingsStore.fetchBotfatherPacing();
@@ -1239,10 +1212,13 @@ onMounted(async () => {
     campaignResourceUrl.value = data.campaign.resource_url || '';
     if (campaignResourceUrl.value) {
       targetUrl.value = campaignResourceUrl.value;
-      useCustomUrl.value = false;
-    } else {
-      useCustomUrl.value = true;
     }
+    linkSource.value = pickDefaultLinkSource({
+      usesReferralApi: !!(
+        data.campaign.referral_endpoint_url?.trim() && data.campaign.referral_api_key?.trim()
+      ),
+      campaignResourceUrl: campaignResourceUrl.value,
+    });
     sharedTexts.value.description = data.campaign.default_description || '';
     sharedTexts.value.welcome_message = data.campaign.default_welcome_message || '';
     sharedTexts.value.about_text = data.campaign.default_about_text || '';
@@ -1295,66 +1271,10 @@ onUnmounted(() => {
   margin: 0 0 1rem;
 }
 
-.link-source-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  margin: 0 0 1rem;
-  padding: 0.85rem 1rem;
-  border-radius: 8px;
-  background: rgba(59, 130, 246, 0.08);
-  border: 1px solid rgba(59, 130, 246, 0.2);
-}
-
-.link-source-block .block-label {
-  display: block;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.link-source-block .radio-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.radio-opt {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.55rem;
-  padding: 0.7rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 0.9rem;
-  line-height: 1.35;
-  cursor: pointer;
-  background: rgba(8, 12, 20, 0.35);
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.radio-opt:hover {
-  border-color: var(--border-strong);
-}
-
-.radio-opt:has(input:checked) {
-  border-color: rgba(59, 130, 246, 0.5);
-  background: var(--accent-soft);
-}
-
-.radio-opt input {
-  width: auto;
-  flex-shrink: 0;
-  margin-top: 0.15rem;
-  padding: 0;
-}
-
-.link-source-hint {
-  margin: 0;
-}
-
 .link-api-hint {
   font-size: 0.85rem;
   font-style: italic;
+  word-break: break-all;
 }
 
 .slots-hint strong {

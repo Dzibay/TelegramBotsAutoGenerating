@@ -57,8 +57,12 @@ export function validateBulkBatch(rows, readyAccounts) {
  * Проверки ручной массовой партии (один аккаунт, общие тексты).
  * @returns {{ errors: string[], warnings: string[] }}
  */
-export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl = '', options = {}) {
-  const { requireUrls = true } = options;
+export function validateManualBulkBatch(rows, account, sharedTexts, options = {}) {
+  const {
+    linkSource = 'batch',
+    campaignResourceUrl = '',
+    batchUrl = '',
+  } = options;
   const errors = [];
   const warnings = [];
 
@@ -89,6 +93,19 @@ export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl =
     errors.push('Заполните сообщение после Start.');
   }
 
+  if (linkSource === 'campaign' && !campaignResourceUrl?.trim()) {
+    errors.push('В кампании не задана ссылка на сервис.');
+  }
+  if (linkSource === 'batch' && !batchUrl?.trim()) {
+    errors.push('Укажите общую ссылку для партии.');
+  }
+  if (linkSource === 'per_bot') {
+    const withoutUrl = readyRows.filter((r) => !r.targetUrl?.trim());
+    if (withoutUrl.length) {
+      errors.push('Укажите ссылку для каждого бота в колонке «Ссылка».');
+    }
+  }
+
   const usernames = new Map();
   for (let i = 0; i < rows.length; i++) {
     const u = rows[i].username?.replace(/^@/, '').trim().toLowerCase();
@@ -107,17 +124,10 @@ export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl =
     );
   }
 
-  const withoutUrl = readyRows.filter((r) => !rowTargetUrl(r, defaultUrl)?.trim());
-  if (requireUrls && withoutUrl.length) {
-    errors.push('Укажите ссылку на сервис (общую или для каждого бота).');
-  }
-
   return { errors, warnings };
 }
 
-/** Ссылка строки: своя или общая по умолчанию. */
-export function rowTargetUrl(row, defaultUrl = '') {
-  const custom = row.targetUrl?.trim();
-  if (custom) return custom;
-  return defaultUrl?.trim() || '';
+/** Ссылка строки (только для режима per_bot). */
+export function rowTargetUrl(row) {
+  return row.targetUrl?.trim() || '';
 }

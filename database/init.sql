@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     resource_url TEXT,
     referral_endpoint_url TEXT,
     referral_api_key TEXT,
+    referral_response_field TEXT,
     default_about_text TEXT,
     default_description TEXT,
     default_welcome_message TEXT,

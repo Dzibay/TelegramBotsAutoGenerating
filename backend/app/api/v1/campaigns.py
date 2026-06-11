@@ -104,6 +104,7 @@ async def update_campaign(
         resource_url=body.resource_url,
         referral_endpoint_url=body.referral_endpoint_url,
         referral_api_key=body.referral_api_key,
+        referral_response_field=body.referral_response_field,
         niche_description=body.niche_description,
         keywords=body.keywords,
         default_about_text=body.default_about_text,

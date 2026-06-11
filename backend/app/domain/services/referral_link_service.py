@@ -43,9 +43,23 @@ def _normalize_username(username: str) -> str:
     return uname
 
 
-def _parse_link_response(resp: httpx.Response) -> str:
+def _get_nested_str(data: dict, path: str) -> str | None:
+    """Достаёт строку по пути вида data.link или referral_url."""
+    cur: Any = data
+    for part in path.split("."):
+        part = part.strip()
+        if not part or not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    if isinstance(cur, str) and cur.strip():
+        return cur.strip()
+    return None
+
+
+def _parse_link_response(resp: httpx.Response, *, response_field: str | None = None) -> str:
     text = (resp.text or "").strip()
     content_type = (resp.headers.get("content-type") or "").lower()
+    field = (response_field or "").strip()
 
     if "json" in content_type or text.startswith("{"):
         try:
@@ -55,6 +69,13 @@ def _parse_link_response(resp: httpx.Response) -> str:
         if isinstance(data, str) and data.strip():
             return bot_promo_service.normalize_target_url(data.strip())
         if isinstance(data, dict):
+            if field:
+                val = _get_nested_str(data, field)
+                if val:
+                    return bot_promo_service.normalize_target_url(val)
+                raise BadRequestError(
+                    f"В ответе API нет поля «{field}» со ссылкой"
+                )
             for key in _LINK_JSON_KEYS:
                 val = data.get(key)
                 if isinstance(val, str) and val.strip():
@@ -66,10 +87,20 @@ def _parse_link_response(resp: httpx.Response) -> str:
     if text.startswith("http"):
         return bot_promo_service.normalize_target_url(text.split()[0])
 
+    if field:
+        raise BadRequestError(
+            f"Ответ не JSON — поле «{field}» можно указать только для JSON-ответов"
+        )
     raise BadRequestError("Эндпоинт не вернул ссылку (ожидается URL или JSON с полем url/link)")
 
 
-async def fetch_referral_link(endpoint_url: str, api_key: str, username: str) -> str:
+async def fetch_referral_link(
+    endpoint_url: str,
+    api_key: str,
+    username: str,
+    *,
+    response_field: str | None = None,
+) -> str:
     """POST {"token": username} + заголовок X-API-Key → URL реферальной ссылки."""
     uname = _normalize_username(username)
     endpoint = endpoint_url.strip()
@@ -95,7 +126,7 @@ async def fetch_referral_link(endpoint_url: str, api_key: str, username: str) ->
             f"Не удалось получить реферальную ссылку для @{uname}: {exc}"
         ) from exc
 
-    link = _parse_link_response(resp)
+    link = _parse_link_response(resp, response_field=response_field)
     logger.info("Referral link for @%s: %s", uname, link[:80])
     return link
 
@@ -119,6 +150,7 @@ async def resolve_bot_links(
             campaign["referral_endpoint_url"],
             campaign["referral_api_key"],
             username,
+            response_field=campaign.get("referral_response_field"),
         )
         return bot_promo_service.prepare_bot_links(
             link_mode=bot_promo_service.LINK_MODE_DIRECT,

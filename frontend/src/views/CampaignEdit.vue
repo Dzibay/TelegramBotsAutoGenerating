@@ -19,7 +19,10 @@
         </p>
       </div>
 
-      <details class="referral-block" :open="referralEndpointUrl || referralApiKey">
+      <details
+        class="referral-block"
+        :open="referralEndpointUrl || referralApiKey || referralResponseField"
+      >
         <summary>Реферальные ссылки через API</summary>
         <p class="field-hint block-hint">
           После создания бота в BotFather сервер запросит уникальную ссылку для каждого username
@@ -46,10 +49,31 @@
           />
           <p class="field-hint">Передаётся в заголовке <code>X-API-Key</code>.</p>
         </div>
-        <p class="field-hint">
-          Ответ: URL в теле (текст) или JSON с полем <code>url</code> / <code>link</code> /
-          <code>referral_url</code>.
-        </p>
+        <div class="form-group">
+          <label>Поле в ответе API</label>
+          <input
+            v-model="referralResponseField"
+            type="text"
+            maxlength="64"
+            placeholder="referral_url или data.link"
+          />
+          <p class="field-hint">
+            Имя поля со ссылкой в JSON-ответе. Пусто — авто: <code>url</code>, <code>link</code>,
+            <code>referral_url</code>. Для вложенных объектов: <code>data.url</code>.
+          </p>
+        </div>
+        <p v-if="referralSaveError" class="error-text">{{ referralSaveError }}</p>
+        <p v-if="referralSaved" class="success-text">Настройки API сохранены</p>
+        <div class="referral-actions">
+          <button
+            type="button"
+            class="btn btn-sm"
+            :disabled="savingReferral"
+            @click="onSaveReferral"
+          >
+            {{ savingReferral ? 'Сохранение…' : 'Сохранить настройки API' }}
+          </button>
+        </div>
       </details>
 
       <div class="form-group">
@@ -128,6 +152,10 @@ const defaultDescription = ref('');
 const defaultWelcomeMessage = ref('');
 const referralEndpointUrl = ref('');
 const referralApiKey = ref('');
+const referralResponseField = ref('');
+const savingReferral = ref(false);
+const referralSaveError = ref(null);
+const referralSaved = ref(false);
 
 async function load() {
   loading.value = true;
@@ -141,10 +169,33 @@ async function load() {
     defaultWelcomeMessage.value = campaign.default_welcome_message || '';
     referralEndpointUrl.value = campaign.referral_endpoint_url || '';
     referralApiKey.value = campaign.referral_api_key || '';
+    referralResponseField.value = campaign.referral_response_field || '';
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
     loading.value = false;
+  }
+}
+
+function referralPayload() {
+  return {
+    referral_endpoint_url: referralEndpointUrl.value.trim() || null,
+    referral_api_key: referralApiKey.value.trim() || null,
+    referral_response_field: referralResponseField.value.trim() || null,
+  };
+}
+
+async function onSaveReferral() {
+  savingReferral.value = true;
+  referralSaveError.value = null;
+  referralSaved.value = false;
+  try {
+    await campaignService.update(id.value, referralPayload());
+    referralSaved.value = true;
+  } catch (e) {
+    referralSaveError.value = e.response?.data?.error || 'Ошибка сохранения';
+  } finally {
+    savingReferral.value = false;
   }
 }
 
@@ -159,8 +210,7 @@ async function onSave() {
       default_about_text: defaultAboutText.value.trim() || null,
       default_description: defaultDescription.value.trim() || null,
       default_welcome_message: defaultWelcomeMessage.value.trim() || null,
-      referral_endpoint_url: referralEndpointUrl.value.trim() || null,
-      referral_api_key: referralApiKey.value.trim() || null,
+      ...referralPayload(),
     });
     router.push({ name: 'campaign-workspace', params: { id: id.value } });
   } catch (e) {
@@ -198,5 +248,17 @@ onMounted(load);
 
 .block-hint {
   margin: 0 0 0.75rem;
+}
+
+.referral-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.success-text {
+  margin: 0.5rem 0 0;
+  color: var(--success);
+  font-size: 0.875rem;
 }
 </style>

@@ -24,6 +24,7 @@ def _campaign_row(row: dict[str, Any]) -> dict[str, Any]:
         "resource_url": row.get("resource_url"),
         "referral_endpoint_url": row.get("referral_endpoint_url"),
         "referral_api_key": row.get("referral_api_key"),
+        "referral_response_field": row.get("referral_response_field"),
         "default_about_text": row.get("default_about_text"),
         "default_description": row.get("default_description"),
         "default_welcome_message": row.get("default_welcome_message"),
@@ -44,6 +45,7 @@ async def create_campaign(
     *,
     referral_endpoint_url: str | None = None,
     referral_api_key: str | None = None,
+    referral_response_field: str | None = None,
     default_about_text: str | None = None,
     default_description: str | None = None,
     default_welcome_message: str | None = None,
@@ -54,12 +56,12 @@ async def create_campaign(
         """
         INSERT INTO campaigns (
             title, niche_description, keywords, resource_url,
-            referral_endpoint_url, referral_api_key,
+            referral_endpoint_url, referral_api_key, referral_response_field,
             default_about_text, default_description, default_welcome_message
         )
-        VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, title, niche_description, keywords, resource_url,
-                  referral_endpoint_url, referral_api_key,
+                  referral_endpoint_url, referral_api_key, referral_response_field,
                   default_about_text, default_description, default_welcome_message,
                   status, created_at, updated_at
         """,
@@ -69,6 +71,7 @@ async def create_campaign(
         resource,
         _optional_text(referral_endpoint_url),
         _optional_text(referral_api_key),
+        _optional_text(referral_response_field),
         _optional_text(default_about_text),
         _optional_text(default_description),
         _optional_text(default_welcome_message),
@@ -133,6 +136,7 @@ async def update_campaign(
     resource_url: str | None = None,
     referral_endpoint_url: str | None = None,
     referral_api_key: str | None = None,
+    referral_response_field: str | None = None,
     niche_description: str | None = None,
     keywords: list[str] | None = None,
     default_about_text: str | None = None,
@@ -155,6 +159,9 @@ async def update_campaign(
     if referral_api_key is not None:
         params.append(_optional_text(referral_api_key))
         updates.append(f"referral_api_key = ${len(params)}")
+    if referral_response_field is not None:
+        params.append(_optional_text(referral_response_field))
+        updates.append(f"referral_response_field = ${len(params)}")
     if niche_description is not None:
         niche = niche_description.strip() or None
         params.append(niche)

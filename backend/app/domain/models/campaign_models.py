@@ -10,6 +10,7 @@ class CampaignCreateRequest(BaseModel):
     resource_url: Optional[str] = Field(None, max_length=2048)
     referral_endpoint_url: Optional[str] = Field(None, max_length=2048)
     referral_api_key: Optional[str] = Field(None, max_length=512)
+    referral_response_field: Optional[str] = Field(None, max_length=64)
     default_about_text: Optional[str] = Field(None, max_length=120)
     default_description: Optional[str] = Field(None, max_length=512)
     default_welcome_message: Optional[str] = Field(None, max_length=2000)

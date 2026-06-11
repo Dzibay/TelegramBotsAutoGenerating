@@ -482,9 +482,9 @@ async def create_bot(
                 or f"telegram bot banner icon {keyword or display_name}",
             )
             await pace_botfather_op()
-            await set_bot_description(client, final_username, description)
+            await set_bot_description(client, final_username, description.format(link=public_link))
             await pace_botfather_op()
-            await set_bot_about(client, final_username, about_final)
+            await set_bot_about(client, final_username, about_final.format(link=public_link))
 
         status = "active" if auto_start and token else "stopped"
         if not create_via_botfather:
@@ -738,8 +738,8 @@ async def _sync_botfather_promo(
         )
         client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
         await set_bot_name(client, row["username"], row["display_name"])
-        await set_bot_description(client, row["username"], description)
-        await set_bot_about(client, row["username"], about)
+        await set_bot_description(client, row["username"], description.format(link=public_link))
+        await set_bot_about(client, row["username"], about.format(link=public_link))
         if generate_avatar:
             path = await _apply_bot_avatar(
                 client,

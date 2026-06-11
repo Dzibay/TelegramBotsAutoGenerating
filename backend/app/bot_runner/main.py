@@ -78,7 +78,7 @@ def _welcome_reply_markup(bot_info: dict):
 
 async def _send_welcome(message, bot_info: dict) -> None:
     markup = _welcome_reply_markup(bot_info)
-    await message.answer(bot_info["welcome_message"], reply_markup=markup)
+    await message.answer(bot_info["welcome_message"].format(link=bot_info['public_link']), reply_markup=markup)
 
 
 async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:

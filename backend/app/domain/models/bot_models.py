@@ -44,6 +44,10 @@ class BotCreateRequest(BaseModel):
     create_via_botfather: bool = True
     auto_start: bool = False
     generate_avatar: bool = Field(True, description="Сгенерировать аватар AI, если файл не загружен")
+    use_referral_api: Optional[bool] = Field(
+        None,
+        description="True — ссылки через API кампании; False — из target_url; None — по настройкам кампании",
+    )
 
     @field_validator("username", mode="before")
     @classmethod

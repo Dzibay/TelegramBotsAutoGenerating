@@ -56,5 +56,9 @@ class StartManualBulkRequest(BaseModel):
     default_target_url: Optional[str] = Field(None, max_length=2048)
     link_mode: str = Field("redirect", max_length=32)
     auto_start: bool = True
+    use_referral_api: Optional[bool] = Field(
+        None,
+        description="True — ссылки через API кампании; False — из формы; None — по настройкам кампании",
+    )
     shared_texts: ManualSharedTexts
     bots: list[ManualBotItem] = Field(..., min_length=1, max_length=50)

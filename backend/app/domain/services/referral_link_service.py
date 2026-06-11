@@ -1,5 +1,6 @@
 """Запрос уникальной реферальной ссылки у внешнего API после создания бота в BotFather."""
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -118,8 +119,24 @@ async def fetch_referral_link(
         ) from exc
     except httpx.HTTPStatusError as exc:
         body = (exc.response.text or "")[:200]
+        host = urlparse(endpoint).netloc or endpoint[:48]
+        hint = ""
+        if exc.response.status_code == 404:
+            hint = (
+                " Проверьте URL эндпоинта в настройках кампании "
+                "или выберите «Ссылки вручную» при массовом создании."
+            )
+        elif exc.response.status_code in (401, 403):
+            hint = " Проверьте API-ключ в настройках кампании."
         raise BadRequestError(
-            f"Эндпоинт вернул HTTP {exc.response.status_code} для @{uname}: {body}"
+            f"Реферальный API ({host}): HTTP {exc.response.status_code} для @{uname}.{hint} "
+            f"Ответ: {body}",
+            details={
+                "step": "referral_fetch",
+                "http_status": exc.response.status_code,
+                "username": uname,
+                "endpoint_host": host,
+            },
         ) from exc
     except httpx.HTTPError as exc:
         raise BadRequestError(
@@ -138,12 +155,18 @@ async def resolve_bot_links(
     target_url: str | None = None,
     link_mode: str = bot_promo_service.LINK_MODE_REDIRECT,
     redirect_slug: str | None = None,
+    use_referral_api: bool | None = None,
 ) -> dict[str, Any]:
     """
-    Ссылки для бота. Если в кампании настроен эндпоинт — запрашивает уникальную ссылку по username.
+    Ссылки для бота. Если включён реферальный API — запрашивает уникальную ссылку по username.
     Иначе — стандартный трекинг / прямая ссылка из target_url.
     """
-    if is_referral_configured(campaign):
+    use_referral = (
+        use_referral_api
+        if use_referral_api is not None
+        else is_referral_configured(campaign)
+    )
+    if use_referral:
         if not username:
             raise BadRequestError("Для реферального эндпоинта нужен username бота после создания в BotFather")
         link = await fetch_referral_link(

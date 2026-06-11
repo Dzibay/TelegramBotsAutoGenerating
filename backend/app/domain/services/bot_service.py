@@ -1,7 +1,7 @@
 """CRUD ботов, AI-черновики, создание через BotFather."""
 import asyncio
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 from app.config import Config
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
@@ -30,6 +30,45 @@ from app.infrastructure.telegram.botfather_pacing import pace_botfather_op
 from app.utils.crypto import decrypt_token, encrypt_token
 from app.utils.telegram_username import build_username_from_keyword, normalize_bot_username
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
+
+OnStepCallback = Callable[[str, str], Awaitable[None]]
+
+CREATION_STEP_LABELS = {
+    "username": "Подбор username",
+    "botfather_create": "BotFather",
+    "referral_fetch": "Реферальная ссылка",
+    "links": "Ссылки",
+    "avatar": "Аватар",
+    "botfather_texts": "Тексты в BotFather",
+    "db_save": "Сохранение",
+}
+
+
+def _wrap_creation_step_error(
+    step_id: str,
+    exc: Exception,
+    *,
+    botfather_created: bool = False,
+    username: str | None = None,
+) -> BadRequestError:
+    label = CREATION_STEP_LABELS.get(step_id, step_id)
+    if isinstance(exc, BadRequestError):
+        details = dict(exc.details or {})
+        details.setdefault("step", step_id)
+        if botfather_created:
+            details["botfather_created"] = True
+        if username:
+            details["username"] = username
+        msg = exc.message
+        if label not in msg:
+            msg = f"{label}: {msg}"
+        return BadRequestError(msg, details=details)
+    details: dict[str, Any] = {"step": step_id}
+    if botfather_created:
+        details["botfather_created"] = True
+    if username:
+        details["username"] = username
+    return BadRequestError(f"{label}: {exc}", details=details)
 
 
 def _iso(dt) -> Optional[str]:
@@ -408,6 +447,8 @@ async def create_bot(
     avatar_bytes: Optional[bytes] = None,
     generate_avatar: bool = True,
     telethon_client=None,
+    use_referral_api: bool | None = None,
+    on_step: OnStepCallback | None = None,
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     account = await _get_account_for_campaign(campaign_id, telegram_account_id)
@@ -430,6 +471,17 @@ async def create_bot(
     about_final = ""
     promo: dict[str, str] = {}
     final_username = normalize_bot_username(username)
+    botfather_created = False
+
+    async def _step(msg: str, step_id: str = "") -> None:
+        if on_step:
+            await on_step(msg, step_id)
+
+    use_referral = (
+        use_referral_api
+        if use_referral_api is not None
+        else referral_link_service.is_referral_configured(campaign)
+    )
 
     try:
         if create_via_botfather:
@@ -438,12 +490,19 @@ async def create_bot(
                     Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{telegram_account_id}.session"
                 )
                 client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+            requested_username = normalize_bot_username(username)
+            await _step(f"Подбор username (запрошен @{requested_username})…", "username")
             final_username = await username_service.allocate_unique_username(
                 kw_for_user,
                 preferred=username,
                 campaign_id=campaign_id,
                 telethon_client=client,
             )
+            if final_username != requested_username:
+                await _step(
+                    f"Username @{final_username} (запрошен был @{requested_username})",
+                    "username",
+                )
             reserved = await username_service.get_reserved_usernames()
             username_factory = username_service.make_username_factory(
                 kw_for_user,
@@ -451,6 +510,7 @@ async def create_bot(
                 campaign_id=campaign_id,
                 reserved=reserved,
             )
+            await _step(f"BotFather: создание @{final_username}…", "botfather_create")
             try:
                 result = await create_bot_via_botfather(
                     client,
@@ -461,24 +521,46 @@ async def create_bot(
             except asyncio.InvalidStateError as exc:
                 logger.warning("BotFather conversation race: %s", exc)
                 raise BadRequestError(
-                    "Сбой диалога с BotFather. Подождите минуту и создайте бота снова."
+                    "Сбой диалога с BotFather. Подождите минуту и создайте бота снова.",
+                    details={"step": "botfather_create"},
                 ) from exc
+            except BadRequestError as exc:
+                raise _wrap_creation_step_error("botfather_create", exc, username=final_username)
+            except Exception as exc:
+                raise _wrap_creation_step_error("botfather_create", exc, username=final_username)
             token = result["token"]
             final_username = result["username"]
+            botfather_created = True
+            await _step(f"BotFather: бот создан @{final_username}", "botfather_create")
             await pace_botfather_op()
 
-            links = await referral_link_service.resolve_bot_links(
-                campaign,
-                username=final_username,
-                target_url=target_url,
-                link_mode=link_mode,
-                redirect_slug=redirect_slug,
-            )
+            if use_referral:
+                await _step(f"Запрос реферальной ссылки для @{final_username}…", "referral_fetch")
+            else:
+                await _step("Подготовка ссылок из настроек партии…", "links")
+            try:
+                links = await referral_link_service.resolve_bot_links(
+                    campaign,
+                    username=final_username,
+                    target_url=target_url,
+                    link_mode=link_mode,
+                    redirect_slug=redirect_slug,
+                    use_referral_api=use_referral,
+                )
+            except BadRequestError as exc:
+                raise _wrap_creation_step_error(
+                    "referral_fetch" if use_referral else "links",
+                    exc,
+                    botfather_created=True,
+                    username=final_username,
+                )
             target = links["target_url"]
             slug = links["redirect_slug"]
             tracking_url = links["tracking_url"]
             public_link = links["public_link"]
             mode = links["link_mode"]
+            link_preview = public_link[:72] + ("…" if len(public_link) > 72 else "")
+            await _step(f"Ссылки готовы: {link_preview}", "links")
 
             texts = bot_promo_service.finalize_bot_texts(
                 description=desc_input,
@@ -502,25 +584,44 @@ async def create_bot(
                 link_mode=mode,
             )
 
-            avatar_path = await _apply_bot_avatar(
-                client,
-                campaign_id,
-                final_username,
-                avatar_bytes=avatar_bytes,
-                generate_avatar=generate_avatar and not avatar_bytes,
-                avatar_prompt=promo.get("avatar_prompt")
-                or f"telegram bot banner icon {keyword or display_name}",
-            )
+            await _step("Установка аватара…", "avatar")
+            try:
+                avatar_path = await _apply_bot_avatar(
+                    client,
+                    campaign_id,
+                    final_username,
+                    avatar_bytes=avatar_bytes,
+                    generate_avatar=generate_avatar and not avatar_bytes,
+                    avatar_prompt=promo.get("avatar_prompt")
+                    or f"telegram bot banner icon {keyword or display_name}",
+                )
+            except Exception as exc:
+                raise _wrap_creation_step_error(
+                    "avatar",
+                    exc,
+                    botfather_created=True,
+                    username=final_username,
+                )
             await pace_botfather_op()
-            await set_bot_description(client, final_username, description.format(link=public_link))
-            await pace_botfather_op()
-            await set_bot_about(client, final_username, about_final.format(link=public_link))
+            await _step("Описание и About в BotFather…", "botfather_texts")
+            try:
+                await set_bot_description(client, final_username, description.format(link=public_link))
+                await pace_botfather_op()
+                await set_bot_about(client, final_username, about_final.format(link=public_link))
+            except Exception as exc:
+                raise _wrap_creation_step_error(
+                    "botfather_texts",
+                    exc,
+                    botfather_created=True,
+                    username=final_username,
+                )
         else:
             links = await referral_link_service.resolve_bot_links(
                 campaign,
                 target_url=target_url,
                 link_mode=link_mode,
                 redirect_slug=redirect_slug,
+                use_referral_api=use_referral,
             )
             target = links["target_url"]
             slug = links["redirect_slug"]
@@ -547,6 +648,7 @@ async def create_bot(
         if not create_via_botfather:
             raise BadRequestError("Создание только через BotFather (укажите create_via_botfather=true)")
 
+        await _step("Сохранение бота в базу…", "db_save")
         token_enc = encrypt_token(token) if token else None
         row = await db.fetch_one(
             """

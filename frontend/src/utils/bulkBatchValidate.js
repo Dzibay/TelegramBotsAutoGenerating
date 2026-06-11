@@ -57,7 +57,8 @@ export function validateBulkBatch(rows, readyAccounts) {
  * Проверки ручной массовой партии (один аккаунт, общие тексты).
  * @returns {{ errors: string[], warnings: string[] }}
  */
-export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl = '') {
+export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl = '', options = {}) {
+  const { requireUrls = true } = options;
   const errors = [];
   const warnings = [];
 
@@ -107,7 +108,7 @@ export function validateManualBulkBatch(rows, account, sharedTexts, defaultUrl =
   }
 
   const withoutUrl = readyRows.filter((r) => !rowTargetUrl(r, defaultUrl)?.trim());
-  if (withoutUrl.length) {
+  if (requireUrls && withoutUrl.length) {
     errors.push('Укажите ссылку на сервис (общую или для каждого бота).');
   }
 

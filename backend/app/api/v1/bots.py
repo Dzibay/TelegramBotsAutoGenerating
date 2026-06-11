@@ -132,6 +132,7 @@ async def create_bot(
         auto_start=body.auto_start,
         avatar_bytes=avatar_bytes,
         generate_avatar=body.generate_avatar and not avatar_bytes,
+        use_referral_api=body.use_referral_api,
     )
     return success_response(data={"bot": bot}, message=SuccessMessages.BOT_CREATED)
 

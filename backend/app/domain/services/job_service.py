@@ -199,7 +199,16 @@ async def start_manual_creation_job(
             f"В партии {len(bots)} ботов, свободно слотов на аккаунте: {slots}."
         )
 
-    use_referral = referral_link_service.is_referral_configured(campaign)
+    use_referral = (
+        body.use_referral_api
+        if body.use_referral_api is not None
+        else referral_link_service.is_referral_configured(campaign)
+    )
+    if body.use_referral_api is True and not referral_link_service.is_referral_configured(campaign):
+        raise BadRequestError(
+            "Реферальный API не настроен в кампании. "
+            "Укажите эндпоинт и ключ в настройках или выберите «Ссылки вручную»."
+        )
     if use_referral:
         raw_default = (body.default_target_url or campaign.get("resource_url") or "").strip()
         default_url = (
@@ -208,9 +217,12 @@ async def start_manual_creation_job(
             else "https://referral.pending"
         )
     else:
-        if not (body.default_target_url or "").strip():
+        if not (body.default_target_url or "").strip() and not campaign.get("resource_url"):
             raise BadRequestError("Укажите ссылку на сервис по умолчанию")
-        default_url = bot_promo_service.normalize_target_url(body.default_target_url)
+        if not (body.default_target_url or "").strip():
+            default_url = bot_promo_service.normalize_target_url(campaign["resource_url"])
+        else:
+            default_url = bot_promo_service.normalize_target_url(body.default_target_url)
     usernames_seen: set[str] = set()
     manual_plans: list[dict[str, Any]] = []
 
@@ -239,6 +251,7 @@ async def start_manual_creation_job(
                 "welcome_button_text": body.shared_texts.welcome_button_text,
                 "link_mode": bot_promo_service.normalize_link_mode(body.link_mode),
                 "auto_start": body.auto_start,
+                "use_referral_api": use_referral,
                 "avatar_path": None,
             }
         )

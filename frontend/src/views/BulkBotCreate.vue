@@ -61,13 +61,23 @@
           </p>
         </div>
 
-        <p v-if="usesReferralApi" class="info-banner">
-          Включён реферальный API: для каждого бота после создания в BotFather будет запрошена
-          уникальная ссылка и подставлена в тексты. Общая ссылка ниже не обязательна.
+        <p v-if="usesReferralApi" class="link-source-block">
+          <span class="block-label">Источник ссылок для ботов</span>
+          <label class="radio-opt">
+            <input v-model="linkSource" type="radio" value="referral" />
+            Автоматически через API кампании
+          </label>
+          <label class="radio-opt">
+            <input v-model="linkSource" type="radio" value="manual" />
+            Вручную — общая или своя ссылка для каждого бота
+          </label>
+          <span v-if="useReferralLinks" class="field-hint">
+            После создания в BotFather для каждого бота будет запрошена уникальная ссылка.
+          </span>
         </p>
 
         <div
-          v-if="campaignResourceUrl && !useCustomUrl && !usesReferralApi"
+          v-if="campaignResourceUrl && !useCustomUrl && !useReferralLinks"
           class="url-from-campaign card-inner"
         >
           <label>Ссылка на сервис по умолчанию</label>
@@ -76,11 +86,11 @@
           </p>
           <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для партии</button>
         </div>
-        <div v-else-if="!usesReferralApi || useCustomUrl" class="form-group">
-          <label>Ссылка на сервис по умолчанию{{ usesReferralApi ? '' : ' *' }}</label>
+        <div v-else-if="!useReferralLinks || useCustomUrl" class="form-group">
+          <label>Ссылка на сервис по умолчанию{{ useReferralLinks ? '' : ' *' }}</label>
           <input v-model="targetUrl" type="url" placeholder="https://example.com" />
           <p class="field-hint">
-            {{ usesReferralApi
+            {{ useReferralLinks
               ? 'Необязательно: реферальные ссылки придут с API.'
               : 'Используется, если у бота не указана своя ссылка.' }}
           </p>
@@ -176,10 +186,12 @@
                   @input="row.username = $event.target.value.replace(/^@/, '')"
                 />
                 <input
+                  v-if="!useReferralLinks"
                   v-model="row.targetUrl"
                   type="url"
                   :placeholder="effectiveTargetUrl || 'Своя ссылка'"
                 />
+                <span v-else class="muted link-api-hint">через API</span>
                 <button
                   type="button"
                   class="btn btn-xs btn-ghost danger"
@@ -297,8 +309,20 @@
         Таблица ботов: аккаунт, фраза для AI, имя и username. Фраза нужна только для генерации текстов нейросетью.
       </p>
 
+      <p v-if="usesReferralApi" class="link-source-block">
+        <span class="block-label">Источник ссылок для ботов</span>
+        <label class="radio-opt">
+          <input v-model="linkSource" type="radio" value="referral" />
+          Автоматически через API кампании
+        </label>
+        <label class="radio-opt">
+          <input v-model="linkSource" type="radio" value="manual" />
+          Вручную — ссылка из формы ниже
+        </label>
+      </p>
+
       <div
-        v-if="campaignResourceUrl && !useCustomUrl"
+        v-if="campaignResourceUrl && !useCustomUrl && !useReferralLinks"
         class="url-from-campaign card-inner"
       >
         <label>Ссылка на сервис</label>
@@ -307,7 +331,7 @@
         </p>
         <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для этой партии</button>
       </div>
-      <div v-else class="form-group">
+      <div v-else-if="!useReferralLinks || useCustomUrl" class="form-group">
         <label>Ссылка на сервис *</label>
         <input v-model="targetUrl" type="url" placeholder="https://example.com" />
         <button v-if="campaignResourceUrl" type="button" class="link-btn" @click="useCampaignUrl">
@@ -538,6 +562,7 @@ const campaignResourceUrl = ref('');
 const useCustomUrl = ref(false);
 const targetUrl = ref('');
 const linkMode = ref('redirect');
+const linkSource = ref('referral');
 const accountId = ref(null);
 const autoStart = ref(true);
 
@@ -591,6 +616,10 @@ const usesReferralApi = computed(
     !!(campaign.value?.referral_endpoint_url?.trim() && campaign.value?.referral_api_key?.trim())
 );
 
+const useReferralLinks = computed(
+  () => usesReferralApi.value && linkSource.value === 'referral'
+);
+
 const effectiveTargetUrl = computed(() => {
   if (campaignResourceUrl.value && !useCustomUrl.value) return campaignResourceUrl.value;
   return targetUrl.value;
@@ -608,7 +637,8 @@ const manualValidation = computed(() =>
     manualRows.value,
     selectedAccount.value,
     sharedTexts.value,
-    effectiveTargetUrl.value
+    effectiveTargetUrl.value,
+    { requireUrls: !useReferralLinks.value }
   )
 );
 
@@ -622,7 +652,7 @@ const canGoStep2 = computed(
     selectedAccount.value &&
     sharedTexts.value.description?.trim() &&
     sharedTexts.value.welcome_message?.trim() &&
-    (usesReferralApi.value || effectiveTargetUrl.value.trim() || campaignResourceUrl.value)
+    (useReferralLinks.value || effectiveTargetUrl.value.trim() || campaignResourceUrl.value)
 );
 
 const canGoStep3 = computed(
@@ -689,7 +719,7 @@ const aiLinkPreview = computed(() => {
 
 const canGenerate = computed(
   () =>
-    effectiveTargetUrl.value.trim() &&
+    (useReferralLinks.value || effectiveTargetUrl.value.trim()) &&
     readyAccounts.value.length &&
     rowsAiReadyCount.value > 0 &&
     !aiValidation.value.errors.length
@@ -969,6 +999,7 @@ async function startManualCreation() {
       default_target_url: effectiveTargetUrl.value.trim(),
       link_mode: linkMode.value,
       auto_start: autoStart.value,
+      use_referral_api: useReferralLinks.value,
       shared_texts: sharedTexts.value,
       bots: rowsToCreate.map((r) => ({
         row_id: r.id,
@@ -1101,10 +1132,11 @@ async function generateAll() {
 
 function buildAiCreateSpec(row) {
   const d = row.draft;
+  const url = effectiveTargetUrl.value.trim();
   return {
     campaign_id: campaignId.value,
     telegram_account_id: row.accountId,
-    target_url: effectiveTargetUrl.value.trim(),
+    target_url: useReferralLinks.value ? url || 'https://referral.pending' : url,
     display_name: d.display_name.trim(),
     username: d.username.replace(/^@/, '').trim(),
     description: d.description,
@@ -1118,6 +1150,7 @@ function buildAiCreateSpec(row) {
     create_via_botfather: true,
     auto_start: autoStart.value,
     generate_avatar: true,
+    use_referral_api: useReferralLinks.value,
   };
 }
 
@@ -1256,6 +1289,35 @@ onUnmounted(() => {
 
 .block-hint {
   margin: 0 0 1rem;
+}
+
+.link-source-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.link-source-block .block-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.radio-opt {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.link-api-hint {
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .slots-hint strong {

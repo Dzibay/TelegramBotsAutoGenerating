@@ -43,7 +43,7 @@
           <label>API-ключ</label>
           <input
             v-model="referralApiKey"
-            type="password"
+            type="text"
             autocomplete="off"
             placeholder="Секретный ключ"
           />

@@ -35,6 +35,34 @@ FLOOD_MAX_RETRIES = 8
 # Дольше этого не ждём внутри задачи — отдаём ошибку, чтобы не висеть часами.
 FLOOD_MAX_WAIT_SEC = 600
 
+CREATION_STEP_LABELS = {
+    "username": "Подбор username",
+    "botfather_create": "BotFather",
+    "referral_fetch": "Реферальная ссылка",
+    "links": "Ссылки",
+    "avatar": "Аватар",
+    "botfather_texts": "Тексты в BotFather",
+    "db_save": "Сохранение",
+}
+
+
+def _format_creation_error(exc: Exception) -> str:
+    msg = getattr(exc, "message", None) or str(exc)
+    details = getattr(exc, "details", None) or {}
+    step = details.get("step")
+    if step in CREATION_STEP_LABELS and CREATION_STEP_LABELS[step] not in msg:
+        msg = f"{CREATION_STEP_LABELS[step]}: {msg}"
+    if details.get("botfather_created"):
+        bf_user = details.get("username")
+        hint = (
+            f" Бот уже создан в BotFather (@{bf_user}) — проверьте API или удалите бота в @BotFather."
+            if bf_user
+            else " Бот уже создан в BotFather — проверьте настройки или удалите его в @BotFather."
+        )
+        if hint.strip() not in msg:
+            msg += hint
+    return msg[:500]
+
 
 class CreationPipeline:
     def __init__(
@@ -224,6 +252,11 @@ class CreationPipeline:
             f"Ручная партия: {len(plans)} бот(ов) на {label}",
             progress=f"0/{len(plans)}",
         )
+        use_referral = bool(plans[0].get("use_referral_api"))
+        if use_referral:
+            await self.log("Ссылки: автоматически через реферальный API кампании")
+        else:
+            await self.log("Ссылки: из формы (общая или для каждого бота)")
         await db.execute(
             "UPDATE telegram_accounts SET status = 'creating', updated_at = NOW() WHERE id = $1",
             account_id,
@@ -323,14 +356,15 @@ class CreationPipeline:
                         await self._mark_remaining_skipped(plans, idx + 1)
                         break
                     await self.log(
-                        f"[{processed}/{len(plans)}] @{uname} — {exc}",
+                        f"[{processed}/{len(plans)}] @{uname} — {_format_creation_error(exc)}",
                         level="error",
                         context={
                             "row_id": row_id,
                             "plan_index": idx,
                             "username": uname,
                             "status": "error",
-                            "error": str(exc)[:300],
+                            "error": _format_creation_error(exc),
+                            "step": (getattr(exc, "details", None) or {}).get("step"),
                         },
                     )
 
@@ -384,6 +418,16 @@ class CreationPipeline:
                     avatar_bytes=avatar_bytes,
                     generate_avatar=False,
                     telethon_client=client,
+                    use_referral_api=plan.get("use_referral_api"),
+                    on_step=lambda msg, step: self.log(
+                        msg,
+                        context={
+                            "row_id": plan.get("row_id"),
+                            "username": plan.get("username"),
+                            "status": "creating",
+                            "step": step or None,
+                        },
+                    ),
                 )
             except BadRequestError as exc:
                 details = exc.details or {}

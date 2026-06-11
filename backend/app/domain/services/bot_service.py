@@ -8,7 +8,13 @@ from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
-from app.domain.services import account_service, bot_promo_service, campaign_service, username_service
+from app.domain.services import (
+    account_service,
+    bot_promo_service,
+    campaign_service,
+    referral_link_service,
+    username_service,
+)
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.bot_api import telegram_bot_url, verify_bot_token
@@ -229,16 +235,24 @@ async def generate_bot_draft(
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
     await _get_account_for_campaign(campaign_id, telegram_account_id)
-    links = bot_promo_service.prepare_bot_links(
-        link_mode=link_mode,
-        target_url=target_url,
-        redirect_slug=redirect_slug,
-    )
-    target = links["target_url"]
-    slug = links["redirect_slug"]
-    tracking_url = links["tracking_url"]
-    public_link = links["public_link"]
-    mode = links["link_mode"]
+    use_referral = referral_link_service.is_referral_configured(campaign)
+    if use_referral:
+        public_link = referral_link_service.referral_preview_link()
+        target = public_link
+        slug = None
+        tracking_url = None
+        mode = bot_promo_service.LINK_MODE_DIRECT
+    else:
+        links = bot_promo_service.prepare_bot_links(
+            link_mode=link_mode,
+            target_url=target_url,
+            redirect_slug=redirect_slug,
+        )
+        target = links["target_url"]
+        slug = links["redirect_slug"]
+        tracking_url = links["tracking_url"]
+        public_link = links["public_link"]
+        mode = links["link_mode"]
 
     kw = (keyword or "").strip()
     if not kw:
@@ -370,6 +384,7 @@ async def generate_bot_draft(
             if ai_fallback
             else None
         ),
+        "referral_pending": use_referral,
     }
 
 
@@ -398,44 +413,23 @@ async def create_bot(
     account = await _get_account_for_campaign(campaign_id, telegram_account_id)
     account = await account_service.ensure_ready_for_bot_creation(account)
 
-    links = bot_promo_service.prepare_bot_links(
-        link_mode=link_mode,
-        target_url=target_url,
-        redirect_slug=redirect_slug,
-    )
-    target = links["target_url"]
-    slug = links["redirect_slug"]
-    tracking_url = links["tracking_url"]
-    public_link = links["public_link"]
-    mode = links["link_mode"]
-
-    texts = bot_promo_service.finalize_bot_texts(
-        description=description,
-        about_text=about_text,
-        welcome_message=welcome_message,
-        public_link=public_link,
-        link_mode=mode,
-        target_url=target,
-        tracking_url=tracking_url,
-        display_name=display_name,
-        keyword=keyword or "",
-        campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
-    )
-    description = texts["description"] or ""
-    welcome_message = texts["welcome_message"] or ""
-    about_final = texts["about_text"] or ""
     kw_for_user = (keyword or "").strip() or display_name
-    promo = bot_promo_service.build_promo_texts(
-        public_link=public_link,
-        display_name=display_name,
-        keyword=kw_for_user,
-        link_mode=mode,
-    )
+    desc_input = description
+    welcome_input = welcome_message
+    about_input = about_text
 
     token = None
     avatar_path = None
     client = telethon_client
     owns_client = client is None
+    target = ""
+    slug = None
+    tracking_url = None
+    public_link = ""
+    mode = bot_promo_service.normalize_link_mode(link_mode)
+    about_final = ""
+    promo: dict[str, str] = {}
+    final_username = normalize_bot_username(username)
 
     try:
         if create_via_botfather:
@@ -472,6 +466,42 @@ async def create_bot(
             token = result["token"]
             final_username = result["username"]
             await pace_botfather_op()
+
+            links = await referral_link_service.resolve_bot_links(
+                campaign,
+                username=final_username,
+                target_url=target_url,
+                link_mode=link_mode,
+                redirect_slug=redirect_slug,
+            )
+            target = links["target_url"]
+            slug = links["redirect_slug"]
+            tracking_url = links["tracking_url"]
+            public_link = links["public_link"]
+            mode = links["link_mode"]
+
+            texts = bot_promo_service.finalize_bot_texts(
+                description=desc_input,
+                about_text=about_input,
+                welcome_message=welcome_input,
+                public_link=public_link,
+                link_mode=mode,
+                target_url=target,
+                tracking_url=tracking_url,
+                display_name=display_name,
+                keyword=keyword or "",
+                campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
+            )
+            description = texts["description"] or ""
+            welcome_message = texts["welcome_message"] or ""
+            about_final = texts["about_text"] or ""
+            promo = bot_promo_service.build_promo_texts(
+                public_link=public_link,
+                display_name=display_name,
+                keyword=kw_for_user,
+                link_mode=mode,
+            )
+
             avatar_path = await _apply_bot_avatar(
                 client,
                 campaign_id,
@@ -485,6 +515,33 @@ async def create_bot(
             await set_bot_description(client, final_username, description.format(link=public_link))
             await pace_botfather_op()
             await set_bot_about(client, final_username, about_final.format(link=public_link))
+        else:
+            links = await referral_link_service.resolve_bot_links(
+                campaign,
+                target_url=target_url,
+                link_mode=link_mode,
+                redirect_slug=redirect_slug,
+            )
+            target = links["target_url"]
+            slug = links["redirect_slug"]
+            tracking_url = links["tracking_url"]
+            public_link = links["public_link"]
+            mode = links["link_mode"]
+            texts = bot_promo_service.finalize_bot_texts(
+                description=desc_input,
+                about_text=about_input,
+                welcome_message=welcome_input,
+                public_link=public_link,
+                link_mode=mode,
+                target_url=target,
+                tracking_url=tracking_url,
+                display_name=display_name,
+                keyword=keyword or "",
+                campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
+            )
+            description = texts["description"] or ""
+            welcome_message = texts["welcome_message"] or ""
+            about_final = texts["about_text"] or ""
 
         status = "active" if auto_start and token else "stopped"
         if not create_via_botfather:

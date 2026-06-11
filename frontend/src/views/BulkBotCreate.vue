@@ -61,8 +61,13 @@
           </p>
         </div>
 
+        <p v-if="usesReferralApi" class="info-banner">
+          Включён реферальный API: для каждого бота после создания в BotFather будет запрошена
+          уникальная ссылка и подставлена в тексты. Общая ссылка ниже не обязательна.
+        </p>
+
         <div
-          v-if="campaignResourceUrl && !useCustomUrl"
+          v-if="campaignResourceUrl && !useCustomUrl && !usesReferralApi"
           class="url-from-campaign card-inner"
         >
           <label>Ссылка на сервис по умолчанию</label>
@@ -71,10 +76,14 @@
           </p>
           <button type="button" class="link-btn" @click="useCustomUrl = true">Другая ссылка для партии</button>
         </div>
-        <div v-else class="form-group">
-          <label>Ссылка на сервис по умолчанию *</label>
+        <div v-else-if="!usesReferralApi || useCustomUrl" class="form-group">
+          <label>Ссылка на сервис по умолчанию{{ usesReferralApi ? '' : ' *' }}</label>
           <input v-model="targetUrl" type="url" placeholder="https://example.com" />
-          <p class="field-hint">Используется, если у бота не указана своя ссылка.</p>
+          <p class="field-hint">
+            {{ usesReferralApi
+              ? 'Необязательно: реферальные ссылки придут с API.'
+              : 'Используется, если у бота не указана своя ссылка.' }}
+          </p>
           <button v-if="campaignResourceUrl" type="button" class="link-btn" @click="useCampaignUrl">
             ← Вернуть ссылку из кампании
           </button>
@@ -577,6 +586,11 @@ const freeSlots = computed(() => {
   return Math.max(0, selectedAccount.value.max_bots_limit - selectedAccount.value.bots_created);
 });
 
+const usesReferralApi = computed(
+  () =>
+    !!(campaign.value?.referral_endpoint_url?.trim() && campaign.value?.referral_api_key?.trim())
+);
+
 const effectiveTargetUrl = computed(() => {
   if (campaignResourceUrl.value && !useCustomUrl.value) return campaignResourceUrl.value;
   return targetUrl.value;
@@ -608,7 +622,7 @@ const canGoStep2 = computed(
     selectedAccount.value &&
     sharedTexts.value.description?.trim() &&
     sharedTexts.value.welcome_message?.trim() &&
-    (effectiveTargetUrl.value.trim() || campaignResourceUrl.value)
+    (usesReferralApi.value || effectiveTargetUrl.value.trim() || campaignResourceUrl.value)
 );
 
 const canGoStep3 = computed(

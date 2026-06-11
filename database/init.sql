@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
     niche_description TEXT,
     keywords TEXT[] NOT NULL DEFAULT '{}',
     resource_url TEXT,
+    referral_endpoint_url TEXT,
+    referral_api_key TEXT,
     default_about_text TEXT,
     default_description TEXT,
     default_welcome_message TEXT,

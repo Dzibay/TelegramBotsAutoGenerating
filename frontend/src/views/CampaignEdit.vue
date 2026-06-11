@@ -14,8 +14,43 @@
       <div class="form-group">
         <label>Ссылка на рекламируемый сервис</label>
         <input v-model="resourceUrl" type="url" placeholder="https://..." />
-        <p class="field-hint">Используется при массовом и ручном создании ботов</p>
+        <p class="field-hint">
+          Используется, если реферальный эндпоинт не настроен. При эндпоинте — запасной вариант.
+        </p>
       </div>
+
+      <details class="referral-block" :open="referralEndpointUrl || referralApiKey">
+        <summary>Реферальные ссылки через API</summary>
+        <p class="field-hint block-hint">
+          После создания бота в BotFather сервер запросит уникальную ссылку для каждого username
+          и подставит её в описание, about, приветствие и кнопку.
+        </p>
+        <div class="form-group">
+          <label>URL эндпоинта</label>
+          <input
+            v-model="referralEndpointUrl"
+            type="url"
+            placeholder="https://api.example.com/referral"
+          />
+          <p class="field-hint">
+            POST JSON: <code>{"token": "mybot"}</code> — username бота без @
+          </p>
+        </div>
+        <div class="form-group">
+          <label>API-ключ</label>
+          <input
+            v-model="referralApiKey"
+            type="password"
+            autocomplete="off"
+            placeholder="Секретный ключ"
+          />
+          <p class="field-hint">Передаётся в заголовке <code>X-API-Key</code>.</p>
+        </div>
+        <p class="field-hint">
+          Ответ: URL в теле (текст) или JSON с полем <code>url</code> / <code>link</code> /
+          <code>referral_url</code>.
+        </p>
+      </details>
 
       <div class="form-group">
         <label>Тематика (для AI, необязательно)</label>
@@ -91,6 +126,8 @@ const nicheDescription = ref('');
 const defaultAboutText = ref('');
 const defaultDescription = ref('');
 const defaultWelcomeMessage = ref('');
+const referralEndpointUrl = ref('');
+const referralApiKey = ref('');
 
 async function load() {
   loading.value = true;
@@ -102,6 +139,8 @@ async function load() {
     defaultAboutText.value = campaign.default_about_text || '';
     defaultDescription.value = campaign.default_description || '';
     defaultWelcomeMessage.value = campaign.default_welcome_message || '';
+    referralEndpointUrl.value = campaign.referral_endpoint_url || '';
+    referralApiKey.value = campaign.referral_api_key || '';
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
@@ -120,6 +159,8 @@ async function onSave() {
       default_about_text: defaultAboutText.value.trim() || null,
       default_description: defaultDescription.value.trim() || null,
       default_welcome_message: defaultWelcomeMessage.value.trim() || null,
+      referral_endpoint_url: referralEndpointUrl.value.trim() || null,
+      referral_api_key: referralApiKey.value.trim() || null,
     });
     router.push({ name: 'campaign-workspace', params: { id: id.value } });
   } catch (e) {
@@ -141,12 +182,18 @@ onMounted(load);
   flex: 1;
 }
 
-.defaults-block {
+.defaults-block,
+.referral-block {
   margin: 1rem 0;
   padding: 0.85rem 1rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: rgba(8, 12, 20, 0.4);
+}
+
+.referral-block code {
+  font-size: 0.78rem;
+  color: #93c5fd;
 }
 
 .block-hint {

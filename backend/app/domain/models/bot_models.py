@@ -8,6 +8,8 @@ from app.utils.telegram_username import normalize_bot_username
 class CampaignUpdateRequest(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     resource_url: Optional[str] = Field(None, max_length=2048)
+    referral_endpoint_url: Optional[str] = Field(None, max_length=2048)
+    referral_api_key: Optional[str] = Field(None, max_length=512)
     niche_description: Optional[str] = Field(None, max_length=2000)
     keywords: Optional[list[str]] = None
     default_about_text: Optional[str] = Field(None, max_length=120)

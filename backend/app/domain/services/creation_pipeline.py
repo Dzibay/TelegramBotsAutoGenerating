@@ -5,7 +5,13 @@ from typing import Any, Optional
 
 from app.config import Config
 from app.core.exceptions import BadRequestError
-from app.domain.services import bot_promo_service, bot_service, job_log_service, username_service
+from app.domain.services import (
+    bot_promo_service,
+    bot_service,
+    job_log_service,
+    referral_link_service,
+    username_service,
+)
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.botfather_client import (
@@ -751,13 +757,45 @@ class CreationPipeline:
             telethon_client=client,
         )
 
+        use_referral = referral_link_service.is_referral_configured(campaign)
         target_url = (campaign.get("resource_url") or "").strip()
-        if not target_url:
+        if not use_referral and not target_url:
             await self.log("Пропуск: у кампании не задан resource_url (ссылка на сервис)", level="warn")
             return None
-        links = bot_promo_service.prepare_bot_links(
-            link_mode=bot_promo_service.LINK_MODE_REDIRECT, target_url=target_url
+
+        await self.log(f"BotFather: создание @{username}…")
+        await self.log(
+            f"BotFather pipeline start @{username}",
+            level="debug",
+            context={"keyword": keyword, "account_id": account_id, "variant": variant_index},
         )
+        reserved = await username_service.get_reserved_usernames()
+        username_factory = username_service.make_username_factory(
+            keyword,
+            preferred=username,
+            campaign_id=self.campaign_id,
+            reserved=reserved,
+        )
+        result = await create_bot_via_botfather(
+            client,
+            display_name,
+            username,
+            username_factory=username_factory,
+        )
+        token = result["token"]
+        username = result["username"]
+        await pace_botfather_op()
+
+        if use_referral:
+            await self.log(f"Запрос реферальной ссылки для @{username}…")
+        links = await referral_link_service.resolve_bot_links(
+            campaign,
+            username=username,
+            target_url=target_url or None,
+            link_mode=bot_promo_service.LINK_MODE_REDIRECT,
+        )
+        if use_referral:
+            await self.log(f"Реферальная ссылка для @{username} получена")
         target = links["target_url"]
         slug = links["redirect_slug"]
         tracking_url = links["tracking_url"]
@@ -784,29 +822,6 @@ class CreationPipeline:
         )
         description = texts["description"] or promo["description"]
         about_text = texts["about_text"] or promo["about_text"]
-
-        await self.log(f"BotFather: создание @{username}…")
-        await self.log(
-            f"BotFather pipeline start @{username}",
-            level="debug",
-            context={"keyword": keyword, "account_id": account_id, "variant": variant_index},
-        )
-        reserved = await username_service.get_reserved_usernames()
-        username_factory = username_service.make_username_factory(
-            keyword,
-            preferred=username,
-            campaign_id=self.campaign_id,
-            reserved=reserved,
-        )
-        result = await create_bot_via_botfather(
-            client,
-            display_name,
-            username,
-            username_factory=username_factory,
-        )
-        token = result["token"]
-        username = result["username"]
-        await pace_botfather_op()
 
         defaults = bot_promo_service.campaign_text_defaults(campaign)
         try:

@@ -8,6 +8,8 @@ class CampaignCreateRequest(BaseModel):
     niche_description: Optional[str] = Field(None, max_length=2000)
     keywords: list[str] = Field(default_factory=list)
     resource_url: Optional[str] = Field(None, max_length=2048)
+    referral_endpoint_url: Optional[str] = Field(None, max_length=2048)
+    referral_api_key: Optional[str] = Field(None, max_length=512)
     default_about_text: Optional[str] = Field(None, max_length=120)
     default_description: Optional[str] = Field(None, max_length=512)
     default_welcome_message: Optional[str] = Field(None, max_length=2000)
@@ -50,7 +52,7 @@ class StartManualBulkRequest(BaseModel):
     """Ручная массовая партия: общие тексты + список ботов."""
 
     telegram_account_id: int
-    default_target_url: str = Field(..., min_length=1, max_length=2048)
+    default_target_url: Optional[str] = Field(None, max_length=2048)
     link_mode: str = Field("redirect", max_length=32)
     auto_start: bool = True
     shared_texts: ManualSharedTexts

@@ -6,7 +6,7 @@ from app.config import Config
 from app.constants import ErrorMessages
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.domain.models.campaign_models import StartManualBulkRequest
-from app.domain.services import bot_promo_service, campaign_service
+from app.domain.services import bot_promo_service, campaign_service, referral_link_service
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database import repository as db
 from app.utils.telegram_username import normalize_bot_username
@@ -199,7 +199,18 @@ async def start_manual_creation_job(
             f"В партии {len(bots)} ботов, свободно слотов на аккаунте: {slots}."
         )
 
-    default_url = bot_promo_service.normalize_target_url(body.default_target_url)
+    use_referral = referral_link_service.is_referral_configured(campaign)
+    if use_referral:
+        raw_default = (body.default_target_url or campaign.get("resource_url") or "").strip()
+        default_url = (
+            bot_promo_service.normalize_target_url(raw_default)
+            if raw_default
+            else "https://referral.pending"
+        )
+    else:
+        if not (body.default_target_url or "").strip():
+            raise BadRequestError("Укажите ссылку на сервис по умолчанию")
+        default_url = bot_promo_service.normalize_target_url(body.default_target_url)
     usernames_seen: set[str] = set()
     manual_plans: list[dict[str, Any]] = []
 

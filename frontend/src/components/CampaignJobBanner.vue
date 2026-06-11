@@ -45,6 +45,7 @@ import { computed } from 'vue';
 import { RouterLink } from 'vue-router';
 import JobLogPanel from './JobLogPanel.vue';
 import StatusBadge from './StatusBadge.vue';
+import { useSettingsStore } from '../stores/settingsStore';
 import { estimateBulkCreationSec, formatEtaRemaining } from '../utils/estimateJobTime';
 
 const props = defineProps({
@@ -59,6 +60,8 @@ const props = defineProps({
 
 defineEmits(['cancel']);
 
+const settingsStore = useSettingsStore();
+
 const progressPercent = computed(() => {
   if (!props.job?.total_accounts) return 0;
   return Math.min(
@@ -69,7 +72,7 @@ const progressPercent = computed(() => {
 
 const etaLabel = computed(() => {
   if (!props.active || !props.job?.total_accounts) return '';
-  const est = estimateBulkCreationSec(props.job.total_accounts);
+  const est = estimateBulkCreationSec(props.job.total_accounts, settingsStore.botfatherPacing);
   return formatEtaRemaining(props.elapsedSec, est);
 });
 </script>

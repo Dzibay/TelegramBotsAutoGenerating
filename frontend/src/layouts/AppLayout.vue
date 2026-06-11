@@ -42,7 +42,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { LogOut } from 'lucide-vue-next';
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import AppMainNav from '../components/AppMainNav.vue';
@@ -51,12 +51,18 @@ import TaskProgressBanner from '../components/TaskProgressBanner.vue';
 import VerboseLogToggle from '../components/VerboseLogToggle.vue';
 import { SITE_NAME } from '../constants/site';
 import { useAuthStore } from '../stores/authStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useWorkflowStore } from '../stores/workflowStore';
 
 const siteName = SITE_NAME;
 
 const auth = useAuthStore();
+const settingsStore = useSettingsStore();
 const workflow = useWorkflowStore();
+
+onMounted(() => {
+  settingsStore.fetchBotfatherPacing();
+});
 const route = useRoute();
 const router = useRouter();
 

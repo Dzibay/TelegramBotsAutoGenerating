@@ -34,3 +34,4 @@ class SuccessMessages:
     BOT_CREATED = "Бот создан"
     BOT_UPDATED = "Бот обновлён"
     BOT_DELETED = "Бот удалён"
+    SETTINGS_SAVED = "Настройки сохранены"

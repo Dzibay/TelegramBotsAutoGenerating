@@ -202,8 +202,9 @@
         </p>
         <p v-else-if="!creationFinished" class="field-hint block-hint">
           После старта боты создаются в фоне с паузами между запросами к BotFather
-          (~45 сек между ботами, ~3 мин каждые 5 ботов) — так снижается риск блокировки.
+          ({{ pacingSummary }}) — так снижается риск блокировки.
           Оценка времени для {{ pendingBotCount }} бот(ов): <strong>{{ creationEta }}</strong>.
+          <RouterLink :to="{ name: 'settings' }" class="inline-link">Изменить интервалы</RouterLink>.
           При лимите Telegram сервер подождёт и продолжит автоматически.
         </p>
 
@@ -446,7 +447,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BulkAvatarCell from '../components/BulkAvatarCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
@@ -455,9 +456,14 @@ import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
-import { estimateBulkCreationSec, formatDurationSec } from '../utils/estimateJobTime';
+import {
+  estimateBulkCreationSec,
+  formatDurationSec,
+  formatPacingSummary,
+} from '../utils/estimateJobTime';
 import { mapApiLog } from '../utils/formatLogEntry';
 import {
   rowTargetUrl,
@@ -504,6 +510,7 @@ function newAiRow() {
 const route = useRoute();
 const router = useRouter();
 const taskStore = useAsyncTaskStore();
+const settingsStore = useSettingsStore();
 const uiPrefs = useUiPrefsStore();
 
 const manualWizardSteps = [
@@ -642,8 +649,12 @@ const pendingBotCount = computed(() => {
   return pending || readyRowsCount.value;
 });
 
+const pacingSummary = computed(() => formatPacingSummary(settingsStore.botfatherPacing));
+
 const creationEta = computed(() =>
-  formatDurationSec(estimateBulkCreationSec(pendingBotCount.value))
+  formatDurationSec(
+    estimateBulkCreationSec(pendingBotCount.value, settingsStore.botfatherPacing)
+  )
 );
 
 const aiValidation = computed(() => validateBulkBatch(aiRows.value, readyAccounts.value));
@@ -1171,6 +1182,7 @@ watch(freeSlots, (slots) => {
 
 onMounted(async () => {
   try {
+    await settingsStore.fetchBotfatherPacing();
     const data = await campaignService.get(campaignId.value);
     campaign.value = data.campaign;
     campaignResourceUrl.value = data.campaign.resource_url || '';
@@ -1202,6 +1214,15 @@ onUnmounted(() => {
 <style scoped>
 .bulk-create {
   max-width: 1100px;
+}
+
+.inline-link {
+  color: #93c5fd;
+  text-decoration: none;
+}
+
+.inline-link:hover {
+  text-decoration: underline;
 }
 
 .page-header {

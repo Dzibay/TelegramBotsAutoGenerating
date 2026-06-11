@@ -22,7 +22,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Bot, Megaphone, Users } from 'lucide-vue-next';
+import { Bot, Megaphone, Settings, Users } from 'lucide-vue-next';
 import { RouterLink, useRoute } from 'vue-router';
 import { useWorkflowStore } from '../stores/workflowStore';
 
@@ -58,6 +58,13 @@ const items = computed(() => {
       disabled: !cid,
       disabledTitle: 'Сначала откройте кампанию в разделе «Кампании»',
     },
+    {
+      key: 'settings',
+      label: 'Настройки',
+      icon: Settings,
+      to: { name: 'settings' },
+      disabled: false,
+    },
   ];
 });
 
@@ -72,6 +79,9 @@ function isActive(item) {
   if (item.key === 'bots') {
     if (['bulk-bot-create', 'campaign-bot-create', 'bot-edit'].includes(name)) return true;
     return name === 'campaign-workspace' && ['create', 'list'].includes(route.query.tab);
+  }
+  if (item.key === 'settings') {
+    return name === 'settings';
   }
   return false;
 }

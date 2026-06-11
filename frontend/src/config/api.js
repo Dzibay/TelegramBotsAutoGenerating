@@ -49,4 +49,7 @@ export const API_ENDPOINTS = {
     ATTACH: (campaignId) => `/campaigns/${campaignId}/accounts/from-prepared`,
   },
   HEALTH: '/health',
+  SETTINGS: {
+    BOTFATHER_PACING: '/settings/botfather-pacing',
+  },
 };

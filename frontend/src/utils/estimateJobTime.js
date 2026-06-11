@@ -1,16 +1,33 @@
 /** Оценка времени массового создания ботов (секунды). Синхронизировано с backend pacing. */
-const INTER_BOT_SEC = 45;
-const BATCH_SIZE = 5;
-const BATCH_COOLDOWN_SEC = 180;
+const DEFAULT_PACING = {
+  inter_bot_delay_sec: 45,
+  op_delay_sec: 4,
+  conv_delay_sec: 2,
+  batch_size: 5,
+  batch_cooldown_sec: 180,
+  post_throttle_delay_sec: 30,
+};
+
 const PER_BOT_WORK_SEC = 90;
 
-export function estimateBulkCreationSec(botCount) {
+function resolvePacing(pacing) {
+  return { ...DEFAULT_PACING, ...(pacing || {}) };
+}
+
+export function estimateBulkCreationSec(botCount, pacing) {
+  const p = resolvePacing(pacing);
   const n = Math.max(0, Number(botCount) || 0);
   if (n <= 0) return 0;
-  const interBot = Math.max(0, n - 1) * INTER_BOT_SEC;
-  const batchPauses = Math.floor(n / BATCH_SIZE) * BATCH_COOLDOWN_SEC;
+  const interBot = Math.max(0, n - 1) * p.inter_bot_delay_sec;
+  const batchPauses = Math.floor(n / p.batch_size) * p.batch_cooldown_sec;
   const work = n * PER_BOT_WORK_SEC;
   return interBot + batchPauses + work;
+}
+
+export function formatPacingSummary(pacing) {
+  const p = resolvePacing(pacing);
+  const mins = Math.max(1, Math.round(p.batch_cooldown_sec / 60));
+  return `~${p.inter_bot_delay_sec} сек между ботами, ~${mins} мин каждые ${p.batch_size} ботов`;
 }
 
 export function formatDurationSec(totalSec) {

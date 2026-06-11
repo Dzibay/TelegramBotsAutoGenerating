@@ -39,6 +39,12 @@ const routes = [
       },
       { path: 'bots/:id/edit', name: 'bot-edit', component: BotEdit, meta: { hideWorkflowNav: true, title: 'Редактирование бота' } },
       { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep, meta: { title: 'Подготовка аккаунтов' } },
+      {
+        path: 'settings',
+        name: 'settings',
+        component: () => import('../views/Settings.vue'),
+        meta: { hideWorkflowNav: true, title: 'Настройки' },
+      },
     ],
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },

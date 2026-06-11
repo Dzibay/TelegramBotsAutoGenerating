@@ -287,24 +287,26 @@
           </thead>
           <tbody>
             <tr v-for="b in filteredBots" :key="b.id">
-              <td class="bot-cell">
-                <div class="bot-avatar" :class="avatarColorClass(b)">
-                  <img v-if="botAvatarUrl(b)" :src="botAvatarUrl(b)" alt="" />
-                  <Bot v-else :size="16" />
-                </div>
-                <div class="bot-info">
-                  <span class="bot-name">{{ b.display_name || 'Без имени' }}</span>
-                  <a
-                    v-if="b.username && botLink(b)"
-                    :href="botLink(b)"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="bot-handle"
-                  >
-                    @{{ b.username }}
-                  </a>
-                  <span v-else class="bot-handle muted">@—</span>
-                  <span v-if="b.keyword" class="bot-kw">«{{ b.keyword }}»</span>
+              <td>
+                <div class="bot-cell">
+                  <div class="bot-avatar" :class="avatarColorClass(b)">
+                    <img v-if="botAvatarUrl(b)" :src="botAvatarUrl(b)" alt="" />
+                    <Bot v-else :size="16" />
+                  </div>
+                  <div class="bot-info">
+                    <span class="bot-name">{{ b.display_name || 'Без имени' }}</span>
+                    <a
+                      v-if="b.username && botLink(b)"
+                      :href="botLink(b)"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="bot-handle"
+                    >
+                      @{{ b.username }}
+                    </a>
+                    <span v-else class="bot-handle muted">@—</span>
+                    <span v-if="b.keyword" class="bot-kw">«{{ b.keyword }}»</span>
+                  </div>
                 </div>
               </td>
               <td>
@@ -316,8 +318,10 @@
               </td>
               <td class="date-cell">{{ formatDateTime(b.created_at) }}</td>
               <td class="activity-cell">
-                <span class="activity-dot" :class="`activity-dot--${b.status}`" />
-                {{ formatRelativeTime(b.updated_at) }}
+                <span class="activity-cell-content">
+                  <span class="activity-dot" :class="`activity-dot--${b.status}`" />
+                  {{ formatRelativeTime(b.updated_at) }}
+                </span>
               </td>
               <td class="actions-cell">
                 <details class="row-menu">
@@ -1446,8 +1450,8 @@ a.bot-handle:hover {
   font-size: 0.8rem;
 }
 
-.activity-cell {
-  display: flex;
+.activity-cell-content {
+  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
 }

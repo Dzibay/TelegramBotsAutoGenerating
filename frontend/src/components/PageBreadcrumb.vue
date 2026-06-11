@@ -38,6 +38,7 @@ const crumbs = computed(() => {
     'campaign-edit': [...base, { label: 'Настройки' }],
     'campaign-create': [{ label: 'Кампании', to: { name: 'dashboard' } }, { label: 'Новая кампания' }],
     'account-prep': [{ label: 'Аккаунты' }],
+    settings: [{ label: 'Настройки' }],
   };
 
   return map[route.name] || [];

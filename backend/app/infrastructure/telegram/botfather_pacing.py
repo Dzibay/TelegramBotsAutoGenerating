@@ -1,37 +1,45 @@
 """Паузы между обращениями к BotFather — снижает throttle и блокировку аккаунта."""
 import asyncio
 
-from app.config import Config
 from app.core.logging import get_logger
+from app.domain.services import settings_service
 
 logger = get_logger(__name__)
 
 
+def _pacing():
+    return settings_service.get_botfather_pacing()
+
+
 async def pace_botfather_op() -> None:
     """Пауза между последовательными командами BotFather для одного бота."""
-    delay = Config.BOTFATHER_OP_DELAY_SEC
+    delay = _pacing().op_delay_sec
     if delay > 0:
         await asyncio.sleep(delay)
 
 
 async def pace_before_conversation() -> None:
     """Короткая пауза перед новым диалогом с BotFather."""
-    delay = Config.BOTFATHER_CONV_DELAY_SEC
+    delay = _pacing().conv_delay_sec
     if delay > 0:
         await asyncio.sleep(delay)
 
 
 def inter_bot_delay_sec() -> int:
-    return Config.BOTFATHER_INTER_BOT_DELAY_SEC
+    return _pacing().inter_bot_delay_sec
 
 
 def batch_cooldown_sec() -> int:
-    return Config.BOTFATHER_BATCH_COOLDOWN_SEC
+    return _pacing().batch_cooldown_sec
 
 
 def batch_size() -> int:
-    return Config.BOTFATHER_BATCH_SIZE
+    return _pacing().batch_size
 
 
 def post_throttle_delay_sec() -> int:
-    return Config.BOTFATHER_POST_THROTTLE_DELAY_SEC
+    return _pacing().post_throttle_delay_sec
+
+
+def max_server_flood_wait_sec() -> int:
+    return _pacing().max_server_flood_wait

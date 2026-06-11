@@ -7,16 +7,15 @@ from pathlib import Path
 
 from telethon.errors.rpcerrorlist import FloodWaitError
 
-from app.config import Config
 from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
-from app.infrastructure.telegram.botfather_pacing import pace_before_conversation
+from app.infrastructure.telegram.botfather_pacing import (
+    max_server_flood_wait_sec,
+    pace_before_conversation,
+)
 from app.utils.telegram_username import normalize_bot_username
 
 logger = get_logger(__name__)
-
-# Короткие паузы ждём на сервере; длинные отдаём клиенту с wait_seconds.
-MAX_SERVER_FLOOD_WAIT = Config.BOTFATHER_MAX_SERVER_FLOOD_WAIT
 
 TOKEN_RE = re.compile(r"(\d{8,10}:[A-Za-z0-9_-]{30,})")
 BOT_USER_RE = re.compile(r"@?([a-z][a-z0-9_]{2,28}bot)\b", re.IGNORECASE)
@@ -45,7 +44,7 @@ def _raise_flood_wait(seconds: int) -> None:
 async def _handle_flood_wait(exc: FloodWaitError, *, context: str) -> None:
     wait = max(1, int(exc.seconds))
     logger.warning("Telegram FloodWait %s sec (%s)", wait, context)
-    if wait <= MAX_SERVER_FLOOD_WAIT:
+    if wait <= max_server_flood_wait_sec():
         await asyncio.sleep(wait + 1)
         return
     _raise_flood_wait(wait)

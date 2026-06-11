@@ -11,6 +11,12 @@
           <StatusBadge :status="campaign.status" />
         </div>
         <div class="header-btns">
+          <RouterLink
+            :to="{ name: 'campaign-job-history', params: { id: campaignId } }"
+            class="btn-ghost btn-sm"
+          >
+            История задач
+          </RouterLink>
           <RouterLink :to="{ name: 'campaign-edit', params: { id: campaignId } }" class="btn-ghost btn-sm">
             <Settings :size="14" />
             Настройки
@@ -43,16 +49,12 @@
 
     <WorkspaceTabs v-model="activeTab" :tabs="workspaceTabs" />
 
-    <CampaignJobBanner
-      v-if="job && isPolling"
-      :job="job"
-      :logs="logs"
-      :logs-loading="logsLoading"
-      :active="isPolling"
-      :cancelling="cancellingJob"
+    <CampaignActiveJobsPanel
+      v-if="campaignId"
+      ref="activeJobsPanelRef"
+      :campaign-id="campaignId"
       :bulk-link="bulkCreateLink"
-      :elapsed-sec="jobElapsedSec"
-      @cancel="onCancelJob"
+      @update:jobs="onActiveJobsUpdate"
     />
 
     <section v-show="activeTab === 'guide'" class="guide-grid">
@@ -364,26 +366,24 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { Bot, Check, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotAvatar from '../components/BotAvatar.vue';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';
-import CampaignJobBanner from '../components/CampaignJobBanner.vue';
+import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
 import EmptyState from '../components/EmptyState.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import WizardSteps from '../components/WizardSteps.vue';
 import WorkspaceTabs from '../components/WorkspaceTabs.vue';
 import { formatDateTime, formatRelativeTime } from '../utils/formatDate';
 import { useWorkflowStore } from '../stores/workflowStore';
-import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { botService } from '../services/botService';
-import { campaignService, jobService } from '../services/campaignService';
+import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { telegramBotUrl } from '../utils/botLink';
 
 const taskStore = useAsyncTaskStore();
-const uiPrefs = useUiPrefsStore();
 
 function accountLabel(account) {
   return account?.label || account?.phone || `Аккаунт #${account?.id}`;
@@ -450,14 +450,8 @@ const loadError = ref(null);
 const campaign = ref({});
 const accounts = ref([]);
 const bots = ref([]);
-const job = ref(null);
-const logs = ref([]);
-const logsLoading = ref(false);
-const lastLogId = ref(0);
-const starting = ref(false);
-const cancellingJob = ref(false);
-const jobElapsedSec = ref(0);
-const jobStartedAt = ref(null);
+const activeJobs = ref([]);
+const activeJobsPanelRef = ref(null);
 const attaching = ref(false);
 const verifyingAll = ref(false);
 const accountBusy = ref(false);
@@ -468,8 +462,11 @@ const accountBotsLists = ref({});
 const accountBotsErrors = ref({});
 const attachMessage = ref(null);
 const accountsPanelRef = ref(null);
-let pollTimer = null;
-let elapsedTimer = null;
+const starting = ref(false);
+
+const hasActiveJobs = computed(() =>
+  activeJobs.value.some((j) => ['queued', 'running'].includes(j.status))
+);
 
 const readyAccountsCount = computed(
   () => accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots).length
@@ -515,9 +512,7 @@ const filteredBots = computed(() => {
   });
 });
 
-const isPolling = computed(
-  () => job.value && ['queued', 'running'].includes(job.value.status)
-);
+const isPolling = computed(() => hasActiveJobs.value);
 
 const bulkCreateLink = computed(() =>
   campaignId.value
@@ -579,18 +574,28 @@ const nextStepGuide = computed(() => {
 const canStart = computed(
   () =>
     campaign.value.accounts_count > 0 &&
-    (!job.value || !['queued', 'running'].includes(job.value.status)) &&
+    !hasActiveJobs.value &&
     ['draft', 'failed', 'completed', 'cancelled'].includes(campaign.value.status)
 );
 
 const canAddAccounts = computed(
-  () => !job.value || !['running'].includes(job.value.status)
+  () => !activeJobs.value.some(
+    (j) => j.job_mode === 'auto' && ['queued', 'running'].includes(j.status)
+  )
 );
+
+function onActiveJobsUpdate(jobs) {
+  activeJobs.value = jobs;
+}
 
 async function loadCampaign() {
   const data = await campaignService.get(campaignId.value);
   campaign.value = data.campaign;
-  job.value = data.activeJob;
+  activeJobs.value = data.activeJobs?.length
+    ? data.activeJobs
+    : data.activeJob
+      ? [data.activeJob]
+      : [];
   workflow.setCampaign(campaignId.value, data.campaign.title);
 }
 
@@ -603,99 +608,21 @@ async function loadExtras() {
   bots.value = b;
 }
 
-async function fetchLogs() {
-  if (!job.value?.id) return;
-  logsLoading.value = true;
-  try {
-    const batch = await jobService.getLogs(job.value.id, lastLogId.value, {
-      minLevel: uiPrefs.verboseLogs ? 'debug' : 'info',
-    });
-    if (batch.length) {
-      logs.value = [...logs.value, ...batch];
-      lastLogId.value = batch[batch.length - 1].id;
-    }
-  } finally {
-    logsLoading.value = false;
-  }
-}
-
-async function refreshJob() {
-  if (!job.value?.id) return;
-  job.value = await jobService.get(job.value.id);
-  if (!['queued', 'running'].includes(job.value.status)) {
-    stopElapsedTimer();
-    await loadCampaign();
-    await loadExtras();
-  }
-}
-
-function startElapsedTimer() {
-  stopElapsedTimer();
-  if (!jobStartedAt.value) jobStartedAt.value = Date.now();
-  elapsedTimer = setInterval(() => {
-    if (jobStartedAt.value) {
-      jobElapsedSec.value = Math.floor((Date.now() - jobStartedAt.value) / 1000);
-    }
-  }, 1000);
-}
-
-function stopElapsedTimer() {
-  if (elapsedTimer) {
-    clearInterval(elapsedTimer);
-    elapsedTimer = null;
-  }
-}
-
-async function poll() {
-  await refreshJob();
-  await fetchLogs();
-}
-
-function startPolling() {
-  stopPolling();
-  startElapsedTimer();
-  pollTimer = setInterval(poll, 2000);
-}
-
-function stopPolling() {
-  if (pollTimer) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
-
 async function onStart() {
   starting.value = true;
   try {
-    job.value = await taskStore.run('START_CAMPAIGN', async ({ logStep }) => {
+    await taskStore.run('START_CAMPAIGN', async ({ logStep }) => {
       logStep('POST /start — постановка задачи в очередь', 'debug');
       const j = await campaignService.start(campaignId.value);
       logStep(`Job #${j.id} status=${j.status}`, 'info', j);
       return j;
     });
-    logs.value = [];
-    lastLogId.value = 0;
-    jobStartedAt.value = Date.now();
-    jobElapsedSec.value = 0;
-    await fetchLogs();
-    startPolling();
+    await loadCampaign();
+    await activeJobsPanelRef.value?.loadJobs?.();
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Не удалось запустить';
   } finally {
     starting.value = false;
-  }
-}
-
-async function onCancelJob() {
-  if (!job.value?.id || cancellingJob.value) return;
-  cancellingJob.value = true;
-  try {
-    job.value = await jobService.cancel(job.value.id);
-    await poll();
-  } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось остановить задачу';
-  } finally {
-    cancellingJob.value = false;
   }
 }
 
@@ -927,42 +854,15 @@ async function onRemoveAccount(account) {
   }
 }
 
-watch(isPolling, (v) => {
-  if (v) startPolling();
-  else stopPolling();
-});
-
-watch(
-  () => uiPrefs.verboseLogs,
-  async () => {
-    if (!job.value?.id) return;
-    logs.value = [];
-    lastLogId.value = 0;
-    await fetchLogs();
-  }
-);
-
 onMounted(async () => {
   try {
     await loadCampaign();
     await loadExtras();
-    if (job.value?.id) {
-      await fetchLogs();
-      if (isPolling.value) {
-        jobStartedAt.value = Date.now();
-        startPolling();
-      }
-    }
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   } finally {
     loading.value = false;
   }
-});
-
-onUnmounted(() => {
-  stopPolling();
-  stopElapsedTimer();
 });
 </script>
 

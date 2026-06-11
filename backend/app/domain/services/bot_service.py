@@ -9,6 +9,7 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 from app.domain.services import (
+    account_flood_service,
     account_service,
     bot_promo_service,
     campaign_service,
@@ -483,13 +484,22 @@ async def create_bot(
         else referral_link_service.is_referral_configured(campaign)
     )
 
+    flood_ctx = None
     try:
         if create_via_botfather:
+            flood_ctx = account_flood_service.set_flood_account_context(telegram_account_id)
             if owns_client:
                 session_file = (
                     Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{telegram_account_id}.session"
                 )
                 client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+            async def _notify_saved_flood(msg: str) -> None:
+                await _step(msg, "botfather_wait")
+
+            await account_flood_service.wait_for_flood_clear_simple(
+                telegram_account_id,
+                on_message=_notify_saved_flood,
+            )
             requested_username = normalize_bot_username(username)
             await _step(f"Подбор username (запрошен @{requested_username})…", "username")
             final_username = await username_service.allocate_unique_username(
@@ -525,6 +535,10 @@ async def create_bot(
                     details={"step": "botfather_create"},
                 ) from exc
             except BadRequestError as exc:
+                await account_flood_service.record_flood_from_details(
+                    telegram_account_id,
+                    exc.details,
+                )
                 raise _wrap_creation_step_error("botfather_create", exc, username=final_username)
             except Exception as exc:
                 raise _wrap_creation_step_error("botfather_create", exc, username=final_username)
@@ -693,6 +707,8 @@ async def create_bot(
         )
         return _bot_row(row, include_welcome=True)
     finally:
+        if flood_ctx is not None:
+            account_flood_service.reset_flood_account_context(flood_ctx)
         if owns_client and client:
             await client.disconnect()
 

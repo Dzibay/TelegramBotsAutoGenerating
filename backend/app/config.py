@@ -36,6 +36,7 @@ class Config:
     REDIS_URL = os.getenv("REDIS_URL", "")
     REDIS_JOB_QUEUE = os.getenv("REDIS_JOB_QUEUE", "tg_bots:creation_jobs")
     REDIS_PREP_QUEUE = os.getenv("REDIS_PREP_QUEUE", "tg_bots:account_prep_jobs")
+    WORKER_CONCURRENCY = max(1, int(os.getenv("WORKER_CONCURRENCY", "4")))
 
     CORS_ORIGINS = [
         o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",") if o.strip()

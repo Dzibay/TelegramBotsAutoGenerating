@@ -29,6 +29,7 @@ export const campaignService = {
     return {
       campaign: res.data?.campaign,
       activeJob: res.data?.active_job,
+      activeJobs: res.data?.active_jobs ?? [],
     };
   },
 
@@ -118,6 +119,13 @@ export const campaignService = {
   async listJobs(campaignId, { limit = 50, offset = 0 } = {}) {
     const res = await apiClient.get(API_ENDPOINTS.CAMPAIGNS.JOBS(campaignId), {
       params: { limit, offset },
+    });
+    return res.data?.jobs ?? [];
+  },
+
+  async listActiveJobs(campaignId) {
+    const res = await apiClient.get(API_ENDPOINTS.CAMPAIGNS.JOBS(campaignId), {
+      params: { active_only: true },
     });
     return res.data?.jobs ?? [];
   },

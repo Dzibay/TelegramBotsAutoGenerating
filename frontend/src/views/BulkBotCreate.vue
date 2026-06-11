@@ -8,6 +8,14 @@
       </p>
     </header>
 
+    <CampaignActiveJobsPanel
+      v-if="campaignId"
+      ref="activeJobsPanelRef"
+      :campaign-id="campaignId"
+      :history-link="{ name: 'campaign-job-history', params: { id: campaignId } }"
+      @update:jobs="onActiveJobsUpdate"
+    />
+
     <div class="mode-tabs">
       <button
         type="button"
@@ -34,7 +42,7 @@
       <WizardSteps
         :steps="manualWizardSteps"
         :current="wizardStep"
-        :clickable="!isJobActive && !creationFinished"
+        :clickable="!isSelectedAccountBusy && !creationFinished"
         @go="wizardStep = $event"
       />
 
@@ -58,6 +66,9 @@
           </p>
           <p v-else-if="!readyAccounts.length" class="error-text">
             Нет готовых аккаунтов с доступными слотами.
+          </p>
+          <p v-else-if="isSelectedAccountBusy && !isJobActive" class="info-banner">
+            На этом аккаунте уже выполняется задача. Выберите другой аккаунт или дождитесь завершения.
           </p>
         </div>
 
@@ -272,57 +283,13 @@
         </div>
       </section>
 
-      <section v-if="jobHistory.length" class="card block history-block">
-        <h3 class="block-title">История задач</h3>
-        <p class="field-hint block-hint">
-          Завершённые задачи сохраняются с настройками и аватарами. Неудачные боты можно быстро перезапустить.
-        </p>
-        <ul class="job-history-list">
-          <li v-for="j in jobHistory" :key="j.id" class="job-history-item">
-            <div class="job-history-main">
-              <button type="button" class="link-btn" @click="openHistoryJob(j)">
-                #{{ j.id }}
-                <span v-if="j.retried_from_job_id" class="muted">← из #{{ j.retried_from_job_id }}</span>
-                · {{ jobStatusLabel(j.status) }}
-                · {{ j.total_bots_created }}/{{ j.total_accounts }} ботов
-                <span v-if="j.total_failed" class="history-failed">({{ j.total_failed }} ошибок)</span>
-              </button>
-              <span class="muted job-history-date">{{ formatJobDate(j.finished_at || j.created_at) }}</span>
-            </div>
-            <div class="job-history-actions">
-              <button
-                v-if="j.job_mode === 'manual'"
-                type="button"
-                class="btn btn-xs btn-ghost"
-                @click="restoreFromHistory(j)"
-              >
-                В форму
-              </button>
-              <button
-                v-if="j.retry_available"
-                type="button"
-                class="btn btn-xs"
-                :disabled="startingJob || isJobActive"
-                @click="retryFromHistory(j)"
-              >
-                Повторить ({{ j.retry_count }})
-              </button>
-            </div>
-          </li>
-        </ul>
-      </section>
-
-      <section v-if="historyViewJob" class="card block">
-        <div class="history-view-head">
-          <h3 class="block-title">Задача #{{ historyViewJob.id }}</h3>
-          <button type="button" class="btn btn-xs btn-ghost" @click="historyViewJob = null">Закрыть</button>
-        </div>
-        <p class="muted history-view-meta">
-          {{ jobStatusLabel(historyViewJob.status) }}
-          · создано {{ historyViewJob.total_bots_created }}/{{ historyViewJob.total_accounts }}
-          <span v-if="historyViewJob.error_message"> · {{ historyViewJob.error_message }}</span>
-        </p>
-        <JobLogPanel :logs="historyLogs" :loading="historyLogsLoading" />
+      <section class="card block history-link-block">
+        <RouterLink
+          :to="{ name: 'campaign-job-history', params: { id: campaignId } }"
+          class="history-page-link"
+        >
+          История задач кампании →
+        </RouterLink>
       </section>
     </template>
 
@@ -482,6 +449,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
+import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
 import BulkAvatarCell from '../components/BulkAvatarCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BulkLinkSourceField from '../components/BulkLinkSourceField.vue';
@@ -597,19 +565,34 @@ const currentCreatingUsername = ref('');
 const currentCreatingLabel = ref('');
 const floodWaitRemaining = ref(0);
 const activeJob = ref(null);
+const activeJobs = ref([]);
+const activeJobsPanelRef = ref(null);
 const startingJob = ref(false);
 const cancellingJob = ref(false);
 const lastLogId = ref(0);
 let pollTimer = null;
 
-const jobHistory = ref([]);
-const historyViewJob = ref(null);
-const historyLogs = ref([]);
-const historyLogsLoading = ref(false);
-
 const isJobActive = computed(
   () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
 );
+
+function jobUsesAccount(job, accId) {
+  if (!job || !accId) return false;
+  if (job.job_mode === 'auto') return true;
+  const ids = new Set(job.account_ids || []);
+  if (job.telegram_account_id) ids.add(job.telegram_account_id);
+  return ids.has(accId);
+}
+
+const isSelectedAccountBusy = computed(() =>
+  activeJobs.value.some(
+    (j) => ['queued', 'running'].includes(j.status) && jobUsesAccount(j, accountId.value)
+  )
+);
+
+function onActiveJobsUpdate(jobs) {
+  activeJobs.value = jobs;
+}
 
 const readyAccounts = computed(() =>
   accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots !== false)
@@ -682,7 +665,7 @@ const canCreateManual = computed(
     readyRowsCount.value > 0 &&
     retryRowsCount.value > 0 &&
     !manualValidation.value.errors.length &&
-    !isJobActive.value &&
+    !isSelectedAccountBusy.value &&
     !startingJob.value
 );
 
@@ -748,57 +731,6 @@ const canGenerate = computed(
 const canCreateAi = computed(
   () => rowsReadyCount.value > 0 && !aiValidation.value.errors.length
 );
-
-function formatJobDate(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return iso;
-  }
-}
-
-function jobStatusLabel(status) {
-  const map = {
-    queued: 'В очереди',
-    running: 'Выполняется',
-    completed: 'Завершена',
-    failed: 'Ошибка',
-    cancelled: 'Отменена',
-  };
-  return map[status] || status;
-}
-
-async function loadJobHistory() {
-  try {
-    const items = await campaignService.listJobs(campaignId.value);
-    jobHistory.value = items.filter((j) =>
-      ['completed', 'failed', 'cancelled'].includes(j.status)
-    );
-  } catch {
-    jobHistory.value = [];
-  }
-}
-
-async function openHistoryJob(job) {
-  historyViewJob.value = job;
-  historyLogs.value = [];
-  historyLogsLoading.value = true;
-  try {
-    const full = await jobService.get(job.id, { includeSnapshots: true });
-    historyViewJob.value = full;
-    historyLogs.value = (await jobService.getLogs(job.id, 0, {
-      minLevel: uiPrefs.verboseLogs ? 'debug' : 'info',
-    })).map(mapApiLog);
-  } finally {
-    historyLogsLoading.value = false;
-  }
-}
 
 function applySnapshotToForm(payload, sourceJobId) {
   if (!payload || payload.mode !== 'manual') return false;
@@ -876,29 +808,6 @@ async function restoreFromHistory(job) {
   creationLogs.value = [];
   activeJob.value = null;
   wizardStep.value = 2;
-}
-
-async function retryFromHistory(job) {
-  if (startingJob.value || isJobActive.value) return;
-  startingJob.value = true;
-  submitError.value = null;
-  try {
-    const newJob = await jobService.retry(job.id);
-    await restoreFromHistory(job);
-    activeJob.value = newJob;
-    wizardStep.value = 3;
-    creationFinished.value = false;
-    lastLogId.value = 0;
-    creationLogs.value = [];
-    saveJobSnapshot(newJob.id);
-    startJobPolling();
-    await pollJob();
-    await loadJobHistory();
-  } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось перезапустить задачу';
-  } finally {
-    startingJob.value = false;
-  }
 }
 
 function accountLabel(a) {
@@ -1016,7 +925,7 @@ async function refreshActiveJob() {
     } catch {
       /* ignore */
     }
-    await loadJobHistory();
+    await activeJobsPanelRef.value?.loadJobs?.();
   }
 }
 
@@ -1039,7 +948,23 @@ function stopJobPolling() {
 
 async function tryResumeActiveJob() {
   const data = await campaignService.get(campaignId.value);
-  const job = data.activeJob;
+  activeJobs.value = data.activeJobs?.length
+    ? data.activeJobs
+    : data.activeJob
+      ? [data.activeJob]
+      : [];
+
+  const queryJobId = Number(route.query.jobId);
+  let job = null;
+  if (queryJobId) {
+    job =
+      activeJobs.value.find((j) => j.id === queryJobId) ||
+      (await jobService.get(queryJobId));
+  } else {
+    job = activeJobs.value.find(
+      (j) => ['queued', 'running'].includes(j.status) && jobUsesAccount(j, accountId.value)
+    );
+  }
   if (!job || !['queued', 'running'].includes(job.status)) return;
 
   const snap = loadJobSnapshot();
@@ -1198,6 +1123,7 @@ async function startManualCreation() {
     saveJobSnapshot(job.id);
     startJobPolling();
     await pollJob();
+    await activeJobsPanelRef.value?.loadJobs?.();
   } catch (e) {
     submitError.value = e.response?.data?.error || 'Не удалось запустить задачу';
   } finally {
@@ -1439,8 +1365,19 @@ onMounted(async () => {
     const first = readyAccounts.value[0];
     if (first) accountId.value = first.id;
 
+    activeJobs.value = data.activeJobs?.length
+      ? data.activeJobs
+      : data.activeJob
+        ? [data.activeJob]
+        : [];
+
     await tryResumeActiveJob();
-    await loadJobHistory();
+
+    const restoreJobId = Number(route.query.restoreJob);
+    if (restoreJobId) {
+      const job = await jobService.get(restoreJobId, { includeSnapshots: true });
+      await restoreFromHistory(job);
+    }
   } catch (e) {
     loadError.value = e.response?.data?.error || 'Кампания не найдена';
   }
@@ -1482,6 +1419,20 @@ onUnmounted(() => {
 
 .block-hint {
   margin: 0 0 1rem;
+}
+
+.history-link-block {
+  margin-top: 1rem;
+}
+
+.history-page-link {
+  color: #93c5fd;
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.history-page-link:hover {
+  text-decoration: underline;
 }
 
 .history-block {

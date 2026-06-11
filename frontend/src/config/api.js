@@ -24,6 +24,7 @@ export const API_ENDPOINTS = {
     START: (id) => `/campaigns/${id}/start`,
     START_MANUAL_BULK: (id) => `/campaigns/${id}/start-manual-bulk`,
     JOBS: (id) => `/campaigns/${id}/jobs`,
+    JOBS_ACTIVE: (id) => `/campaigns/${id}/jobs`,
     GENERATE_KEYWORDS: (id) => `/campaigns/${id}/generate-keywords`,
     SUGGEST_KEYWORD: (id) => `/campaigns/${id}/suggest-keyword`,
   },

@@ -25,6 +25,12 @@ const routes = [
       { path: 'campaigns/new', name: 'campaign-create', component: CampaignCreate, meta: { hideWorkflowNav: true, title: 'Новая кампания' } },
       { path: 'campaigns/:id', name: 'campaign-workspace', component: CampaignDetail, meta: { title: 'Кампания' } },
       {
+        path: 'campaigns/:id/jobs',
+        name: 'campaign-job-history',
+        component: () => import('../views/CampaignJobHistory.vue'),
+        meta: { hideWorkflowNav: true, title: 'История задач' },
+      },
+      {
         path: 'campaigns/:id/bots/bulk',
         name: 'bulk-bot-create',
         component: () => import('../views/BulkBotCreate.vue'),

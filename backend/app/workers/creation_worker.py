@@ -14,12 +14,15 @@ load_dotenv()
 from app.config import Config
 from app.core.logging import get_logger, init_logging
 from app.domain.services.creation_pipeline import CreationPipeline
-from app.domain.services import job_log_service
+from app.domain.services import job_log_service, job_service
 from app.infrastructure.cache.redis_client import close_redis, get_redis, init_redis
 from app.infrastructure.database.pool import close_pool, init_pool
 
 init_logging()
 logger = get_logger(__name__)
+
+_semaphore = asyncio.Semaphore(Config.WORKER_CONCURRENCY)
+_active_tasks: set[asyncio.Task] = set()
 
 
 async def process_job(
@@ -30,63 +33,74 @@ async def process_job(
 ) -> None:
     from app.infrastructure.database import repository as db
 
-    existing = await db.fetch_one(
-        "SELECT status FROM creation_jobs WHERE id = $1",
-        job_id,
-    )
-    if not existing:
-        logger.warning("Job %s not found in DB", job_id)
-        return
-    if existing["status"] == "cancelled":
-        await job_log_service.append_log(
+    async with _semaphore:
+        existing = await db.fetch_one(
+            "SELECT status FROM creation_jobs WHERE id = $1",
             job_id,
-            "Задача была отменена до старта worker",
-            level="warn",
         )
-        return
+        if not existing:
+            logger.warning("Job %s not found in DB", job_id)
+            return
+        if existing["status"] == "cancelled":
+            await job_log_service.append_log(
+                job_id,
+                "Задача была отменена до старта worker",
+                level="warn",
+            )
+            return
 
-    await db.execute(
-        """
-        UPDATE creation_jobs
-        SET status = 'running', started_at = NOW(), progress_message = 'Старт', updated_at = NOW()
-        WHERE id = $1
-        """,
-        job_id,
-    )
-    await db.execute(
-        "UPDATE campaigns SET status = 'running', updated_at = NOW() WHERE id = $1",
-        campaign_id,
-    )
-    await job_log_service.append_log(job_id, "Задача запущена", progress_message="Старт")
-
-    try:
-        pipeline = CreationPipeline(
-            job_id,
-            campaign_id,
-            plans=plans,
-            manual_plans=manual_plans,
-        )
-        await pipeline.run()
-    except Exception as exc:
-        logger.exception("Job %s failed: %s", job_id, exc)
-        await job_log_service.append_log(job_id, f"Критическая ошибка: {exc}", level="error")
         await db.execute(
             """
             UPDATE creation_jobs
-            SET status = 'failed',
-                error_message = $2,
-                finished_at = NOW(),
-                progress_message = 'Ошибка',
-                updated_at = NOW()
+            SET status = 'running', started_at = NOW(), progress_message = 'Старт', updated_at = NOW()
             WHERE id = $1
             """,
             job_id,
-            str(exc)[:1000],
         )
         await db.execute(
-            "UPDATE campaigns SET status = 'failed', updated_at = NOW() WHERE id = $1",
+            "UPDATE campaigns SET status = 'running', updated_at = NOW() WHERE id = $1",
             campaign_id,
         )
+        await job_log_service.append_log(job_id, "Задача запущена", progress_message="Старт")
+
+        try:
+            pipeline = CreationPipeline(
+                job_id,
+                campaign_id,
+                plans=plans,
+                manual_plans=manual_plans,
+            )
+            await pipeline.run()
+        except Exception as exc:
+            logger.exception("Job %s failed: %s", job_id, exc)
+            await job_log_service.append_log(job_id, f"Критическая ошибка: {exc}", level="error")
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET status = 'failed',
+                    error_message = $2,
+                    finished_at = NOW(),
+                    progress_message = 'Ошибка',
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                job_id,
+                str(exc)[:1000],
+            )
+            await job_service.sync_campaign_status(campaign_id)
+
+
+async def _run_job_payload(data: dict) -> None:
+    job_id = int(data["job_id"])
+    campaign_id = int(data["campaign_id"])
+    manual_plans = data.get("manual_plans") if data.get("mode") == "manual" else None
+    plans = None if manual_plans else data.get("plans")
+    await process_job(
+        job_id,
+        campaign_id,
+        plans=plans,
+        manual_plans=manual_plans,
+    )
 
 
 async def worker_loop() -> None:
@@ -95,8 +109,14 @@ async def worker_loop() -> None:
         logger.error("Redis не настроен — worker не может работать")
         return
 
-    logger.info("Worker слушает очередь %s", Config.REDIS_JOB_QUEUE)
+    logger.info(
+        "Worker слушает очередь %s (concurrency=%s)",
+        Config.REDIS_JOB_QUEUE,
+        Config.WORKER_CONCURRENCY,
+    )
     while True:
+        _active_tasks.difference_update({t for t in _active_tasks if t.done()})
+
         item = await redis.brpop(Config.REDIS_JOB_QUEUE, timeout=5)
         if not item:
             continue
@@ -106,16 +126,22 @@ async def worker_loop() -> None:
             data = json.loads(payload)
             job_id = int(data["job_id"])
             campaign_id = int(data["campaign_id"])
-            manual_plans = data.get("manual_plans") if data.get("mode") == "manual" else None
-            plans = None if manual_plans else data.get("plans")
-            await process_job(
-                job_id,
-                campaign_id,
-                plans=plans,
-                manual_plans=manual_plans,
-            )
+
+            task = asyncio.create_task(_run_job_payload(data))
+            _active_tasks.add(task)
+
+            def _on_done(t: asyncio.Task, jid=job_id, cid=campaign_id) -> None:
+                _active_tasks.discard(t)
+                if t.cancelled():
+                    return
+                exc = t.exception()
+                if exc is None:
+                    return
+                logger.exception("Ошибка обработки задачи %s: %s", jid, exc)
+
+            task.add_done_callback(_on_done)
         except Exception as exc:
-            logger.exception("Ошибка обработки задачи: %s", exc)
+            logger.exception("Ошибка постановки задачи: %s", exc)
             if job_id and campaign_id:
                 from app.infrastructure.database import repository as db
 
@@ -131,6 +157,7 @@ async def worker_loop() -> None:
                     job_id,
                     str(exc)[:1000],
                 )
+                await job_service.sync_campaign_status(campaign_id)
 
 
 async def main() -> None:
@@ -140,6 +167,8 @@ async def main() -> None:
     try:
         await worker_loop()
     finally:
+        if _active_tasks:
+            await asyncio.gather(*_active_tasks, return_exceptions=True)
         await close_pool()
         await close_redis()
 

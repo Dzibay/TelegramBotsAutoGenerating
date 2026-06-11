@@ -76,6 +76,7 @@ services:
     environment:
       SKIP_DB_INIT: "1"
       ENVIRONMENT: production
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${DB_USER:-postgres}

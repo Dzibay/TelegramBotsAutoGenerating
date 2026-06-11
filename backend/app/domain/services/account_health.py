@@ -58,10 +58,26 @@ def account_capabilities(row: dict[str, Any]) -> dict[str, Any]:
     elif status == "creating":
         hints.append("Идёт создание ботов")
 
+    flood_remaining = 0
+    until = row.get("botfather_flood_until")
+    if until:
+        from datetime import datetime, timezone
+
+        if until.tzinfo is None:
+            until = until.replace(tzinfo=timezone.utc)
+        flood_remaining = max(0, int((until - datetime.now(timezone.utc)).total_seconds()))
+        if flood_remaining > 0:
+            from app.domain.services.account_flood_service import format_flood_wait_human
+
+            hints.append(
+                f"Лимит BotFather: подождите ещё {format_flood_wait_human(flood_remaining)}"
+            )
+
     return {
         "tdata_on_disk": has_tdata,
         "can_create_bots": can_create,
         "health_hint": " ".join(hints) if hints else "",
+        "botfather_flood_remaining_sec": flood_remaining,
     }
 
 
@@ -85,6 +101,10 @@ def _serialize_account(row: dict[str, Any], extra: Optional[dict] = None) -> dic
         "can_create_bots": caps["can_create_bots"],
         "health_hint": caps["health_hint"],
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "botfather_flood_until": (
+            row["botfather_flood_until"].isoformat() if row.get("botfather_flood_until") else None
+        ),
+        "botfather_flood_remaining_sec": caps.get("botfather_flood_remaining_sec", 0),
     }
     if bots_in_db != bots_created:
         out["health_hint"] = (

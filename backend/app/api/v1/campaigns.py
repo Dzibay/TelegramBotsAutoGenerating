@@ -158,8 +158,14 @@ async def delete_campaign(campaign_id: int, _user: dict = Depends(get_current_us
 @router.get("/{campaign_id}")
 async def get_campaign(campaign_id: int, _user: dict = Depends(get_current_user)):
     campaign = await campaign_service.get_campaign(campaign_id)
-    job = await job_service.get_active_job(campaign_id)
-    return success_response(data={"campaign": campaign, "active_job": job})
+    active_jobs = await job_service.list_active_jobs(campaign_id)
+    return success_response(
+        data={
+            "campaign": campaign,
+            "active_job": active_jobs[-1] if active_jobs else None,
+            "active_jobs": active_jobs,
+        }
+    )
 
 
 @router.get("/{campaign_id}/bots")
@@ -287,9 +293,13 @@ async def list_campaign_jobs(
     campaign_id: int,
     limit: int = 50,
     offset: int = 0,
+    active_only: bool = False,
     _user: dict = Depends(get_current_user),
 ):
-    jobs = await job_service.list_creation_jobs(campaign_id, limit=limit, offset=offset)
+    if active_only:
+        jobs = await job_service.list_active_jobs(campaign_id)
+    else:
+        jobs = await job_service.list_creation_jobs(campaign_id, limit=limit, offset=offset)
     return success_response(data={"jobs": jobs})
 
 

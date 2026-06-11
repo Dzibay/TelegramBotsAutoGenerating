@@ -17,13 +17,43 @@ def _iso(dt) -> Optional[str]:
     return dt.isoformat() if dt else None
 
 
+def _job_account_ids(row: dict[str, Any]) -> set[int]:
+    raw = row.get("account_ids") or []
+    ids = {int(x) for x in raw if x is not None}
+    primary = row.get("telegram_account_id")
+    if primary:
+        ids.add(int(primary))
+    return ids
+
+
+def _format_account_label(row: dict[str, Any]) -> str | None:
+    label = row.get("account_label")
+    phone = row.get("account_phone")
+    if label:
+        return str(label)
+    if phone:
+        return str(phone)
+    account_ids = _job_account_ids(row)
+    if len(account_ids) == 1:
+        return f"#{next(iter(account_ids))}"
+    if len(account_ids) > 1:
+        return f"{len(account_ids)} акк."
+    if row.get("job_mode") == "auto":
+        return "все аккаунты"
+    return None
+
+
 def _job_row(row: dict[str, Any], *, include_snapshots: bool = False) -> dict[str, Any]:
     summary = job_history_service.job_history_summary(row)
+    account_ids = sorted(_job_account_ids(row))
     out = {
         "id": row["id"],
         "campaign_id": row["campaign_id"],
         "status": row["status"],
         "job_mode": row.get("job_mode"),
+        "telegram_account_id": row.get("telegram_account_id"),
+        "account_ids": account_ids,
+        "account_label": _format_account_label(row),
         "retried_from_job_id": row.get("retried_from_job_id"),
         "total_accounts": row["total_accounts"],
         "processed_accounts": row["processed_accounts"],
@@ -42,6 +72,89 @@ def _job_row(row: dict[str, Any], *, include_snapshots: bool = False) -> dict[st
         out["input_snapshot"] = job_history_service.parse_json_field(row.get("input_snapshot"))
         out["result_snapshot"] = job_history_service.parse_json_field(row.get("result_snapshot"))
     return out
+
+
+async def sync_campaign_status(campaign_id: int) -> None:
+    """Статус кампании по активным и завершённым задачам."""
+    active = await db.fetch_val(
+        """
+        SELECT COUNT(*)::int FROM creation_jobs
+        WHERE campaign_id = $1 AND status IN ('queued', 'running')
+        """,
+        campaign_id,
+    )
+    if active:
+        await db.execute(
+            "UPDATE campaigns SET status = 'running', updated_at = NOW() WHERE id = $1",
+            campaign_id,
+        )
+        return
+
+    stats = await db.fetch_one(
+        """
+        SELECT
+            COALESCE(SUM(total_bots_created), 0)::int AS total_created,
+            BOOL_OR(status = 'failed') AS any_failed
+        FROM creation_jobs
+        WHERE campaign_id = $1
+          AND status IN ('completed', 'failed', 'cancelled')
+        """,
+        campaign_id,
+    )
+    total_created = int(stats["total_created"] or 0)
+    if total_created > 0:
+        camp_status = "completed"
+    elif stats["any_failed"]:
+        camp_status = "failed"
+    else:
+        camp_status = "draft"
+    await db.execute(
+        "UPDATE campaigns SET status = $2, updated_at = NOW() WHERE id = $1",
+        campaign_id,
+        camp_status,
+    )
+
+
+async def _find_account_conflicts(
+    campaign_id: int,
+    account_ids: set[int],
+    *,
+    is_auto: bool = False,
+) -> list[dict[str, Any]]:
+    rows = await db.fetch_all(
+        """
+        SELECT j.*, ta.label AS account_label, ta.phone AS account_phone
+        FROM creation_jobs j
+        LEFT JOIN telegram_accounts ta ON ta.id = j.telegram_account_id
+        WHERE j.campaign_id = $1 AND j.status IN ('queued', 'running')
+        ORDER BY j.id
+        """,
+        campaign_id,
+    )
+    conflicts: list[dict[str, Any]] = []
+    for row in rows:
+        mode = row.get("job_mode")
+        job_accounts = _job_account_ids(row)
+        if is_auto or mode == "auto":
+            conflicts.append(row)
+            continue
+        if account_ids & job_accounts:
+            conflicts.append(row)
+    return conflicts
+
+
+def _conflict_message(conflicts: list[dict[str, Any]], account_ids: set[int]) -> str:
+    if not conflicts:
+        return "Задача уже выполняется"
+    first = conflicts[0]
+    mode = first.get("job_mode")
+    if mode == "auto" or not account_ids:
+        return "Уже выполняется автоматическая задача — дождитесь завершения или остановите её"
+    label = _format_account_label(first) or f"#{first.get('telegram_account_id') or next(iter(account_ids))}"
+    if len(conflicts) == 1:
+        return f"На аккаунте «{label}» уже выполняется задача #{first['id']}"
+    ids = ", ".join(f"#{c['id']}" for c in conflicts[:3])
+    return f"Аккаунты заняты другими задачами: {ids}"
 
 
 async def start_creation_job(
@@ -99,41 +212,47 @@ async def start_creation_job(
             if not acc_id or not kw:
                 raise ConflictError("В плане каждый бот должен иметь аккаунт и ключевую фразу")
 
-    running = await db.fetch_one(
-        """
-        SELECT id FROM creation_jobs
-        WHERE campaign_id = $1 AND status IN ('queued', 'running')
-        LIMIT 1
-        """,
-        campaign_id,
-    )
-    if running:
-        raise ConflictError("Задача для этой кампании уже выполняется")
-
     if plan_list:
         account_ids = {int(p["telegram_account_id"]) for p in plan_list}
         total_accounts = len(account_ids)
         progress = f"В очереди: {len(plan_list)} бот(ов) по плану"
+        job_mode = "planned"
+        primary_account_id = None
     else:
+        account_ids = set()
         total_accounts = await db.fetch_val(
             "SELECT COUNT(*)::int FROM telegram_accounts WHERE campaign_id = $1",
             campaign_id,
         )
         progress = "В очереди"
+        job_mode = "auto"
+        primary_account_id = None
+
+    conflicts = await _find_account_conflicts(
+        campaign_id,
+        account_ids,
+        is_auto=job_mode == "auto",
+    )
+    if conflicts:
+        raise ConflictError(_conflict_message(conflicts, account_ids))
 
     row = await db.fetch_one(
         """
-        INSERT INTO creation_jobs (campaign_id, status, total_accounts, progress_message, job_mode)
-        VALUES ($1, 'queued', $2, $3, $4)
+        INSERT INTO creation_jobs (
+            campaign_id, status, total_accounts, progress_message, job_mode,
+            telegram_account_id, account_ids
+        )
+        VALUES ($1, 'queued', $2, $3, $4, $5, $6)
         RETURNING *
         """,
         campaign_id,
         total_accounts or 0,
         progress,
-        "planned" if plan_list else "auto",
+        job_mode,
+        primary_account_id,
+        list(account_ids),
     )
 
-    job_mode = "planned" if plan_list else "auto"
     snapshot = (
         job_history_service.build_planned_input_snapshot(plan_list)
         if plan_list
@@ -149,6 +268,7 @@ async def start_creation_job(
         "UPDATE campaigns SET status = 'queued', updated_at = NOW() WHERE id = $1",
         campaign_id,
     )
+    await sync_campaign_status(campaign_id)
 
     redis = get_redis()
     if not redis:
@@ -169,23 +289,31 @@ async def start_creation_job(
     return _job_row(row)
 
 
-async def get_active_job(campaign_id: int) -> dict[str, Any] | None:
-    row = await db.fetch_one(
+async def list_active_jobs(campaign_id: int) -> list[dict[str, Any]]:
+    rows = await db.fetch_all(
         """
-        SELECT * FROM creation_jobs
-        WHERE campaign_id = $1 AND status IN ('queued', 'running')
-        ORDER BY id DESC
-        LIMIT 1
+        SELECT j.*, ta.label AS account_label, ta.phone AS account_phone
+        FROM creation_jobs j
+        LEFT JOIN telegram_accounts ta ON ta.id = j.telegram_account_id
+        WHERE j.campaign_id = $1 AND j.status IN ('queued', 'running')
+        ORDER BY j.id
         """,
         campaign_id,
     )
-    if row:
-        return _job_row(row)
+    return [_job_row(r) for r in rows]
+
+
+async def get_active_job(campaign_id: int) -> dict[str, Any] | None:
+    jobs = await list_active_jobs(campaign_id)
+    if jobs:
+        return jobs[-1]
     row = await db.fetch_one(
         """
-        SELECT * FROM creation_jobs
-        WHERE campaign_id = $1
-        ORDER BY id DESC
+        SELECT j.*, ta.label AS account_label, ta.phone AS account_phone
+        FROM creation_jobs j
+        LEFT JOIN telegram_accounts ta ON ta.id = j.telegram_account_id
+        WHERE j.campaign_id = $1
+        ORDER BY j.id DESC
         LIMIT 1
         """,
         campaign_id,
@@ -301,30 +429,27 @@ async def start_manual_creation_job(
             }
         )
 
-    running = await db.fetch_one(
-        """
-        SELECT id FROM creation_jobs
-        WHERE campaign_id = $1 AND status IN ('queued', 'running')
-        LIMIT 1
-        """,
-        campaign_id,
-    )
-    if running:
-        raise ConflictError("Задача для этой кампании уже выполняется")
+    account_ids = {int(body.telegram_account_id)}
+    conflicts = await _find_account_conflicts(campaign_id, account_ids)
+    if conflicts:
+        raise ConflictError(_conflict_message(conflicts, account_ids))
 
     total = len(manual_plans)
     row = await db.fetch_one(
         """
         INSERT INTO creation_jobs (
-            campaign_id, status, total_accounts, progress_message, job_mode, retried_from_job_id
+            campaign_id, status, total_accounts, progress_message, job_mode,
+            retried_from_job_id, telegram_account_id, account_ids
         )
-        VALUES ($1, 'queued', $2, $3, 'manual', $4)
+        VALUES ($1, 'queued', $2, $3, 'manual', $4, $5, $6)
         RETURNING *
         """,
         campaign_id,
         total,
         f"В очереди: {total} бот(ов), ручная партия",
         retried_from_job_id,
+        body.telegram_account_id,
+        list(account_ids),
     )
     job_id = row["id"]
 
@@ -356,6 +481,7 @@ async def start_manual_creation_job(
         "UPDATE campaigns SET status = 'queued', updated_at = NOW() WHERE id = $1",
         campaign_id,
     )
+    await sync_campaign_status(campaign_id)
 
     redis = get_redis()
     if not redis:
@@ -399,9 +525,11 @@ async def list_creation_jobs(
     await campaign_service.get_campaign(campaign_id)
     rows = await db.fetch_all(
         """
-        SELECT * FROM creation_jobs
-        WHERE campaign_id = $1
-        ORDER BY id DESC
+        SELECT j.*, ta.label AS account_label, ta.phone AS account_phone
+        FROM creation_jobs j
+        LEFT JOIN telegram_accounts ta ON ta.id = j.telegram_account_id
+        WHERE j.campaign_id = $1
+        ORDER BY j.id DESC
         LIMIT $2 OFFSET $3
         """,
         campaign_id,
@@ -493,13 +621,7 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
         finished_status="cancelled",
     )
     await _reset_creating_accounts(campaign_id)
-
-    camp_status = "completed" if total_created > 0 else "draft"
-    await db.execute(
-        "UPDATE campaigns SET status = $2, updated_at = NOW() WHERE id = $1",
-        campaign_id,
-        camp_status,
-    )
+    await sync_campaign_status(campaign_id)
 
     from app.domain.services import job_log_service
 

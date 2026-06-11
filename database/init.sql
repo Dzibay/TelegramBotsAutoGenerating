@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS telegram_accounts (
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'ready', 'creating', 'exhausted', 'error', 'disabled')),
     last_error TEXT,
+    botfather_flood_until TIMESTAMPTZ,
+    botfather_flood_seconds INT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

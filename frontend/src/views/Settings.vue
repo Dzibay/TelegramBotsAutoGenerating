@@ -19,8 +19,8 @@
             id="inter-bot"
             v-model.number="form.inter_bot_delay_sec"
             type="number"
-            min="10"
-            max="600"
+            min="0"
+            step="1"
             required
           />
           <p class="field-hint">Между завершением одного бота и началом следующего. По умолчанию 45.</p>
@@ -33,7 +33,7 @@
             v-model.number="form.op_delay_sec"
             type="number"
             min="0"
-            max="60"
+            step="1"
             required
           />
           <p class="field-hint">Между /newbot, /setdescription, /setabouttext и т.д. внутри одного бота.</p>
@@ -46,7 +46,7 @@
             v-model.number="form.conv_delay_sec"
             type="number"
             min="0"
-            max="30"
+            step="1"
             required
           />
           <p class="field-hint">Короткая задержка перед открытием нового чата с BotFather.</p>
@@ -59,7 +59,7 @@
             v-model.number="form.batch_size"
             type="number"
             min="1"
-            max="50"
+            step="1"
             required
           />
           <p class="field-hint">После скольких ботов делать длинную паузу.</p>
@@ -71,8 +71,8 @@
             id="batch-cooldown"
             v-model.number="form.batch_cooldown_sec"
             type="number"
-            min="30"
-            max="3600"
+            min="0"
+            step="1"
             required
           />
           <p class="field-hint">Длинный отдых после каждого пакета (например 180 = 3 мин).</p>
@@ -85,7 +85,7 @@
             v-model.number="form.post_throttle_delay_sec"
             type="number"
             min="0"
-            max="600"
+            step="1"
             required
           />
           <p class="field-hint">Дополнительная пауза, если BotFather ответил «too many attempts».</p>
@@ -97,15 +97,14 @@
             id="flood-wait"
             v-model.number="form.max_server_flood_wait"
             type="number"
-            min="30"
-            max="86400"
+            min="0"
             step="1"
             required
           />
           <p class="field-hint">
             Сколько ждать ответ «try again in N seconds» от BotFather/Telegram внутри задачи.
-            Сейчас: <strong>{{ floodWaitHuman }}</strong> (макс. 24 ч).
-            Если лимит меньше, чем просит Telegram — задача остановится с ошибкой.
+            Сейчас: <strong>{{ floodWaitHuman }}</strong>.
+            Если лимит меньше, чем просит Telegram — задача остановит партию (следующие боты не создаются).
           </p>
         </div>
       </div>

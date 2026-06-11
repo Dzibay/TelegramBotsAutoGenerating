@@ -42,10 +42,17 @@ def _raise_flood_wait(seconds: int) -> None:
 
 
 async def _handle_flood_wait(exc: FloodWaitError, *, context: str) -> None:
+    from app.domain.services import account_flood_service
+
     wait = max(1, int(exc.seconds))
     logger.warning("Telegram FloodWait %s sec (%s)", wait, context)
+    acc_id = account_flood_service.current_flood_account_id()
+    if acc_id:
+        await account_flood_service.record_flood_wait(acc_id, wait)
     if wait <= max_server_flood_wait_sec():
         await asyncio.sleep(wait + 1)
+        if acc_id:
+            await account_flood_service.clear_flood_wait(acc_id)
         return
     _raise_flood_wait(wait)
 

@@ -63,6 +63,8 @@ export function validateBulkBatch(rows, readyAccounts) {
  * Проверки ручной массовой партии (один аккаунт, общие тексты).
  * @returns {{ errors: string[], warnings: string[] }}
  */
+import { resolveRowAvatar } from './bulkBotAvatars';
+
 export function validateManualBulkBatch(rows, account, sharedTexts, options = {}) {
   const {
     linkSource = 'batch',
@@ -127,7 +129,7 @@ export function validateManualBulkBatch(rows, account, sharedTexts, options = {}
     }
   }
 
-  const withoutAvatar = readyRows.filter((r) => !r.avatarFile);
+  const withoutAvatar = readyRows.filter((r) => !resolveRowAvatar(r, rows));
   if (withoutAvatar.length) {
     warnings.push(
       `${withoutAvatar.length} бот(ов) без аватара — в Telegram останется пустая картинка.`

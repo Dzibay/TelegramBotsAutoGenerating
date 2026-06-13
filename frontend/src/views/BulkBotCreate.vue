@@ -140,49 +140,73 @@
           <li v-for="(msg, i) in manualValidation.warnings" :key="'w' + i">{{ msg }}</li>
         </ul>
 
+        <p class="field-hint avatar-hint">
+          Загрузите аватарку в колонке слева и потяните нижний край — одна картинка применится на несколько ботов в группе.
+        </p>
+
         <div class="bulk-table-scroll">
           <div class="bulk-table manual-table">
-            <div class="bulk-head manual-grid">
-              <span>#</span>
-              <span>Аватар</span>
-              <span>Имя *</span>
-              <span>Username *</span>
-              <span>{{ linkSource === 'per_bot' ? 'Ссылка *' : 'Ссылка' }}</span>
-              <span></span>
+            <div class="manual-table-header">
+              <span class="manual-head-avatar">Аватар</span>
+              <div class="bulk-head manual-grid-no-avatar manual-head-cols">
+                <span>#</span>
+                <span>Имя *</span>
+                <span>Username *</span>
+                <span>{{ linkSource === 'per_bot' ? 'Ссылка *' : 'Ссылка' }}</span>
+                <span></span>
+              </div>
             </div>
 
-            <div v-for="(row, i) in manualRows" :key="row.id" class="bulk-row">
-              <div class="manual-grid bulk-main">
-                <span class="row-num">{{ i + 1 }}</span>
-                <BulkAvatarCell
-                  @update:file="row.avatarFile = $event"
-                  @update:preview="row.avatarPreview = $event"
+            <div
+              v-for="group in avatarAnchorGroups"
+              :key="`g-${group.row.id}`"
+              class="manual-group"
+            >
+              <div class="manual-group-avatar">
+                <BulkAvatarStretchCell
+                  :preview-url="group.row.avatarPreview"
+                  :span="group.span"
+                  :max-span="manualRows.length - group.index"
+                  @update:file="onAnchorAvatarFile(group.index, $event)"
+                  @update:preview="onAnchorAvatarPreview(group.index, $event)"
+                  @update:span="setAnchorSpan(group.index, $event)"
                 />
-                <input v-model="row.displayName" type="text" placeholder="Имя бота" />
-                <input
-                  :value="row.username"
-                  type="text"
-                  placeholder="@username"
-                  @input="row.username = $event.target.value.replace(/^@/, '')"
-                />
-                <input
-                  v-if="linkSource === 'per_bot'"
-                  v-model="row.targetUrl"
-                  type="url"
-                  placeholder="https://..."
-                />
-                <span v-else-if="linkSource === 'referral'" class="muted link-api-hint">через API</span>
-                <span v-else class="muted link-api-hint">{{ sharedBatchUrl || 'общая' }}</span>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost danger"
-                  :disabled="manualRows.length <= 1"
-                  @click="removeManualRow(i)"
-                >
-                  ×
-                </button>
               </div>
-              <p v-if="row.error" class="row-err">{{ row.error }}</p>
+              <div class="manual-group-rows">
+                <div
+                  v-for="(row, j) in manualRows.slice(group.index, group.index + group.span)"
+                  :key="row.id"
+                  class="bulk-row"
+                >
+                  <div class="manual-grid-no-avatar bulk-main">
+                    <span class="row-num">{{ group.index + j + 1 }}</span>
+                    <input v-model="row.displayName" type="text" placeholder="Имя бота" />
+                    <input
+                      :value="row.username"
+                      type="text"
+                      placeholder="@username"
+                      @input="row.username = $event.target.value.replace(/^@/, '')"
+                    />
+                    <input
+                      v-if="linkSource === 'per_bot'"
+                      v-model="row.targetUrl"
+                      type="url"
+                      placeholder="https://..."
+                    />
+                    <span v-else-if="linkSource === 'referral'" class="muted link-api-hint">через API</span>
+                    <span v-else class="muted link-api-hint">{{ sharedBatchUrl || 'общая' }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost danger"
+                      :disabled="manualRows.length <= 1"
+                      @click="removeManualRow(group.index + j)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p v-if="row.error" class="row-err row-err--inline">{{ row.error }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -450,7 +474,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
-import BulkAvatarCell from '../components/BulkAvatarCell.vue';
+import BulkAvatarStretchCell from '../components/BulkAvatarStretchCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BulkLinkSourceField from '../components/BulkLinkSourceField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
@@ -478,9 +502,16 @@ import {
   LINK_SOURCE,
 } from '../utils/bulkLinkSource';
 import {
+  getAvatarAnchorGroups,
+  normalizeAvatarSpans,
+  resolveRowAvatar,
+  findAnchorForRowIndex,
+} from '../utils/bulkBotAvatars';
+import {
   validateBulkBatch,
   validateManualBulkBatch,
 } from '../utils/bulkBatchValidate';
+
 const JOB_SNAPSHOT_KEY = (id) => `bulk_manual_job_${id}`;
 
 let rowSeq = 0;
@@ -493,6 +524,7 @@ function newManualRow() {
     targetUrl: '',
     avatarFile: null,
     avatarPreview: null,
+    avatarSpan: 1,
     queueStatus: 'pending',
     error: null,
     createdBotId: null,
@@ -593,6 +625,26 @@ const isSelectedAccountBusy = computed(() =>
 
 function onActiveJobsUpdate(jobs) {
   activeJobs.value = jobs;
+}
+
+const avatarAnchorGroups = computed(() => getAvatarAnchorGroups(manualRows.value));
+
+function setAnchorSpan(anchorIndex, span) {
+  manualRows.value[anchorIndex].avatarSpan = span;
+  normalizeAvatarSpans(manualRows.value);
+}
+
+function onAnchorAvatarFile(anchorIndex, file) {
+  manualRows.value[anchorIndex].avatarFile = file;
+}
+
+function onAnchorAvatarPreview(anchorIndex, preview) {
+  const row = manualRows.value[anchorIndex];
+  if (row.avatarPreview && row.avatarPreview !== preview) {
+    URL.revokeObjectURL(row.avatarPreview);
+  }
+  row.avatarPreview = preview;
+  if (!preview) row.avatarFile = null;
 }
 
 const readyAccounts = computed(() =>
@@ -765,6 +817,7 @@ function applySnapshotToForm(payload, sourceJobId) {
     targetUrl: bot.target_url || '',
     avatarFile: null,
     avatarPreview: null,
+    avatarSpan: 1,
     queueStatus: 'pending',
     error: null,
     createdBotId: null,
@@ -997,6 +1050,7 @@ function goToBotsStep() {
     }
     applyCampaignButtonDefaults(sharedTexts.value, campaign.value);
   }
+  normalizeAvatarSpans(manualRows.value);
   wizardStep.value = 2;
 }
 
@@ -1016,6 +1070,7 @@ function goToCreateStep() {
 function addRow() {
   if (manualRows.value.length >= freeSlots.value && freeSlots.value > 0) return;
   manualRows.value.push(newManualRow());
+  normalizeAvatarSpans(manualRows.value);
 }
 
 function addRows(n) {
@@ -1023,7 +1078,21 @@ function addRows(n) {
 }
 
 function removeManualRow(i) {
+  const anchor = findAnchorForRowIndex(manualRows.value, i);
+  if (anchor && i === anchor.index && anchor.span > 1) {
+    const next = manualRows.value[i + 1];
+    if (next) {
+      next.avatarFile = manualRows.value[i].avatarFile;
+      next.avatarPreview = manualRows.value[i].avatarPreview;
+      next.avatarSpan = anchor.span - 1;
+    }
+  } else if (anchor && i > anchor.index) {
+    manualRows.value[anchor.index].avatarSpan = anchor.span - 1;
+  }
+  const removed = manualRows.value[i];
+  if (removed?.avatarPreview) URL.revokeObjectURL(removed.avatarPreview);
   manualRows.value.splice(i, 1);
+  normalizeAvatarSpans(manualRows.value);
 }
 
 function resetQueueRows() {
@@ -1116,8 +1185,9 @@ async function startManualCreation() {
     })
   );
   for (const row of rowsToCreate) {
-    if (row.avatarFile) {
-      form.append(`avatar_${row.id}`, row.avatarFile);
+    const avatarFile = resolveRowAvatar(row, manualRows.value);
+    if (avatarFile) {
+      form.append(`avatar_${row.id}`, avatarFile);
     }
   }
 
@@ -1572,6 +1642,69 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.manual-table-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.15rem;
+}
+
+.manual-head-avatar {
+  width: 3.75rem;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.manual-head-cols {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.manual-grid-no-avatar {
+  display: grid;
+  grid-template-columns: 2rem 1.2fr 1.1fr 1.3fr 2rem;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.manual-group {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+
+.manual-group:last-child {
+  border-bottom: none;
+}
+
+.manual-group-avatar {
+  width: 3.75rem;
+  flex-shrink: 0;
+  padding: 0.45rem 0.35rem;
+  border-right: 1px solid var(--border);
+  background: rgba(8, 12, 20, 0.25);
+}
+
+.manual-group-rows {
+  flex: 1;
+  min-width: 0;
+}
+
+.avatar-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+}
+
+.row-err--inline {
+  margin: 0.15rem 0 0.35rem 2rem;
+}
+
 .ai-grid {
   display: grid;
   grid-template-columns: 2rem 1.1fr 1fr 1fr 1fr 4.5rem 5.5rem;
@@ -1584,6 +1717,15 @@ onUnmounted(() => {
   color: var(--muted);
   padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
+}
+
+.manual-group-rows .bulk-row {
+  border-bottom: none;
+  padding: 0.5rem 0.35rem;
+}
+
+.manual-group-rows .bulk-row:not(:last-child) {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .bulk-row {

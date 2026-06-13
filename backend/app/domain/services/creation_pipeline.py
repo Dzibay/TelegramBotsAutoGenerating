@@ -810,26 +810,79 @@ class CreationPipeline:
 
         return "fail"
 
+    async def _load_multi_job_account_ids(self) -> list[int]:
+        """Аккаунты ротации из creation_jobs.account_ids (обновляется во время задачи)."""
+        row = await db.fetch_one(
+            "SELECT account_ids FROM creation_jobs WHERE id = $1",
+            self.job_id,
+        )
+        raw = (row or {}).get("account_ids") or []
+        ids = sorted({int(x) for x in raw if x is not None})
+        if not ids:
+            rows = await db.fetch_all(
+                """
+                SELECT id FROM telegram_accounts
+                WHERE campaign_id = $1 AND status IN ('ready', 'creating')
+                  AND tdata_path IS NOT NULL AND tdata_path != ''
+                  AND is_banned = FALSE
+                ORDER BY id
+                """,
+                self.campaign_id,
+            )
+            return [int(r["id"]) for r in rows]
+
+        rows = await db.fetch_all(
+            """
+            SELECT id FROM telegram_accounts
+            WHERE campaign_id = $1 AND id = ANY($2::bigint[])
+              AND is_banned = FALSE
+              AND tdata_path IS NOT NULL AND tdata_path != ''
+            ORDER BY id
+            """,
+            self.campaign_id,
+            ids,
+        )
+        return [int(r["id"]) for r in rows]
+
+    async def _refresh_multi_account_pool(
+        self,
+        known: set[int],
+    ) -> list[int]:
+        """Читает account_ids из задачи; логирует новые аккаунты."""
+        account_ids = await self._load_multi_job_account_ids()
+        new_ids = [aid for aid in account_ids if aid not in known]
+        if new_ids and known:
+            labels: list[str] = []
+            for aid in new_ids:
+                acc = await self._refresh_multi_account(aid)
+                if acc:
+                    labels.append(self._account_label(acc))
+            if labels:
+                await self.log(
+                    f"В задачу добавлены аккаунты: {', '.join(labels)}",
+                    level="info",
+                    context={"account_ids": new_ids, "status": "accounts_added"},
+                )
+        known.update(account_ids)
+        return account_ids
+
     async def _run_manual_multi(self, campaign: dict) -> None:
         plans = list(self.manual_plans)
         total = len(plans)
         if not total:
             raise ValueError("Пустой план ручного создания")
 
-        account_rows = await db.fetch_all(
-            """
-            SELECT * FROM telegram_accounts
-            WHERE campaign_id = $1 AND status IN ('ready', 'creating')
-              AND tdata_path IS NOT NULL AND tdata_path != ''
-              AND is_banned = FALSE
-            ORDER BY id
-            """,
-            self.campaign_id,
-        )
-        if not account_rows:
+        known_account_ids: set[int] = set()
+        account_ids = await self._refresh_multi_account_pool(known_account_ids)
+        if not account_ids:
             raise ValueError("Нет готовых аккаунтов для мультиаккаунтного режима")
 
-        account_ids = [int(a["id"]) for a in account_rows]
+        account_rows: list[dict[str, Any]] = []
+        for aid in account_ids:
+            acc = await self._refresh_multi_account(aid)
+            if acc:
+                account_rows.append(acc)
+
         labels = [self._account_label(a) for a in account_rows]
         total_slots = sum(
             max(0, int(a["max_bots_limit"]) - int(a["bots_created"])) for a in account_rows
@@ -878,6 +931,16 @@ class CreationPipeline:
                     await self.log("Создание остановлено пользователем", level="warn")
                     break
 
+                account_ids = await self._refresh_multi_account_pool(known_account_ids)
+                if not account_ids:
+                    await self.log(
+                        "Нет доступных аккаунтов в задаче — ожидание…",
+                        level="warn",
+                    )
+                    if await self._sleep_cancellable(15):
+                        break
+                    continue
+
                 plan = pending[0]
                 idx = processed
                 uname = plan["username"]
@@ -897,6 +960,9 @@ class CreationPipeline:
                 )
 
                 while not bot_done and len(tried_accounts) < len(account_ids):
+                    account_ids = await self._refresh_multi_account_pool(known_account_ids)
+                    if not account_ids:
+                        break
                     account, account_cursor = await self._pick_multi_account(
                         account_ids,
                         account_cursor,

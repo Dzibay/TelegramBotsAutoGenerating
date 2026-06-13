@@ -313,6 +313,48 @@
           :job-message="activeJob?.progress_message ?? ''"
         />
 
+        <div
+          v-if="isMultiActiveJob"
+          class="add-accounts-block"
+        >
+          <h4 class="add-accounts-title">Аккаунты в ротации</h4>
+          <p class="field-hint">
+            В задаче: {{ jobAccountIds.size }} акк.
+            <span v-if="addableAccountsForJob.length">
+              · можно добавить ещё {{ addableAccountsForJob.length }}
+            </span>
+          </p>
+          <ul v-if="jobAccountsList.length" class="job-accounts-list">
+            <li v-for="a in jobAccountsList" :key="a.id">
+              {{ accountLabel(a) }}
+              <span v-if="floodRemainingSec(a) > 0" class="pause-tag">
+                пауза {{ formatWaitLabel(floodRemainingSec(a)) }}
+              </span>
+            </li>
+          </ul>
+          <div v-if="addableAccountsForJob.length" class="add-accounts-form">
+            <label v-for="a in addableAccountsForJob" :key="a.id" class="add-acc-check">
+              <input
+                v-model="selectedAccountsToAdd"
+                type="checkbox"
+                :value="a.id"
+              />
+              {{ accountOptionLabel(a) }}
+            </label>
+            <button
+              type="button"
+              class="btn btn-sm"
+              :disabled="!selectedAccountsToAdd.length || addingAccountsToJob"
+              @click="addAccountsToActiveJob"
+            >
+              {{ addingAccountsToJob ? 'Добавление…' : 'Добавить в задачу' }}
+            </button>
+          </div>
+          <p v-else-if="isJobActive" class="muted small">
+            Все готовые аккаунты уже в задаче или заняты другими задачами.
+          </p>
+        </div>
+
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
         <p v-if="creationSummary" class="summary-text">{{ creationSummary }}</p>
 
@@ -674,6 +716,8 @@ const activeJobs = ref([]);
 const activeJobsPanelRef = ref(null);
 const startingJob = ref(false);
 const cancellingJob = ref(false);
+const addingAccountsToJob = ref(false);
+const selectedAccountsToAdd = ref([]);
 const lastLogId = ref(0);
 const nowTick = ref(Date.now());
 let pollTimer = null;
@@ -681,6 +725,31 @@ let floodTickTimer = null;
 
 const isJobActive = computed(
   () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
+);
+
+const isMultiActiveJob = computed(
+  () => isJobActive.value && activeJob.value?.job_mode === 'manual_multi'
+);
+
+const jobAccountIds = computed(() => new Set(activeJob.value?.account_ids || []));
+
+const jobAccountsList = computed(() =>
+  accounts.value.filter((a) => jobAccountIds.value.has(a.id))
+);
+
+function isAccountBusyOnOtherJob(accId) {
+  return activeJobs.value.some(
+    (j) =>
+      ['queued', 'running'].includes(j.status) &&
+      j.id !== activeJob.value?.id &&
+      jobUsesAccount(j, accId)
+  );
+}
+
+const addableAccountsForJob = computed(() =>
+  readyAccounts.value.filter(
+    (a) => !jobAccountIds.value.has(a.id) && !isAccountBusyOnOtherJob(a.id)
+  )
 );
 
 function jobUsesAccount(job, accId) {
@@ -1279,6 +1348,26 @@ async function cancelActiveJob() {
   }
 }
 
+async function addAccountsToActiveJob() {
+  if (!activeJob.value?.id || !selectedAccountsToAdd.value.length) return;
+  addingAccountsToJob.value = true;
+  submitError.value = null;
+  try {
+    activeJob.value = await jobService.addAccounts(
+      activeJob.value.id,
+      selectedAccountsToAdd.value
+    );
+    selectedAccountsToAdd.value = [];
+    accounts.value = await campaignService.getAccounts(campaignId.value);
+    await pollJob();
+    await activeJobsPanelRef.value?.loadJobs?.();
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось добавить аккаунты';
+  } finally {
+    addingAccountsToJob.value = false;
+  }
+}
+
 async function resetAndRestartQueue() {
   if (isJobActive.value) {
     await cancelActiveJob();
@@ -1749,6 +1838,43 @@ onUnmounted(() => {
   font-size: 0.82rem;
   color: #fbbf24;
   list-style: disc;
+}
+
+.add-accounts-block {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #333);
+}
+
+.add-accounts-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.job-accounts-list {
+  margin: 0.5rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  list-style: disc;
+}
+
+.pause-tag {
+  color: #fbbf24;
+  font-size: 0.8rem;
+}
+
+.add-accounts-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.add-acc-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
 }
 
 .slots-hint strong {

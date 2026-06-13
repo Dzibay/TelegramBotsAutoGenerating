@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
     GET: (id) => `/jobs/${id}`,
     LOGS: (id) => `/jobs/${id}/logs`,
     CANCEL: (id) => `/jobs/${id}/cancel`,
+    ADD_ACCOUNTS: (id) => `/jobs/${id}/accounts`,
     RETRY: (id) => `/jobs/${id}/retry`,
     SNAPSHOT_AVATAR: (jobId, rowId) => `/jobs/${jobId}/snapshot-avatar/${rowId}`,
   },

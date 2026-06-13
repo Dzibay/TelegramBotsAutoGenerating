@@ -52,8 +52,8 @@ async def _handle_flood_wait(exc: FloodWaitError, *, context: str) -> None:
         await account_flood_service.record_flood_wait(acc_id, wait)
     if wait <= max_server_flood_wait_sec():
         await asyncio.sleep(wait + 1)
-        if acc_id:
-            await account_flood_service.clear_flood_wait(acc_id)
+        # Не сбрасываем botfather_flood_until: пауза остаётся в БД до истечения
+        # (важно при отмене задачи во время ожидания и перезапуске).
         return
     _raise_flood_wait(wait)
 

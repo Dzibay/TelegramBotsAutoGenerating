@@ -86,3 +86,9 @@ class StartManualBulkRequest(BaseModel):
         if not self.telegram_account_id:
             raise ValueError("Укажите telegram_account_id или включите multi_account")
         return self
+
+
+class AddJobAccountsRequest(BaseModel):
+    """Добавить аккаунты в выполняющуюся мультиаккаунтную задачу."""
+
+    account_ids: list[int] = Field(..., min_length=1, max_length=50)

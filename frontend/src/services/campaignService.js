@@ -186,6 +186,13 @@ export const jobService = {
     return res.data?.job;
   },
 
+  async addAccounts(jobId, accountIds) {
+    const res = await apiClient.post(API_ENDPOINTS.JOBS.ADD_ACCOUNTS(jobId), {
+      account_ids: accountIds,
+    });
+    return res.data?.job;
+  },
+
   async retry(jobId) {
     const res = await apiClient.post(API_ENDPOINTS.JOBS.RETRY(jobId));
     return res.data?.job;

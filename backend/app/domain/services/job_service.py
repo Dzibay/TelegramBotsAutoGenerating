@@ -117,6 +117,7 @@ async def _find_account_conflicts(
     account_ids: set[int],
     *,
     is_auto: bool = False,
+    exclude_job_id: int | None = None,
 ) -> list[dict[str, Any]]:
     rows = await db.fetch_all(
         """
@@ -130,6 +131,8 @@ async def _find_account_conflicts(
     )
     conflicts: list[dict[str, Any]] = []
     for row in rows:
+        if exclude_job_id and int(row["id"]) == exclude_job_id:
+            continue
         mode = row.get("job_mode")
         job_accounts = _job_account_ids(row)
         if is_auto or mode == "auto":
@@ -694,4 +697,90 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
     )
 
     updated = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    return _job_row(updated)
+
+
+async def add_accounts_to_multi_job(job_id: int, account_ids: list[int]) -> dict[str, Any]:
+    """Добавить аккаунты в выполняющуюся мультиаккаунтную задачу."""
+    from app.domain.services import job_log_service
+
+    row = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    if not row:
+        raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
+    if row.get("job_mode") != "manual_multi":
+        raise BadRequestError("Добавление аккаунтов доступно только для мультиаккаунтных задач")
+    if row["status"] not in ("queued", "running"):
+        raise ConflictError("Задача не выполняется — аккаунты можно добавить только в активную задачу")
+
+    campaign_id = int(row["campaign_id"])
+    current = _job_account_ids(row)
+    requested = {int(x) for x in account_ids if x is not None}
+    if not requested:
+        raise BadRequestError("Укажите id аккаунтов")
+
+    added: list[int] = []
+    labels: list[str] = []
+    for acc_id in sorted(requested):
+        if acc_id in current:
+            continue
+        account = await db.fetch_one(
+            """
+            SELECT * FROM telegram_accounts
+            WHERE id = $1 AND campaign_id = $2
+            """,
+            acc_id,
+            campaign_id,
+        )
+        if not account:
+            raise BadRequestError(f"Аккаунт #{acc_id} не найден в этой кампании")
+        if account.get("is_banned"):
+            raise ConflictError(f"Аккаунт #{acc_id} забанен")
+        if not account.get("tdata_path"):
+            raise ConflictError(f"Аккаунт #{acc_id} не готов — нет tdata")
+        if account.get("status") not in ("ready", "creating", "exhausted"):
+            raise ConflictError(
+                f"Аккаунт #{acc_id} не готов к созданию (статус: {account.get('status')})"
+            )
+        slots = max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
+        if slots <= 0:
+            raise ConflictError(f"На аккаунте #{acc_id} нет свободных слотов")
+
+        conflicts = await _find_account_conflicts(
+            campaign_id,
+            {acc_id},
+            exclude_job_id=job_id,
+        )
+        if conflicts:
+            other = conflicts[0]
+            raise ConflictError(
+                f"Аккаунт #{acc_id} занят задачей #{other['id']}"
+            )
+
+        label = (account.get("label") or "").strip() or f"Аккаунт #{acc_id}"
+        added.append(acc_id)
+        labels.append(label)
+
+    if not added:
+        raise BadRequestError("Все указанные аккаунты уже в задаче")
+
+    merged = sorted(current | set(added))
+    updated = await db.fetch_one(
+        """
+        UPDATE creation_jobs
+        SET account_ids = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+        """,
+        job_id,
+        merged,
+    )
+
+    await job_log_service.append_log(
+        job_id,
+        f"Добавлены аккаунты в ротацию: {', '.join(labels)}",
+        level="info",
+        context={"account_ids": added, "status": "accounts_added"},
+        progress_message=updated.get("progress_message"),
+    )
+
     return _job_row(updated)

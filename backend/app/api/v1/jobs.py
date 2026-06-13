@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 
 from app.constants import SuccessMessages
 from app.core.dependencies import get_current_user
+from app.domain.models.campaign_models import AddJobAccountsRequest
 from app.domain.services import job_log_service, job_service
 from app.utils.response import success_response
 
@@ -39,6 +40,16 @@ async def retry_job(job_id: int, _user: dict = Depends(get_current_user)):
 async def cancel_job(job_id: int, _user: dict = Depends(get_current_user)):
     job = await job_service.cancel_job(job_id)
     return success_response(data={"job": job}, message=SuccessMessages.JOB_CANCELLED)
+
+
+@router.post("/{job_id}/accounts")
+async def add_job_accounts(
+    job_id: int,
+    body: AddJobAccountsRequest,
+    _user: dict = Depends(get_current_user),
+):
+    job = await job_service.add_accounts_to_multi_job(job_id, body.account_ids)
+    return success_response(data={"job": job}, message=SuccessMessages.JOB_ACCOUNTS_ADDED)
 
 
 @router.get("/{job_id}/logs")

@@ -137,7 +137,7 @@ def build_result_snapshot(
     if error_message:
         result["error_message"] = error_message[:500]
 
-    if input_snapshot and input_snapshot.get("mode") == "manual":
+    if input_snapshot and input_snapshot.get("mode") in ("manual", "manual_multi"):
         done_ids = {
             int(r["row_id"])
             for r in row_results

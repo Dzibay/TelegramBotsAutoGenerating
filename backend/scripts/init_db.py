@@ -67,6 +67,28 @@ def _sql_files() -> list[Path]:
 _SCHEMA_ADVISORY_LOCK_KEY = 839204712
 
 
+def _split_sql_statements(sql: str) -> list[str]:
+    """Разбивает файл на отдельные SQL-команды (asyncpg — одна команда на execute)."""
+    statements: list[str] = []
+    for block in sql.split(";"):
+        stmt = block.strip()
+        if not stmt:
+            continue
+        lines = [
+            line
+            for line in stmt.splitlines()
+            if line.strip() and not line.strip().startswith("--")
+        ]
+        if lines:
+            statements.append(stmt)
+    return statements
+
+
+async def _execute_sql_file(conn, path: Path) -> None:
+    for stmt in _split_sql_statements(path.read_text(encoding="utf-8")):
+        await conn.execute(stmt)
+
+
 async def apply_schema(
     *,
     host: str | None = None,
@@ -86,7 +108,7 @@ async def apply_schema(
         await conn.execute(f"SELECT pg_advisory_lock({_SCHEMA_ADVISORY_LOCK_KEY})")
         try:
             for sql_path in _sql_files():
-                await conn.execute(sql_path.read_text(encoding="utf-8"))
+                await _execute_sql_file(conn, sql_path)
         finally:
             await conn.execute(f"SELECT pg_advisory_unlock({_SCHEMA_ADVISORY_LOCK_KEY})")
     finally:

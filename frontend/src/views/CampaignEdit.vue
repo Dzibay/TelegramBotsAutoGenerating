@@ -129,6 +129,45 @@
         <button type="submit" :disabled="saving">{{ saving ? 'Сохранение…' : 'Сохранить' }}</button>
       </div>
     </form>
+
+    <section class="card danger-zone">
+      <h2>Опасная зона</h2>
+      <p class="field-hint">
+        Удаление кампании необратимо: будут удалены все связанные данные, кроме ботов в Telegram.
+      </p>
+      <button
+        v-if="!showDeleteConfirm"
+        type="button"
+        class="btn-danger-outline"
+        @click="showDeleteConfirm = true"
+      >
+        Удалить кампанию…
+      </button>
+      <div v-else class="delete-confirm">
+        <p>
+          Для подтверждения введите название кампании:
+          <strong>{{ title }}</strong>
+        </p>
+        <input
+          v-model="deleteConfirmText"
+          type="text"
+          :placeholder="title"
+          autocomplete="off"
+        />
+        <p v-if="deleteError" class="error-text">{{ deleteError }}</p>
+        <div class="delete-actions">
+          <button type="button" class="btn-ghost" @click="cancelDelete">Отмена</button>
+          <button
+            type="button"
+            class="btn-danger"
+            :disabled="deleting || deleteConfirmText.trim() !== title.trim()"
+            @click="onDelete"
+          >
+            {{ deleting ? 'Удаление…' : 'Удалить навсегда' }}
+          </button>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -136,9 +175,11 @@
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { campaignService } from '../services/campaignService';
+import { useWorkflowStore } from '../stores/workflowStore';
 
 const route = useRoute();
 const router = useRouter();
+const workflow = useWorkflowStore();
 const id = computed(() => Number(route.params.id));
 const loading = ref(true);
 const loadError = ref(null);
@@ -156,6 +197,10 @@ const referralResponseField = ref('');
 const savingReferral = ref(false);
 const referralSaveError = ref(null);
 const referralSaved = ref(false);
+const showDeleteConfirm = ref(false);
+const deleteConfirmText = ref('');
+const deleteError = ref(null);
+const deleting = ref(false);
 
 async function load() {
   loading.value = true;
@@ -220,6 +265,27 @@ async function onSave() {
   }
 }
 
+function cancelDelete() {
+  showDeleteConfirm.value = false;
+  deleteConfirmText.value = '';
+  deleteError.value = null;
+}
+
+async function onDelete() {
+  if (deleteConfirmText.value.trim() !== title.value.trim()) return;
+  deleting.value = true;
+  deleteError.value = null;
+  try {
+    await campaignService.remove(id.value);
+    if (workflow.activeCampaignId === id.value) workflow.setCampaign(null);
+    router.push({ name: 'dashboard' });
+  } catch (e) {
+    deleteError.value = e.response?.data?.error || 'Ошибка удаления';
+  } finally {
+    deleting.value = false;
+  }
+}
+
 onMounted(load);
 </script>
 
@@ -260,5 +326,63 @@ onMounted(load);
   margin: 0.5rem 0 0;
   color: var(--success);
   font-size: 0.875rem;
+}
+
+.danger-zone {
+  margin-top: 1.5rem;
+  border-color: rgba(239, 68, 68, 0.35);
+}
+
+.danger-zone h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: #f87171;
+}
+
+.btn-danger-outline {
+  margin-top: 0.75rem;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #f87171;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.btn-danger-outline:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.delete-confirm {
+  margin-top: 0.75rem;
+}
+
+.delete-confirm p {
+  margin: 0 0 0.65rem;
+  font-size: 0.875rem;
+}
+
+.delete-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.btn-danger {
+  padding: 0.45rem 0.85rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: #dc2626;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.btn-danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

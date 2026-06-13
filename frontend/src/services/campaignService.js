@@ -74,7 +74,15 @@ export const campaignService = {
   },
 
   async removeAccount(campaignId, accountId) {
-    await apiClient.delete(API_ENDPOINTS.CAMPAIGNS.REMOVE_ACCOUNT(campaignId, accountId));
+    await apiClient.delete(API_ENDPOINTS.CAMPAIGNS.UPDATE_ACCOUNT(campaignId, accountId));
+  },
+
+  async updateAccount(campaignId, accountId, payload) {
+    const res = await apiClient.patch(
+      API_ENDPOINTS.CAMPAIGNS.UPDATE_ACCOUNT(campaignId, accountId),
+      payload
+    );
+    return res.data?.account;
   },
 
   async listAccountBots(campaignId, accountId) {

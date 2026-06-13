@@ -41,8 +41,38 @@
       >
         <div class="acc-top">
           <div class="acc-title">
-            <strong>{{ a.label || a.phone || `Аккаунт #${a.id}` }}</strong>
-            <span v-if="a.phone" class="phone">{{ a.phone }}</span>
+            <div v-if="editingId === a.id" class="label-edit">
+              <input
+                v-model="editLabel"
+                type="text"
+                maxlength="200"
+                placeholder="Название аккаунта"
+                @keydown.enter="saveLabel(a)"
+                @keydown.esc="cancelEdit"
+              />
+              <button
+                type="button"
+                class="btn btn-xs"
+                :disabled="labelSavingId === a.id"
+                @click="saveLabel(a)"
+              >
+                {{ labelSavingId === a.id ? '…' : 'OK' }}
+              </button>
+              <button type="button" class="btn btn-xs btn-ghost" @click="cancelEdit">×</button>
+            </div>
+            <template v-else>
+              <strong>{{ displayLabel(a) }}</strong>
+              <button
+                type="button"
+                class="btn-edit-name"
+                title="Изменить название"
+                :disabled="busy"
+                @click="startEdit(a)"
+              >
+                ✎
+              </button>
+            </template>
+            <span v-if="a.phone && editingId !== a.id" class="phone">{{ a.phone }}</span>
           </div>
           <StatusBadge :status="a.status" />
         </div>
@@ -150,7 +180,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref } from 'vue';
 import InlineTaskIndicator from './InlineTaskIndicator.vue';
 import EmptyState from './EmptyState.vue';
 import PreparedAccountPicker from './PreparedAccountPicker.vue';
@@ -170,11 +200,44 @@ const props = defineProps({
   attachMessage: { type: String, default: null },
 });
 
-const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot']);
+const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot', 'update-label']);
 
 const selectedIds = ref([]);
 const pickerRef = ref(null);
 const botsExpanded = reactive({});
+const editingId = ref(null);
+const editLabel = ref('');
+const labelSavingId = ref(null);
+
+function displayLabel(a) {
+  return a.label || a.phone || `Аккаунт #${a.id}`;
+}
+
+function startEdit(account) {
+  editingId.value = account.id;
+  editLabel.value = account.label || '';
+  nextTick(() => {
+    const el = document.querySelector('.label-edit input');
+    el?.focus();
+  });
+}
+
+function cancelEdit() {
+  editingId.value = null;
+  editLabel.value = '';
+}
+
+function saveLabel(account) {
+  const next = editLabel.value.trim();
+  if (next === (account.label || '').trim()) {
+    cancelEdit();
+    return;
+  }
+  labelSavingId.value = account.id;
+  emit('update-label', { account, label: next || null });
+  cancelEdit();
+  labelSavingId.value = null;
+}
 
 const readyCount = computed(() => props.accounts.filter((a) => a.status === 'ready').length);
 const errorCount = computed(() => props.accounts.filter((a) => a.status === 'error').length);
@@ -307,12 +370,42 @@ defineExpose({
 }
 
 .acc-title strong {
-  display: block;
+  display: inline;
+}
+
+.label-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.label-edit input {
+  flex: 1;
+  min-width: 8rem;
+  font-size: 0.85rem;
+}
+
+.btn-edit-name {
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.btn-edit-name:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .phone {
-  font-size: 0.8rem;
-  color: var(--muted);
+  display: block;
+  margin-top: 0.15rem;
 }
 
 .acc-meta {

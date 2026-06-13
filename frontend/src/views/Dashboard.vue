@@ -76,7 +76,6 @@
           <RouterLink :to="{ name: 'campaign-edit', params: { id: c.id } }" class="btn-ghost btn-xs">
             Настройки
           </RouterLink>
-          <button type="button" class="btn-ghost btn-xs danger" @click="onDelete(c)">Удалить</button>
         </div>
       </li>
     </ul>
@@ -105,17 +104,6 @@ const loadError = ref(null);
 function openCampaign(c) {
   workflow.setCampaign(c.id, c.title);
   router.push({ name: 'campaign-workspace', params: { id: c.id }, query: { tab: 'guide' } });
-}
-
-async function onDelete(c) {
-  if (!confirm(`Удалить кампанию «${c.title}»?`)) return;
-  try {
-    await campaignService.remove(c.id);
-    if (workflow.activeCampaignId === c.id) workflow.setCampaign(null);
-    await load();
-  } catch (e) {
-    loadError.value = e.response?.data?.error || 'Ошибка удаления';
-  }
 }
 
 async function load() {

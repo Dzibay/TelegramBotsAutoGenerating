@@ -29,9 +29,6 @@
             <Rocket :size="14" />
             Создать ботов
           </RouterLink>
-          <button type="button" class="btn-ghost btn-sm btn-danger" @click="onDeleteCampaign">
-            Удалить
-          </button>
         </div>
       </div>
       <p v-if="campaign.resource_url" class="resource">
@@ -209,6 +206,7 @@
           @verify="onVerifyAccount"
           @verify-all="onVerifyAllAccounts"
           @remove="onRemoveAccount"
+          @update-label="onUpdateAccountLabel"
           @load-bots="onLoadAccountBots"
           @delete-bot="onDeleteAccountBot"
         />
@@ -626,16 +624,6 @@ async function onStart() {
   }
 }
 
-async function onDeleteCampaign() {
-  if (!confirm(`Удалить кампанию «${campaign.value.title}»?`)) return;
-  try {
-    await campaignService.remove(campaignId.value);
-    router.push({ name: 'dashboard' });
-  } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка удаления';
-  }
-}
-
 async function onBotStart(b) {
   try {
     await botService.start(b.id);
@@ -850,6 +838,19 @@ async function onRemoveAccount(account) {
     loadError.value = err.response?.data?.error || 'Не удалось убрать аккаунт';
   } finally {
     accountBusy.value = false;
+    accountBusyId.value = null;
+  }
+}
+
+async function onUpdateAccountLabel({ account, label }) {
+  accountBusyId.value = account.id;
+  loadError.value = null;
+  try {
+    const updated = await campaignService.updateAccount(campaignId.value, account.id, { label });
+    patchAccount(updated);
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Не удалось сохранить название';
+  } finally {
     accountBusyId.value = null;
   }
 }

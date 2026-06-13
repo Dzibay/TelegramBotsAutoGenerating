@@ -109,8 +109,32 @@
           <p class="hint">После успешной подготовки добавьте их в кампанию.</p>
           <p v-if="poolLoading" class="muted">Загрузка…</p>
           <ul v-else-if="poolAccounts.length" class="data-list pool-list">
-            <li v-for="a in poolAccounts" :key="a.id">
-              <span>{{ a.label || a.phone || `#${a.id}` }}</span>
+            <li v-for="a in poolAccounts" :key="a.id" class="pool-item">
+              <div v-if="editingPoolId === a.id" class="label-edit">
+                <input
+                  v-model="editPoolLabel"
+                  type="text"
+                  maxlength="200"
+                  placeholder="Название аккаунта"
+                  @keydown.enter="savePoolLabel(a)"
+                  @keydown.esc="cancelPoolEdit"
+                />
+                <button type="button" class="btn btn-xs" :disabled="poolLabelSaving" @click="savePoolLabel(a)">
+                  {{ poolLabelSaving ? '…' : 'OK' }}
+                </button>
+                <button type="button" class="btn btn-xs btn-ghost" @click="cancelPoolEdit">×</button>
+              </div>
+              <template v-else>
+                <span>{{ a.label || a.phone || `#${a.id}` }}</span>
+                <button
+                  type="button"
+                  class="btn-edit-name"
+                  title="Изменить название"
+                  @click="startPoolEdit(a)"
+                >
+                  ✎
+                </button>
+              </template>
               <StatusBadge :status="a.status" />
             </li>
           </ul>
@@ -190,6 +214,9 @@ const lastLogId = ref(0);
 const pastJobs = ref([]);
 const poolAccounts = ref([]);
 const poolLoading = ref(false);
+const editingPoolId = ref(null);
+const editPoolLabel = ref('');
+const poolLabelSaving = ref(false);
 let pollTimer = null;
 
 const isPolling = computed(
@@ -222,6 +249,35 @@ async function loadPool() {
     poolAccounts.value = await preparedAccountService.listAll();
   } finally {
     poolLoading.value = false;
+  }
+}
+
+function startPoolEdit(account) {
+  editingPoolId.value = account.id;
+  editPoolLabel.value = account.label || '';
+}
+
+function cancelPoolEdit() {
+  editingPoolId.value = null;
+  editPoolLabel.value = '';
+}
+
+async function savePoolLabel(account) {
+  const next = editPoolLabel.value.trim();
+  if (next === (account.label || '').trim()) {
+    cancelPoolEdit();
+    return;
+  }
+  poolLabelSaving.value = true;
+  try {
+    const updated = await preparedAccountService.updateLabel(account.id, next || null);
+    const idx = poolAccounts.value.findIndex((a) => a.id === account.id);
+    if (idx >= 0) poolAccounts.value[idx] = updated;
+    cancelPoolEdit();
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось сохранить название';
+  } finally {
+    poolLabelSaving.value = false;
   }
 }
 
@@ -398,6 +454,42 @@ onUnmounted(stopPolling);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.pool-item {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.pool-item .label-edit {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.pool-item .label-edit input {
+  flex: 1;
+  min-width: 6rem;
+  font-size: 0.85rem;
+}
+
+.btn-edit-name {
+  padding: 0.1rem 0.35rem;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.btn-edit-name:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .cta-text {

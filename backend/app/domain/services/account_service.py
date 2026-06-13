@@ -277,6 +277,31 @@ async def delete_account_bot(
     }
 
 
+async def update_account_label(
+    campaign_id: int,
+    account_id: int,
+    label: str | None,
+) -> dict[str, Any]:
+    from app.domain.services.account_health import _serialize_account
+
+    await _get_campaign_account(campaign_id, account_id)
+    cleaned = (label or "").strip() or None
+    row = await db.fetch_one(
+        """
+        UPDATE telegram_accounts
+        SET label = $3, updated_at = NOW()
+        WHERE id = $1 AND campaign_id = $2
+        RETURNING id, campaign_id, label, phone, status, max_bots_limit,
+                  bots_created, last_error, prepared_account_id, tdata_path, created_at,
+                  (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = telegram_accounts.id) AS bots_in_db
+        """,
+        account_id,
+        campaign_id,
+        cleaned,
+    )
+    return _serialize_account(row)
+
+
 async def remove_from_campaign(campaign_id: int, account_id: int) -> None:
     import shutil
 

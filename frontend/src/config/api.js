@@ -13,7 +13,7 @@ export const API_ENDPOINTS = {
     VERIFY_ACCOUNTS: (id) => `/campaigns/${id}/accounts/verify-all`,
     VERIFY_ACCOUNT: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}/verify`,
-    REMOVE_ACCOUNT: (campaignId, accountId) =>
+    UPDATE_ACCOUNT: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}`,
     ACCOUNT_BOTS: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}/bots`,

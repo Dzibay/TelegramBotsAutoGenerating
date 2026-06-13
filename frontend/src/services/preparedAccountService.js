@@ -23,4 +23,9 @@ export const preparedAccountService = {
     );
     return res.data?.accounts ?? [];
   },
+
+  async updateLabel(id, label) {
+    const res = await apiClient.patch(`/prepared-accounts/${id}`, { label: label || null });
+    return res.data?.account;
+  },
 };

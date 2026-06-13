@@ -109,6 +109,22 @@ async def get_prepared_account(prepared_id: int) -> dict[str, Any]:
     return _row(row)
 
 
+async def update_prepared_account_label(prepared_id: int, label: str | None) -> dict[str, Any]:
+    await get_prepared_account(prepared_id)
+    cleaned = (label or "").strip() or None
+    row = await db.fetch_one(
+        """
+        UPDATE prepared_accounts
+        SET label = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+        """,
+        prepared_id,
+        cleaned,
+    )
+    return _row(row)
+
+
 async def attach_to_campaign(campaign_id: int, prepared_ids: list[int]) -> list[dict[str, Any]]:
     if not prepared_ids:
         raise BadRequestError("Выберите хотя бы один подготовленный аккаунт")

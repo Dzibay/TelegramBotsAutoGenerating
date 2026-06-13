@@ -3,6 +3,10 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 
+class AccountUpdateRequest(BaseModel):
+    label: Optional[str] = Field(None, max_length=200)
+
+
 class CampaignCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     niche_description: Optional[str] = Field(None, max_length=2000)

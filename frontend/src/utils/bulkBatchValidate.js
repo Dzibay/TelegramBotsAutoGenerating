@@ -2,6 +2,8 @@
  * Проверки партии ботов перед генерацией и созданием.
  * @returns {{ errors: string[], warnings: string[] }}
  */
+import { accountDisplayLabel } from './accountLabel';
+
 export function validateBulkBatch(rows, readyAccounts) {
   const errors = [];
   const warnings = [];
@@ -19,6 +21,10 @@ export function validateBulkBatch(rows, readyAccounts) {
     const acc = readyAccounts.find((a) => a.id === row.accountId);
     if (!acc) {
       errors.push(`Строка ${n}: аккаунт недоступен для создания ботов.`);
+      continue;
+    }
+    if (acc.is_banned) {
+      errors.push(`Строка ${n}: аккаунт «${accountDisplayLabel(acc)}» забанен.`);
       continue;
     }
     if (acc.bots_created >= acc.max_bots_limit) {
@@ -40,7 +46,7 @@ export function validateBulkBatch(rows, readyAccounts) {
     const slots = acc.max_bots_limit - acc.bots_created;
     if (lineNums.length > slots) {
       errors.push(
-        `Аккаунт «${acc.label || acc.phone || accountId}»: в партии ${lineNums.length} ботов, свободно слотов: ${Math.max(0, slots)}.`
+        `Аккаунт «${accountDisplayLabel(acc)}»: в партии ${lineNums.length} ботов, свободно слотов: ${Math.max(0, slots)}.`
       );
     }
   }
@@ -69,6 +75,10 @@ export function validateManualBulkBatch(rows, account, sharedTexts, options = {}
   if (!account) {
     errors.push('Выберите аккаунт Telegram.');
     return { errors, warnings };
+  }
+
+  if (account.is_banned) {
+    errors.push('Выбранный аккаунт забанен и не может использоваться для создания ботов.');
   }
 
   if (account.bots_created >= account.max_bots_limit) {

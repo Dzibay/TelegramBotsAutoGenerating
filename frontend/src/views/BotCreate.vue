@@ -58,7 +58,7 @@
               </option>
             </select>
             <p v-if="campaignId && accounts.length && !usableAccounts.length" class="field-hint error-text">
-              Нет готовых аккаунтов.
+              Нет доступных аккаунтов (нужен статус «Готов», не забанен, есть свободные слоты).
               <RouterLink :to="{ name: 'campaign-workspace', params: { id: campaignId }, query: { tab: 'accounts' } }">
                 Добавьте и проверьте
               </RouterLink>.
@@ -150,6 +150,7 @@ import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { applyCampaignTextDefaults } from '../utils/campaignTextDefaults';
+import { accountDisplayLabel } from '../utils/accountLabel';
 import { formatWaitLabel, getFloodWaitSeconds } from '../utils/floodWait';
 
 const taskStore = useAsyncTaskStore();
@@ -237,6 +238,7 @@ function goToTextsStep() {
 
 const usableAccounts = computed(() =>
   accounts.value.filter((a) => {
+    if (a.is_banned) return false;
     if (a.status === 'disabled') return false;
     if (a.bots_created >= a.max_bots_limit) return false;
     return ['ready', 'creating', 'pending', 'error', 'exhausted'].includes(a.status);
@@ -244,7 +246,7 @@ const usableAccounts = computed(() =>
 );
 
 function accountOptionLabel(a) {
-  const name = a.label || a.phone || `#${a.id}`;
+  const name = accountDisplayLabel(a);
   const st = STATUS_LABELS[a.status] || a.status;
   return `${name} — ${st} (${a.bots_created}/${a.max_bots_limit} ботов)`;
 }

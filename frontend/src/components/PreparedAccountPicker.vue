@@ -18,8 +18,6 @@
           />
           <span class="pick-info">
             <strong>{{ displayName(a) }}</strong>
-            <span v-if="a.username" class="sub">@{{ a.username }}</span>
-            <span v-if="a.phone" class="sub">{{ a.phone }}</span>
           </span>
           <StatusBadge :status="a.status" />
         </label>
@@ -36,6 +34,7 @@ import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import StatusBadge from './StatusBadge.vue';
 import { preparedAccountService } from '../services/preparedAccountService';
+import { accountDisplayLabel } from '../utils/accountLabel';
 
 const props = defineProps({
   modelValue: { type: Array, default: () => [] },
@@ -48,7 +47,7 @@ const loading = ref(true);
 const loadError = ref(null);
 
 function displayName(a) {
-  return a.label || a.phone || a.username || `Аккаунт #${a.id}`;
+  return accountDisplayLabel(a);
 }
 
 function toggle(id, checked) {

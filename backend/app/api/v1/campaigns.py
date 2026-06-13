@@ -283,12 +283,15 @@ async def update_account(
     body: AccountUpdateRequest,
     _user: dict = Depends(get_current_user),
 ):
-    account = await account_service.update_account_label(
+    account = await account_service.update_account(
         campaign_id,
         account_id,
-        body.label,
+        label=body.label,
+        is_banned=body.is_banned,
+        patch_label="label" in body.model_fields_set,
+        patch_banned="is_banned" in body.model_fields_set,
     )
-    return success_response(data={"account": account}, message="Название аккаунта обновлено")
+    return success_response(data={"account": account}, message="Настройки аккаунта обновлены")
 
 
 @router.delete("/{campaign_id}/accounts/{account_id}")

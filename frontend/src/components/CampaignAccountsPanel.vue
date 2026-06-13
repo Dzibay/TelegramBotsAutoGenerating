@@ -37,7 +37,11 @@
         v-for="a in accounts"
         :key="a.id"
         class="account-card"
-        :class="{ 'account-card--ok': a.status === 'ready', 'account-card--err': a.status === 'error' }"
+        :class="{
+          'account-card--ok': a.status === 'ready' && !a.is_banned,
+          'account-card--err': a.status === 'error',
+          'account-card--banned': a.is_banned,
+        }"
       >
         <div class="acc-top">
           <div class="acc-title">
@@ -71,11 +75,21 @@
               >
                 ✎
               </button>
+              <span v-if="a.is_banned" class="ban-tag">Забанен</span>
             </template>
-            <span v-if="a.phone && editingId !== a.id" class="phone">{{ a.phone }}</span>
           </div>
           <StatusBadge :status="a.status" />
         </div>
+
+        <label v-if="editingId !== a.id" class="ban-toggle">
+          <input
+            type="checkbox"
+            :checked="!!a.is_banned"
+            :disabled="busy || labelSavingId === a.id || busyId === a.id"
+            @change="toggleBanned(a, $event.target.checked)"
+          />
+          Аккаунт забанен (нельзя выбирать при создании ботов)
+        </label>
 
         <p class="acc-meta">
           Ботов: {{ botCountLabel(a) }} / {{ a.max_bots_limit }}
@@ -185,6 +199,7 @@ import InlineTaskIndicator from './InlineTaskIndicator.vue';
 import EmptyState from './EmptyState.vue';
 import PreparedAccountPicker from './PreparedAccountPicker.vue';
 import StatusBadge from './StatusBadge.vue';
+import { accountDisplayLabel } from '../utils/accountLabel';
 
 const props = defineProps({
   accounts: { type: Array, default: () => [] },
@@ -200,7 +215,7 @@ const props = defineProps({
   attachMessage: { type: String, default: null },
 });
 
-const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot', 'update-label']);
+const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot', 'update-label', 'update-banned']);
 
 const selectedIds = ref([]);
 const pickerRef = ref(null);
@@ -210,7 +225,7 @@ const editLabel = ref('');
 const labelSavingId = ref(null);
 
 function displayLabel(a) {
-  return a.label || a.phone || `Аккаунт #${a.id}`;
+  return accountDisplayLabel(a);
 }
 
 function startEdit(account) {
@@ -239,13 +254,19 @@ function saveLabel(account) {
   labelSavingId.value = null;
 }
 
-const readyCount = computed(() => props.accounts.filter((a) => a.status === 'ready').length);
+function toggleBanned(account, checked) {
+  if (!!account.is_banned === checked) return;
+  emit('update-banned', { account, is_banned: checked });
+}
+
+const readyCount = computed(() => props.accounts.filter((a) => a.status === 'ready' && !a.is_banned).length);
 const errorCount = computed(() => props.accounts.filter((a) => a.status === 'error').length);
+const bannedCount = computed(() => props.accounts.filter((a) => a.is_banned).length);
 
 const summary = computed(() => {
   if (props.attachMessage) return props.attachMessage;
   if (!props.accounts.length) return null;
-  return `Готовых: ${readyCount.value} · с ошибкой: ${errorCount.value} · всего: ${props.accounts.length}`;
+  return `Готовых: ${readyCount.value} · с ошибкой: ${errorCount.value}${bannedCount.value ? ` · забанено: ${bannedCount.value}` : ''} · всего: ${props.accounts.length}`;
 });
 
 const summaryClass = computed(() => {
@@ -362,6 +383,12 @@ defineExpose({
   background: rgba(239, 68, 68, 0.04);
 }
 
+.account-card--banned {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.06);
+  opacity: 0.92;
+}
+
 .acc-top {
   display: flex;
   justify-content: space-between;
@@ -403,9 +430,31 @@ defineExpose({
   background: var(--accent-soft);
 }
 
-.phone {
-  display: block;
+.ban-tag {
+  display: inline-block;
+  margin-top: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.ban-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ban-toggle input {
+  width: auto;
   margin-top: 0.15rem;
+  flex-shrink: 0;
 }
 
 .acc-meta {

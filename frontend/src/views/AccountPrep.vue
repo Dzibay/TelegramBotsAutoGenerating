@@ -98,7 +98,7 @@
           </p>
           <ul v-if="accounts.length" class="data-list acc-list">
             <li v-for="a in accounts" :key="a.id">
-              <span>{{ a.label || a.phone || `#${a.id}` }}</span>
+              <span>{{ accountDisplayLabel(a) }}</span>
               <StatusBadge :status="a.status" />
             </li>
           </ul>
@@ -109,33 +109,50 @@
           <p class="hint">После успешной подготовки добавьте их в кампанию.</p>
           <p v-if="poolLoading" class="muted">Загрузка…</p>
           <ul v-else-if="poolAccounts.length" class="data-list pool-list">
-            <li v-for="a in poolAccounts" :key="a.id" class="pool-item">
-              <div v-if="editingPoolId === a.id" class="label-edit">
-                <input
-                  v-model="editPoolLabel"
-                  type="text"
-                  maxlength="200"
-                  placeholder="Название аккаунта"
-                  @keydown.enter="savePoolLabel(a)"
-                  @keydown.esc="cancelPoolEdit"
-                />
-                <button type="button" class="btn btn-xs" :disabled="poolLabelSaving" @click="savePoolLabel(a)">
-                  {{ poolLabelSaving ? '…' : 'OK' }}
-                </button>
-                <button type="button" class="btn btn-xs btn-ghost" @click="cancelPoolEdit">×</button>
+            <li
+              v-for="a in poolAccounts"
+              :key="a.id"
+              class="pool-item"
+              :class="{ 'pool-item--banned': a.is_banned }"
+            >
+              <div class="pool-item-main">
+                <div v-if="editingPoolId === a.id" class="label-edit">
+                  <input
+                    v-model="editPoolLabel"
+                    type="text"
+                    maxlength="200"
+                    placeholder="Название аккаунта"
+                    @keydown.enter="savePoolLabel(a)"
+                    @keydown.esc="cancelPoolEdit"
+                  />
+                  <button type="button" class="btn btn-xs" :disabled="poolLabelSaving" @click="savePoolLabel(a)">
+                    {{ poolLabelSaving ? '…' : 'OK' }}
+                  </button>
+                  <button type="button" class="btn btn-xs btn-ghost" @click="cancelPoolEdit">×</button>
+                </div>
+                <template v-else>
+                  <span>{{ accountDisplayLabel(a) }}</span>
+                  <button
+                    type="button"
+                    class="btn-edit-name"
+                    title="Изменить название"
+                    @click="startPoolEdit(a)"
+                  >
+                    ✎
+                  </button>
+                  <span v-if="a.is_banned" class="ban-tag">Забанен</span>
+                </template>
+                <StatusBadge :status="a.status" />
               </div>
-              <template v-else>
-                <span>{{ a.label || a.phone || `#${a.id}` }}</span>
-                <button
-                  type="button"
-                  class="btn-edit-name"
-                  title="Изменить название"
-                  @click="startPoolEdit(a)"
-                >
-                  ✎
-                </button>
-              </template>
-              <StatusBadge :status="a.status" />
+              <label v-if="editingPoolId !== a.id" class="ban-toggle">
+                <input
+                  type="checkbox"
+                  :checked="!!a.is_banned"
+                  :disabled="poolBanSavingId === a.id || poolLabelSaving"
+                  @change="togglePoolBanned(a, $event.target.checked)"
+                />
+                Аккаунт забанен
+              </label>
             </li>
           </ul>
           <p v-else class="muted">Пока нет подготовленных аккаунтов.</p>
@@ -188,6 +205,7 @@ import StatusBadge from '../components/StatusBadge.vue';
 import { preparedAccountService } from '../services/preparedAccountService';
 import { prepService } from '../services/prepService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { accountDisplayLabel } from '../utils/accountLabel';
 
 const taskStore = useAsyncTaskStore();
 const workflow = useWorkflowStore();
@@ -217,6 +235,7 @@ const poolLoading = ref(false);
 const editingPoolId = ref(null);
 const editPoolLabel = ref('');
 const poolLabelSaving = ref(false);
+const poolBanSavingId = ref(null);
 let pollTimer = null;
 
 const isPolling = computed(
@@ -224,7 +243,7 @@ const isPolling = computed(
 );
 
 const readyPoolCount = computed(
-  () => poolAccounts.value.filter((a) => a.status === 'available').length
+  () => poolAccounts.value.filter((a) => a.status === 'available' && !a.is_banned).length
 );
 
 const readyPoolLabel = computed(() => {
@@ -278,6 +297,20 @@ async function savePoolLabel(account) {
     submitError.value = e.response?.data?.error || 'Не удалось сохранить название';
   } finally {
     poolLabelSaving.value = false;
+  }
+}
+
+async function togglePoolBanned(account, checked) {
+  if (!!account.is_banned === checked) return;
+  poolBanSavingId.value = account.id;
+  try {
+    const updated = await preparedAccountService.updateAccount(account.id, { is_banned: checked });
+    const idx = poolAccounts.value.findIndex((a) => a.id === account.id);
+    if (idx >= 0) poolAccounts.value[idx] = updated;
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось обновить статус бана';
+  } finally {
+    poolBanSavingId.value = null;
   }
 }
 
@@ -457,8 +490,45 @@ onUnmounted(stopPolling);
 }
 
 .pool-item {
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.35rem;
+}
+
+.pool-item--banned {
+  opacity: 0.92;
+}
+
+.pool-item-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ban-tag {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.ban-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ban-toggle input {
+  width: auto;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
 }
 
 .pool-item .label-edit {

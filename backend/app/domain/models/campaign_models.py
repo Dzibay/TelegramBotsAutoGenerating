@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 class AccountUpdateRequest(BaseModel):
     label: Optional[str] = Field(None, max_length=200)
+    is_banned: Optional[bool] = None
 
 
 class CampaignCreateRequest(BaseModel):

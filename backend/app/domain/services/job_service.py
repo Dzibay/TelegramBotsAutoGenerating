@@ -28,14 +28,11 @@ def _job_account_ids(row: dict[str, Any]) -> set[int]:
 
 def _format_account_label(row: dict[str, Any]) -> str | None:
     label = row.get("account_label")
-    phone = row.get("account_phone")
-    if label:
-        return str(label)
-    if phone:
-        return str(phone)
+    if label and str(label).strip():
+        return str(label).strip()
     account_ids = _job_account_ids(row)
     if len(account_ids) == 1:
-        return f"#{next(iter(account_ids))}"
+        return f"Аккаунт #{next(iter(account_ids))}"
     if len(account_ids) > 1:
         return f"{len(account_ids)} акк."
     if row.get("job_mode") == "auto":
@@ -170,6 +167,7 @@ async def start_creation_job(
         SELECT COUNT(*)::int FROM telegram_accounts
         WHERE campaign_id = $1 AND status IN ('ready', 'creating')
           AND tdata_path IS NOT NULL AND tdata_path != ''
+          AND is_banned = FALSE
         """,
         campaign_id,
     )
@@ -214,6 +212,20 @@ async def start_creation_job(
 
     if plan_list:
         account_ids = {int(p["telegram_account_id"]) for p in plan_list}
+        banned_rows = await db.fetch_all(
+            """
+            SELECT id, label, phone FROM telegram_accounts
+            WHERE campaign_id = $1 AND id = ANY($2::bigint[]) AND is_banned = TRUE
+            """,
+            campaign_id,
+            list(account_ids),
+        )
+        if banned_rows:
+            sample = banned_rows[0]
+            name = (sample.get("label") or "").strip() or f"Аккаунт #{sample['id']}"
+            raise ConflictError(
+                f"Аккаунт {name} забанен и не может использоваться для создания ботов"
+            )
         total_accounts = len(account_ids)
         progress = f"В очереди: {len(plan_list)} бот(ов) по плану"
         job_mode = "planned"
@@ -343,6 +355,8 @@ async def start_manual_creation_job(
     )
     if not account:
         raise BadRequestError("Аккаунт не найден в этой кампании")
+    if account.get("is_banned"):
+        raise ConflictError("Аккаунт забанен и не может использоваться для создания ботов")
     if account.get("status") not in ("ready", "creating") or not account.get("tdata_path"):
         raise ConflictError("Аккаунт не готов к созданию ботов. Проверьте его в разделе «Аккаунты».")
 

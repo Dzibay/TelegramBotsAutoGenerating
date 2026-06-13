@@ -30,6 +30,9 @@ async def ensure_ready_for_bot_creation(account: dict[str, Any]) -> dict[str, An
     При pending/error и валидном tdata — автоматически переводит в ready.
     """
     account_id = account["id"]
+    if account.get("is_banned"):
+        raise BadRequestError("Аккаунт забанен и не может использоваться для создания ботов")
+
     status = account.get("status") or "pending"
     bots_created = int(account.get("bots_created") or 0)
     max_limit = int(account.get("max_bots_limit") or 20)
@@ -95,7 +98,7 @@ async def list_accounts(campaign_id: int) -> list[dict[str, Any]]:
         """
         SELECT ta.id, ta.campaign_id, ta.label, ta.phone, ta.status, ta.max_bots_limit,
                ta.bots_created, ta.last_error, ta.prepared_account_id, ta.tdata_path,
-               ta.created_at,
+               ta.is_banned, ta.created_at,
                (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = ta.id) AS bots_in_db
         FROM telegram_accounts ta
         WHERE ta.campaign_id = $1
@@ -277,29 +280,84 @@ async def delete_account_bot(
     }
 
 
+async def update_account(
+    campaign_id: int,
+    account_id: int,
+    *,
+    label: str | None = None,
+    is_banned: bool | None = None,
+    patch_label: bool = False,
+    patch_banned: bool = False,
+) -> dict[str, Any]:
+    from app.domain.services.account_health import _serialize_account
+
+    row = await _get_campaign_account(campaign_id, account_id)
+    if not patch_label and not patch_banned:
+        return _serialize_account(
+            await db.fetch_one(
+                """
+                SELECT ta.id, ta.campaign_id, ta.label, ta.phone, ta.status, ta.max_bots_limit,
+                       ta.bots_created, ta.last_error, ta.prepared_account_id, ta.tdata_path,
+                       ta.is_banned, ta.created_at,
+                       (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = ta.id) AS bots_in_db
+                FROM telegram_accounts ta
+                WHERE ta.id = $1
+                """,
+                account_id,
+            )
+        )
+
+    next_label = row.get("label")
+    if patch_label:
+        next_label = (label or "").strip() or None
+
+    next_banned = row.get("is_banned") or False
+    if patch_banned:
+        next_banned = bool(is_banned)
+
+    updated = await db.fetch_one(
+        """
+        UPDATE telegram_accounts
+        SET label = $3,
+            is_banned = $4,
+            updated_at = NOW()
+        WHERE id = $1 AND campaign_id = $2
+        RETURNING id, campaign_id, label, phone, status, max_bots_limit,
+                  bots_created, last_error, prepared_account_id, tdata_path, is_banned, created_at,
+                  (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = telegram_accounts.id) AS bots_in_db
+        """,
+        account_id,
+        campaign_id,
+        next_label,
+        next_banned,
+    )
+
+    prepared_id = row.get("prepared_account_id")
+    if prepared_id and patch_banned:
+        await db.execute(
+            """
+            UPDATE prepared_accounts
+            SET is_banned = $2, updated_at = NOW()
+            WHERE id = $1
+            """,
+            prepared_id,
+            next_banned,
+        )
+
+    return _serialize_account(updated)
+
+
 async def update_account_label(
     campaign_id: int,
     account_id: int,
     label: str | None,
 ) -> dict[str, Any]:
-    from app.domain.services.account_health import _serialize_account
-
-    await _get_campaign_account(campaign_id, account_id)
-    cleaned = (label or "").strip() or None
-    row = await db.fetch_one(
-        """
-        UPDATE telegram_accounts
-        SET label = $3, updated_at = NOW()
-        WHERE id = $1 AND campaign_id = $2
-        RETURNING id, campaign_id, label, phone, status, max_bots_limit,
-                  bots_created, last_error, prepared_account_id, tdata_path, created_at,
-                  (SELECT COUNT(*)::int FROM bots b WHERE b.telegram_account_id = telegram_accounts.id) AS bots_in_db
-        """,
-        account_id,
+    return await update_account(
         campaign_id,
-        cleaned,
+        account_id,
+        label=label,
+        patch_label=True,
     )
-    return _serialize_account(row)
 
 
 async def remove_from_campaign(campaign_id: int, account_id: int) -> None:

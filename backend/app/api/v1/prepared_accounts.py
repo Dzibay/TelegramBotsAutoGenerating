@@ -10,6 +10,7 @@ from app.utils.response import success_response
 
 class PreparedAccountUpdateRequest(BaseModel):
     label: Optional[str] = Field(None, max_length=200)
+    is_banned: Optional[bool] = None
 
 router = APIRouter(prefix="/prepared-accounts", tags=["prepared-accounts"])
 
@@ -40,8 +41,11 @@ async def update_prepared_account(
     body: PreparedAccountUpdateRequest,
     _user: dict = Depends(get_current_user),
 ):
-    account = await prepared_account_service.update_prepared_account_label(
+    account = await prepared_account_service.update_prepared_account(
         prepared_id,
-        body.label,
+        label=body.label,
+        is_banned=body.is_banned,
+        patch_label="label" in body.model_fields_set,
+        patch_banned="is_banned" in body.model_fields_set,
     )
-    return success_response(data={"account": account}, message="Название аккаунта обновлено")
+    return success_response(data={"account": account}, message="Настройки аккаунта обновлены")

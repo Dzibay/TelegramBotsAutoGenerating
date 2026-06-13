@@ -242,6 +242,7 @@ class CreationPipeline:
             """
             SELECT * FROM telegram_accounts
             WHERE campaign_id = $1 AND status IN ('ready', 'pending', 'creating')
+              AND is_banned = FALSE
             ORDER BY id
             """,
             self.campaign_id,
@@ -599,6 +600,10 @@ class CreationPipeline:
             if not account:
                 await self.log(f"Аккаунт #{account_id}: не найден", level="warn")
                 continue
+            if account.get("is_banned"):
+                label = account.get("label") or f"#{account_id}"
+                await self.log(f"{label}: пропущен — аккаунт забанен", level="warn")
+                continue
             try:
                 created = await self._process_account_planned(
                     campaign, account, by_account[account_id]
@@ -693,6 +698,9 @@ class CreationPipeline:
     ) -> int:
         account_id = account["id"]
         label = account.get("label") or f"Аккаунт #{account_id}"
+        if account.get("is_banned"):
+            await self.log(f"{label}: пропущен — аккаунт забанен", level="warn")
+            return 0
         slots_left = max(0, account["max_bots_limit"] - account["bots_created"])
         if slots_left <= 0:
             await self.log(f"{label}: лимит ботов исчерпан", level="warn")
@@ -783,6 +791,9 @@ class CreationPipeline:
     async def _process_account(self, campaign: dict, account: dict) -> int:
         account_id = account["id"]
         label = account.get("label") or f"Аккаунт #{account_id}"
+        if account.get("is_banned"):
+            await self.log(f"{label}: пропущен — аккаунт забанен", level="warn")
+            return 0
         slots = max(0, account["max_bots_limit"] - account["bots_created"])
         if slots <= 0:
             await self.log(f"{label}: лимит ботов исчерпан", level="warn")

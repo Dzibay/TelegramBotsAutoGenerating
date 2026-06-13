@@ -28,4 +28,9 @@ export const preparedAccountService = {
     const res = await apiClient.patch(`/prepared-accounts/${id}`, { label: label || null });
     return res.data?.account;
   },
+
+  async updateAccount(id, payload) {
+    const res = await apiClient.patch(`/prepared-accounts/${id}`, payload);
+    return res.data?.account;
+  },
 };

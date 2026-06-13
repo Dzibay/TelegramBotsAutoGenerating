@@ -462,6 +462,7 @@ import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
 import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
+import { accountDisplayLabel } from '../utils/accountLabel';
 import {
   estimateBulkCreationSec,
   formatDurationSec,
@@ -595,7 +596,9 @@ function onActiveJobsUpdate(jobs) {
 }
 
 const readyAccounts = computed(() =>
-  accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots !== false)
+  accounts.value.filter(
+    (a) => a.status === 'ready' && a.can_create_bots !== false && !a.is_banned
+  )
 );
 
 const selectedAccount = computed(() =>
@@ -811,7 +814,7 @@ async function restoreFromHistory(job) {
 }
 
 function accountLabel(a) {
-  return a.label || a.phone || `#${a.id}`;
+  return accountDisplayLabel(a);
 }
 
 function targetUrlForDraft() {

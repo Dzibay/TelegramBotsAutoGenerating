@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS telegram_accounts (
     last_error TEXT,
     botfather_flood_until TIMESTAMPTZ,
     botfather_flood_seconds INT,
+    is_banned BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -178,6 +179,7 @@ CREATE TABLE IF NOT EXISTS prepared_accounts (
     username TEXT,
     status TEXT NOT NULL DEFAULT 'available'
         CHECK (status IN ('available', 'in_use', 'disabled')),
+    is_banned BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

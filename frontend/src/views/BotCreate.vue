@@ -149,7 +149,7 @@ import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
-import { applyCampaignTextDefaults } from '../utils/campaignTextDefaults';
+import { applyCampaignTextDefaults, applyCampaignButtonDefaults } from '../utils/campaignTextDefaults';
 import { accountDisplayLabel } from '../utils/accountLabel';
 import { formatWaitLabel, getFloodWaitSeconds } from '../utils/floodWait';
 
@@ -232,6 +232,7 @@ function useCampaignUrl() {
 function goToTextsStep() {
   if (campaignMeta.value) {
     applyCampaignTextDefaults(form.value, campaignMeta.value);
+    applyCampaignButtonDefaults(form.value, campaignMeta.value);
   }
   wizardStep.value = 2;
 }

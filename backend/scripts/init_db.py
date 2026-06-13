@@ -42,6 +42,7 @@ def _migration_files() -> list[Path]:
         "migrate_bot_welcome_button.sql",
         "migrate_ai_generations.sql",
         "migrate_campaign_default_texts.sql",
+        "migrate_campaign_welcome_button_defaults.sql",
         "migrate_campaign_referral.sql",
         "migrate_creation_job_history.sql",
         "migrate_account_botfather_flood.sql",

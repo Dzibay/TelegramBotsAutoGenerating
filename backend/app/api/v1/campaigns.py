@@ -44,6 +44,8 @@ async def create_campaign(
         default_about_text=body.default_about_text,
         default_description=body.default_description,
         default_welcome_message=body.default_welcome_message,
+        default_welcome_button_enabled=body.default_welcome_button_enabled,
+        default_welcome_button_text=body.default_welcome_button_text,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_CREATED)
 
@@ -73,6 +75,8 @@ async def create_campaign_full(
         default_about_text=body.default_about_text,
         default_description=body.default_description,
         default_welcome_message=body.default_welcome_message,
+        default_welcome_button_enabled=body.default_welcome_button_enabled,
+        default_welcome_button_text=body.default_welcome_button_text,
     )
     campaign_id = campaign["id"]
 
@@ -121,6 +125,8 @@ async def update_campaign(
         default_about_text=body.default_about_text,
         default_description=body.default_description,
         default_welcome_message=body.default_welcome_message,
+        default_welcome_button_enabled=body.default_welcome_button_enabled,
+        default_welcome_button_text=body.default_welcome_button_text,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
 

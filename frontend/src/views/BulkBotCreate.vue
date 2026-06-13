@@ -461,7 +461,7 @@ import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
-import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
+import { applyCampaignTextDefaults, applyCampaignButtonDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
 import { accountDisplayLabel } from '../utils/accountLabel';
 import {
   estimateBulkCreationSec,
@@ -995,6 +995,7 @@ function goToBotsStep() {
     if (!sharedTexts.value.about_text?.trim()) {
       sharedTexts.value.about_text = campaign.value.default_about_text || '';
     }
+    applyCampaignButtonDefaults(sharedTexts.value, campaign.value);
   }
   wizardStep.value = 2;
 }
@@ -1321,6 +1322,7 @@ watch(
     if (!sharedTexts.value.about_text?.trim()) {
       sharedTexts.value.about_text = c.default_about_text || '';
     }
+    applyCampaignButtonDefaults(sharedTexts.value, c);
     aiRows.value.forEach((row) => {
       if (row.draft) applyCampaignTextDefaults(row.draft, c);
     });
@@ -1363,6 +1365,7 @@ onMounted(async () => {
     sharedTexts.value.description = data.campaign.default_description || '';
     sharedTexts.value.welcome_message = data.campaign.default_welcome_message || '';
     sharedTexts.value.about_text = data.campaign.default_about_text || '';
+    applyCampaignButtonDefaults(sharedTexts.value, data.campaign);
 
     accounts.value = await campaignService.getAccounts(campaignId.value);
     const first = readyAccounts.value[0];

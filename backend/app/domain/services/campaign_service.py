@@ -2,7 +2,7 @@ from typing import Any, Optional
 
 from app.constants import ErrorMessages
 from app.core.exceptions import BadRequestError, NotFoundError
-from app.domain.services import referral_link_service
+from app.domain.services import bot_promo_service, referral_link_service
 from app.infrastructure.database import repository as db
 
 
@@ -28,6 +28,9 @@ def _campaign_row(row: dict[str, Any]) -> dict[str, Any]:
         "default_about_text": row.get("default_about_text"),
         "default_description": row.get("default_description"),
         "default_welcome_message": row.get("default_welcome_message"),
+        "default_welcome_button_enabled": bool(row.get("default_welcome_button_enabled", True)),
+        "default_welcome_button_text": row.get("default_welcome_button_text")
+        or bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
         "status": row["status"],
         "accounts_count": int(row.get("accounts_count") or 0),
         "bots_count": int(row.get("bots_count") or 0),
@@ -49,20 +52,26 @@ async def create_campaign(
     default_about_text: str | None = None,
     default_description: str | None = None,
     default_welcome_message: str | None = None,
+    default_welcome_button_enabled: bool | None = None,
+    default_welcome_button_text: str | None = None,
 ) -> dict[str, Any]:
     cleaned_keywords = [k.strip() for k in (keywords or []) if k and k.strip()]
     resource = (resource_url or "").strip() or None
+    btn_enabled = True if default_welcome_button_enabled is None else bool(default_welcome_button_enabled)
+    btn_text = bot_promo_service.welcome_button_label(default_welcome_button_text)
     row = await db.fetch_one(
         """
         INSERT INTO campaigns (
             title, niche_description, keywords, resource_url,
             referral_endpoint_url, referral_api_key, referral_response_field,
-            default_about_text, default_description, default_welcome_message
+            default_about_text, default_description, default_welcome_message,
+            default_welcome_button_enabled, default_welcome_button_text
         )
-        VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10)
+        VALUES ($1, $2, $3::text[], $4, $5, $6, $7, $8, $9, $10, $11, $12)
         RETURNING id, title, niche_description, keywords, resource_url,
                   referral_endpoint_url, referral_api_key, referral_response_field,
                   default_about_text, default_description, default_welcome_message,
+                  default_welcome_button_enabled, default_welcome_button_text,
                   status, created_at, updated_at
         """,
         title.strip(),
@@ -75,6 +84,8 @@ async def create_campaign(
         _optional_text(default_about_text),
         _optional_text(default_description),
         _optional_text(default_welcome_message),
+        btn_enabled,
+        btn_text,
     )
     out = _campaign_row(row)
     out["accounts_count"] = 0
@@ -142,6 +153,8 @@ async def update_campaign(
     default_about_text: str | None = None,
     default_description: str | None = None,
     default_welcome_message: str | None = None,
+    default_welcome_button_enabled: bool | None = None,
+    default_welcome_button_text: str | None = None,
 ) -> dict[str, Any]:
     await get_campaign(campaign_id)
     updates = []
@@ -179,6 +192,12 @@ async def update_campaign(
     if default_welcome_message is not None:
         params.append(_optional_text(default_welcome_message))
         updates.append(f"default_welcome_message = ${len(params)}")
+    if default_welcome_button_enabled is not None:
+        params.append(bool(default_welcome_button_enabled))
+        updates.append(f"default_welcome_button_enabled = ${len(params)}")
+    if default_welcome_button_text is not None:
+        params.append(bot_promo_service.welcome_button_label(default_welcome_button_text))
+        updates.append(f"default_welcome_button_text = ${len(params)}")
     if not updates:
         return await get_campaign(campaign_id)
 

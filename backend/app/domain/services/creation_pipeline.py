@@ -1068,7 +1068,7 @@ class CreationPipeline:
                 welcome_button_enabled, welcome_button_text,
                 target_url, link_mode, redirect_slug, status
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12, $13, $14, 'active')
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, 'active')
             RETURNING id
             """,
             self.campaign_id,
@@ -1081,7 +1081,8 @@ class CreationPipeline:
             token_enc,
             str(avatar_path) if avatar_path else None,
             welcome,
-            bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
+            defaults["welcome_button_enabled"],
+            defaults["welcome_button_text"],
             target,
             mode,
             slug,

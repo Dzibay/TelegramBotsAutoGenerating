@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
     default_about_text TEXT,
     default_description TEXT,
     default_welcome_message TEXT,
+    default_welcome_button_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    default_welcome_button_text TEXT NOT NULL DEFAULT 'Перейти по ссылке',
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'queued', 'running', 'completed', 'failed', 'cancelled')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

@@ -16,6 +16,8 @@ class CampaignUpdateRequest(BaseModel):
     default_about_text: Optional[str] = Field(None, max_length=120)
     default_description: Optional[str] = Field(None, max_length=512)
     default_welcome_message: Optional[str] = Field(None, max_length=2000)
+    default_welcome_button_enabled: Optional[bool] = None
+    default_welcome_button_text: Optional[str] = Field(None, max_length=64)
 
 
 class BotGenerateRequest(BaseModel):

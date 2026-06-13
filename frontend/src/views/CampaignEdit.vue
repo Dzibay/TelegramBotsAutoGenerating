@@ -121,6 +121,19 @@
             placeholder="Первое сообщение в чате"
           />
         </div>
+        <label class="check">
+          <input v-model="defaultWelcomeButtonEnabled" type="checkbox" />
+          Кнопка-ссылка под первым сообщением после Start
+        </label>
+        <div v-if="defaultWelcomeButtonEnabled" class="form-group">
+          <label>Текст кнопки (до 64 символов)</label>
+          <input
+            v-model="defaultWelcomeButtonText"
+            type="text"
+            maxlength="64"
+            placeholder="Перейти по ссылке"
+          />
+        </div>
       </details>
 
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
@@ -191,6 +204,8 @@ const nicheDescription = ref('');
 const defaultAboutText = ref('');
 const defaultDescription = ref('');
 const defaultWelcomeMessage = ref('');
+const defaultWelcomeButtonEnabled = ref(true);
+const defaultWelcomeButtonText = ref('Перейти по ссылке');
 const referralEndpointUrl = ref('');
 const referralApiKey = ref('');
 const referralResponseField = ref('');
@@ -212,6 +227,8 @@ async function load() {
     defaultAboutText.value = campaign.default_about_text || '';
     defaultDescription.value = campaign.default_description || '';
     defaultWelcomeMessage.value = campaign.default_welcome_message || '';
+    defaultWelcomeButtonEnabled.value = campaign.default_welcome_button_enabled !== false;
+    defaultWelcomeButtonText.value = campaign.default_welcome_button_text || 'Перейти по ссылке';
     referralEndpointUrl.value = campaign.referral_endpoint_url || '';
     referralApiKey.value = campaign.referral_api_key || '';
     referralResponseField.value = campaign.referral_response_field || '';
@@ -255,6 +272,8 @@ async function onSave() {
       default_about_text: defaultAboutText.value.trim() || null,
       default_description: defaultDescription.value.trim() || null,
       default_welcome_message: defaultWelcomeMessage.value.trim() || null,
+      default_welcome_button_enabled: defaultWelcomeButtonEnabled.value,
+      default_welcome_button_text: defaultWelcomeButtonText.value.trim() || 'Перейти по ссылке',
       ...referralPayload(),
     });
     router.push({ name: 'campaign-workspace', params: { id: id.value } });
@@ -312,8 +331,17 @@ onMounted(load);
   color: #93c5fd;
 }
 
-.block-hint {
-  margin: 0 0 0.75rem;
+.defaults-block .check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.defaults-block .check input {
+  width: auto;
 }
 
 .referral-actions {

@@ -333,6 +333,26 @@ async def update_account(
     )
 
     prepared_id = row.get("prepared_account_id")
+    if prepared_id and patch_label:
+        await db.execute(
+            """
+            UPDATE prepared_accounts
+            SET label = $2, updated_at = NOW()
+            WHERE id = $1
+            """,
+            prepared_id,
+            next_label,
+        )
+        source_prep_id = await db.fetch_val(
+            "SELECT source_prep_account_id FROM prepared_accounts WHERE id = $1",
+            prepared_id,
+        )
+        if source_prep_id:
+            await db.execute(
+                "UPDATE account_prep_accounts SET label = $2 WHERE id = $1",
+                source_prep_id,
+                next_label,
+            )
     if prepared_id and patch_banned:
         await db.execute(
             """

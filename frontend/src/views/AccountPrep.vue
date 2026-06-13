@@ -195,7 +195,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useWorkflowStore } from '../stores/workflowStore';
 import AccountDropzone from '../components/AccountDropzone.vue';
@@ -407,6 +407,11 @@ onMounted(async () => {
   await loadHistory();
   await loadPool();
 });
+
+onActivated(() => {
+  loadPool();
+});
+
 onUnmounted(stopPolling);
 </script>
 

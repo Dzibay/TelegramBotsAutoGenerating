@@ -88,23 +88,60 @@ async def register_from_prep_account(prep_account: dict) -> dict[str, Any]:
 
 
 async def list_prepared_accounts(*, available_only: bool = False) -> list[dict[str, Any]]:
+    base_sql = """
+        SELECT pa.*,
+               COALESCE(
+                   (
+                       SELECT ta.label
+                       FROM telegram_accounts ta
+                       WHERE ta.prepared_account_id = pa.id
+                         AND NULLIF(TRIM(ta.label), '') IS NOT NULL
+                       ORDER BY ta.updated_at DESC
+                       LIMIT 1
+                   ),
+                   pa.label
+               ) AS label
+        FROM prepared_accounts pa
+    """
     if available_only:
         rows = await db.fetch_all(
-            """
-            SELECT * FROM prepared_accounts
-            WHERE status = 'available' AND is_banned = FALSE
-            ORDER BY created_at DESC
+            f"""
+            {base_sql}
+            WHERE pa.status = 'available' AND pa.is_banned = FALSE
+            ORDER BY pa.created_at DESC
             """
         )
     else:
         rows = await db.fetch_all(
-            "SELECT * FROM prepared_accounts ORDER BY created_at DESC LIMIT 200"
+            f"""
+            {base_sql}
+            ORDER BY pa.created_at DESC
+            LIMIT 200
+            """
         )
     return [_row(r) for r in rows]
 
 
 async def get_prepared_account(prepared_id: int) -> dict[str, Any]:
-    row = await db.fetch_one("SELECT * FROM prepared_accounts WHERE id = $1", prepared_id)
+    row = await db.fetch_one(
+        """
+        SELECT pa.*,
+               COALESCE(
+                   (
+                       SELECT ta.label
+                       FROM telegram_accounts ta
+                       WHERE ta.prepared_account_id = pa.id
+                         AND NULLIF(TRIM(ta.label), '') IS NOT NULL
+                       ORDER BY ta.updated_at DESC
+                       LIMIT 1
+                   ),
+                   pa.label
+               ) AS label
+        FROM prepared_accounts pa
+        WHERE pa.id = $1
+        """,
+        prepared_id,
+    )
     if not row:
         raise NotFoundError("Подготовленный аккаунт не найден")
     return _row(row)
@@ -142,6 +179,24 @@ async def update_prepared_account(
         next_label,
         next_banned,
     )
+
+    if patch_label:
+        await db.execute(
+            """
+            UPDATE telegram_accounts
+            SET label = $2, updated_at = NOW()
+            WHERE prepared_account_id = $1
+            """,
+            prepared_id,
+            next_label,
+        )
+        source_prep_id = row.get("source_prep_account_id")
+        if source_prep_id:
+            await db.execute(
+                "UPDATE account_prep_accounts SET label = $2 WHERE id = $1",
+                source_prep_id,
+                next_label,
+            )
 
     if patch_banned:
         await db.execute(

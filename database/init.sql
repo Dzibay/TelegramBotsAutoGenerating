@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS creation_jobs (
     status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
     job_mode TEXT
-        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'planned', 'auto')),
+        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'manual_multi', 'planned', 'auto')),
     total_accounts INT NOT NULL DEFAULT 0,
     processed_accounts INT NOT NULL DEFAULT 0,
     total_bots_created INT NOT NULL DEFAULT 0,

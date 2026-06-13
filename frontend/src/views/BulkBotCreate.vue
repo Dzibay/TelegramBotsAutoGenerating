@@ -140,6 +140,42 @@
           <li v-for="(msg, i) in manualValidation.warnings" :key="'w' + i">{{ msg }}</li>
         </ul>
 
+        <details class="paste-block">
+          <summary>Вставить список (имя, username)</summary>
+          <p class="field-hint block-hint">
+            Одна строка — один бот. Формат: <code>имя,username</code> или <code>имя, username</code>
+            (пробел после запятой необязателен). Пустые строки и <code>#</code> игнорируются.
+          </p>
+          <textarea
+            v-model="pasteText"
+            class="paste-input"
+            rows="5"
+            placeholder="VPN Bot, vpn_free_bot&#10;Music Bot, music_helper_bot"
+          />
+          <div class="paste-actions">
+            <button
+              type="button"
+              class="btn btn-sm"
+              :disabled="!pasteText.trim()"
+              @click="applyPasteList"
+            >
+              Заполнить таблицу
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              :disabled="!pasteText.trim()"
+              @click="clearPaste"
+            >
+              Очистить
+            </button>
+          </div>
+          <p v-if="pasteMessage" class="paste-msg ok">{{ pasteMessage }}</p>
+          <ul v-if="pasteErrors.length" class="val-list val-list--warn paste-errors">
+            <li v-for="(msg, i) in pasteErrors" :key="'p' + i">{{ msg }}</li>
+          </ul>
+        </details>
+
         <p class="field-hint avatar-hint">
           Загрузите аватарку в колонке слева и потяните нижний край — одна картинка применится на несколько ботов в группе.
         </p>
@@ -507,6 +543,7 @@ import {
   resolveRowAvatar,
   findAnchorForRowIndex,
 } from '../utils/bulkBotAvatars';
+import { parseBulkBotPaste } from '../utils/bulkBotPasteParse';
 import {
   validateBulkBatch,
   validateManualBulkBatch,
@@ -584,6 +621,9 @@ const sharedTexts = ref({
 });
 
 const manualRows = ref([newManualRow(), newManualRow(), newManualRow()]);
+const pasteText = ref('');
+const pasteErrors = ref([]);
+const pasteMessage = ref(null);
 const aiRows = ref([newAiRow(), newAiRow(), newAiRow()]);
 
 const generating = ref(false);
@@ -1075,6 +1115,43 @@ function addRow() {
 
 function addRows(n) {
   for (let i = 0; i < n; i++) addRow();
+}
+
+function clearPaste() {
+  pasteText.value = '';
+  pasteErrors.value = [];
+  pasteMessage.value = null;
+}
+
+function applyPasteList() {
+  pasteMessage.value = null;
+  const { entries, errors } = parseBulkBotPaste(pasteText.value);
+  pasteErrors.value = errors;
+
+  if (!entries.length) {
+    pasteMessage.value = errors.length ? null : 'Не найдено строк для импорта';
+    return;
+  }
+
+  const limit = Math.max(1, freeSlots.value || entries.length);
+  const slice = entries.slice(0, limit);
+
+  manualRows.value.forEach((r) => {
+    if (r.avatarPreview) URL.revokeObjectURL(r.avatarPreview);
+  });
+
+  manualRows.value = slice.map((e) => {
+    const row = newManualRow();
+    row.displayName = e.displayName;
+    row.username = e.username;
+    return row;
+  });
+  normalizeAvatarSpans(manualRows.value);
+
+  const skipped = entries.length - slice.length;
+  pasteMessage.value =
+    `Загружено ${slice.length} бот(ов) в таблицу` +
+    (skipped > 0 ? ` (ещё ${skipped} не вошли — лимит слотов на аккаунте)` : '');
 }
 
 function removeManualRow(i) {
@@ -1699,6 +1776,51 @@ onUnmounted(() => {
 .avatar-hint {
   margin: 0 0 0.75rem;
   font-size: 0.8rem;
+}
+
+.paste-block {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 20, 0.35);
+}
+
+.paste-block summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.paste-block code {
+  font-size: 0.78rem;
+  color: #93c5fd;
+}
+
+.paste-input {
+  width: 100%;
+  margin-top: 0.65rem;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.45;
+}
+
+.paste-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.paste-msg.ok {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: #4ade80;
+}
+
+.paste-errors {
+  margin-top: 0.5rem;
 }
 
 .row-err--inline {

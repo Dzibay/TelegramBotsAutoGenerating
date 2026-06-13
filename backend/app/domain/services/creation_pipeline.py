@@ -1,5 +1,6 @@
 """Пайплайн создания ботов для worker."""
 import asyncio
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -7,6 +8,7 @@ from app.config import Config
 from app.core.exceptions import BadRequestError
 from app.domain.services import (
     account_flood_service,
+    account_service,
     bot_promo_service,
     bot_service,
     job_history_service,
@@ -29,12 +31,44 @@ from app.infrastructure.telegram.botfather_pacing import (
     max_server_flood_wait_sec,
     pace_botfather_op,
     post_throttle_delay_sec,
+    throttle_pause_total_sec,
 )
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 from app.utils.crypto import encrypt_token
 
 
 FLOOD_MAX_RETRIES = 8
+
+
+def _is_rotate_account_error(exc: Exception) -> bool:
+    """Ошибки, при которых в мультиаккаунте пробуем следующий аккаунт."""
+    details = getattr(exc, "details", None) or {}
+    if details.get("flood_wait") or details.get("botfather_blocked"):
+        return True
+    if details.get("bots_limit_reached"):
+        return True
+    msg = (getattr(exc, "message", None) or str(exc)).lower()
+    return (
+        "botfather не ответил" in msg
+        or "timeout" in msg
+        or "telegram требует паузу" in msg
+        or "лимит telegram" in msg
+    )
+
+
+def _is_bot_specific_error(exc: Exception) -> bool:
+    """Ошибки бота (username и т.д.) — ротация аккаунта не поможет."""
+    details = getattr(exc, "details", None) or {}
+    msg = (getattr(exc, "message", None) or str(exc)).lower()
+    if details.get("step") == "username":
+        return True
+    if "username" in msg and any(
+        token in msg for token in ("занят", "taken", "invalid", "отклонён", "invalid")
+    ):
+        return True
+    if "имя бота отклонено" in msg:
+        return True
+    return False
 
 
 def _format_flood_wait_human(seconds: int) -> str:
@@ -94,11 +128,13 @@ class CreationPipeline:
         campaign_id: int,
         plans: list[dict[str, Any]] | None = None,
         manual_plans: list[dict[str, Any]] | None = None,
+        manual_multi: bool = False,
     ):
         self.job_id = job_id
         self.campaign_id = campaign_id
         self.plans = plans or []
         self.manual_plans = manual_plans or []
+        self.manual_multi = manual_multi
         self.ai = AIService()
         self._row_results: list[dict[str, Any]] = []
 
@@ -177,35 +213,93 @@ class CreationPipeline:
                 },
             )
 
-    async def _pace_between_bots(self, processed: int, total: int) -> bool:
+    async def _pace_between_bots(
+        self,
+        processed: int,
+        total: int,
+        *,
+        account_id: int | None = None,
+        skip_sleep: bool = False,
+        bots_on_account: int | None = None,
+    ) -> bool:
         """Пауза между ботами + пакетный cooldown. True = отменено."""
         if processed >= total:
             return False
         delay = inter_bot_delay_sec()
-        await self.log(
-            f"Пауза {delay} сек. перед следующим ботом (лимиты BotFather)…",
-        )
-        await self.log(
-            f"Rate limit pacing: inter-bot {delay}s",
-            level="debug",
-            context={"delay_sec": delay, "processed": processed, "total": total},
-        )
-        if await self._sleep_cancellable(delay):
-            return True
+        if delay > 0:
+            if account_id:
+                await account_flood_service.record_flood_wait(account_id, delay)
+                if skip_sleep:
+                    await self.log(
+                        f"Пауза {delay} сек. на аккаунте #{account_id} "
+                        f"(сохранена в БД, без ожидания — следующий аккаунт)…",
+                        context={
+                            "account_id": account_id,
+                            "delay_sec": delay,
+                            "pause_type": "inter_bot",
+                        },
+                    )
+                else:
+                    await self.log(
+                        f"Пауза {delay} сек. на аккаунте #{account_id} "
+                        f"(сохранена в БД до следующего бота)…",
+                        context={
+                            "account_id": account_id,
+                            "delay_sec": delay,
+                            "pause_type": "inter_bot",
+                        },
+                    )
+            else:
+                await self.log(
+                    f"Пауза {delay} сек. перед следующим ботом (лимиты BotFather)…",
+                )
+            await self.log(
+                f"Rate limit pacing: inter-bot {delay}s",
+                level="debug",
+                context={"delay_sec": delay, "processed": processed, "total": total},
+            )
+            if not skip_sleep and await self._sleep_cancellable(delay):
+                return True
+        batch_ref = bots_on_account if bots_on_account is not None else processed
         every = batch_size()
-        if every > 0 and processed > 0 and processed % every == 0:
+        if every > 0 and batch_ref > 0 and batch_ref % every == 0:
             cooldown = batch_cooldown_sec()
             mins = max(1, cooldown // 60)
+            if account_id and cooldown > 0:
+                await account_flood_service.record_flood_wait(account_id, cooldown)
+                if skip_sleep:
+                    await self.log(
+                        f"Пакетная пауза ~{mins} мин на аккаунте #{account_id} "
+                        f"(сохранена в БД, без ожидания)…",
+                        level="warn",
+                        context={
+                            "account_id": account_id,
+                            "cooldown_sec": cooldown,
+                            "pause_type": "batch_cooldown",
+                        },
+                    )
+                else:
+                    await self.log(
+                        f"Пакетная пауза ~{mins} мин на аккаунте #{account_id} "
+                        f"(сохранена в БД, защита от блокировки)…",
+                        level="warn",
+                        context={
+                            "account_id": account_id,
+                            "cooldown_sec": cooldown,
+                            "pause_type": "batch_cooldown",
+                        },
+                    )
+            else:
+                await self.log(
+                    f"Пакетная пауза ~{mins} мин (создано {batch_ref} из {total} — защита от блокировки)…",
+                    level="warn",
+                )
             await self.log(
-                f"Пакетная пауза ~{mins} мин (создано {processed} из {total} — защита от блокировки)…",
-                level="warn",
-            )
-            await self.log(
-                f"Batch cooldown after {processed} bots",
+                f"Batch cooldown after {batch_ref} bots",
                 level="debug",
                 context={"cooldown_sec": cooldown, "batch_size": every},
             )
-            if await self._sleep_cancellable(cooldown):
+            if not skip_sleep and await self._sleep_cancellable(cooldown):
                 return True
         return False
 
@@ -231,7 +325,10 @@ class CreationPipeline:
             raise ValueError("Кампания не найдена")
 
         if self.manual_plans:
-            await self._run_manual(campaign)
+            if self.manual_multi:
+                await self._run_manual_multi(campaign)
+            else:
+                await self._run_manual(campaign)
             return
 
         if self.plans:
@@ -460,7 +557,9 @@ class CreationPipeline:
                             break
 
                     if processed < len(plans):
-                        if await self._pace_between_bots(processed, len(plans)):
+                        if await self._pace_between_bots(
+                            processed, len(plans), account_id=account_id
+                        ):
                             await self._mark_remaining_skipped(plans, idx + 1)
                             break
             finally:
@@ -479,6 +578,540 @@ class CreationPipeline:
             acc_status,
         )
         await self.log(f"{label}: создано {created_count} из {len(plans)}")
+        await self._finish_job(created_count, cancelled=await self._is_cancelled())
+
+    def _account_label(self, account: dict[str, Any]) -> str:
+        label = (account.get("label") or "").strip()
+        return label or f"Аккаунт #{account['id']}"
+
+    async def _refresh_multi_account(self, account_id: int) -> dict[str, Any] | None:
+        return await db.fetch_one(
+            """
+            SELECT * FROM telegram_accounts
+            WHERE id = $1 AND campaign_id = $2
+            """,
+            account_id,
+            self.campaign_id,
+        )
+
+    async def _mark_account_banned(
+        self,
+        account_id: int,
+        label: str,
+        reason: str,
+    ) -> None:
+        await account_service.update_account(
+            self.campaign_id,
+            account_id,
+            is_banned=True,
+            patch_banned=True,
+        )
+        await db.execute(
+            """
+            UPDATE telegram_accounts
+            SET status = 'error', last_error = $2, updated_at = NOW()
+            WHERE id = $1
+            """,
+            account_id,
+            reason[:500],
+        )
+        await self.log(
+            f"{label}: аккаунт помечен как забаненный — {reason[:200]}",
+            level="error",
+            context={"account_id": account_id, "status": "banned"},
+        )
+
+    async def _mark_account_exhausted(self, account_id: int, label: str) -> None:
+        await db.execute(
+            """
+            UPDATE telegram_accounts
+            SET status = 'exhausted', updated_at = NOW()
+            WHERE id = $1
+            """,
+            account_id,
+        )
+        await self.log(
+            f"{label}: лимит 20 ботов — аккаунт исключён из ротации",
+            level="warn",
+            context={"account_id": account_id, "status": "exhausted"},
+        )
+
+    async def _wait_any_account_flood_clear(self, account_ids: list[int]) -> bool:
+        """Ждёт, пока у хотя бы одного аккаунта закончится пауза BotFather."""
+        while True:
+            waits: list[tuple[int, int]] = []
+            free_count = 0
+            for aid in account_ids:
+                rem = await account_flood_service.get_flood_remaining_seconds(aid)
+                if rem > 0:
+                    waits.append((aid, rem))
+                else:
+                    free_count += 1
+            if free_count > 0 or not waits:
+                return False
+
+            wait_sec = min(rem for _, rem in waits)
+            human = _format_flood_wait_human(wait_sec)
+            await self.log(
+                f"Все доступные аккаунты на паузе BotFather — ожидание {human}…",
+                level="warn",
+                context={"wait_seconds": wait_sec, "status": "waiting"},
+            )
+            if await self._sleep_cancellable(wait_sec + 1):
+                return True
+            # Истёкшие паузы сбрасываются в get_flood_remaining_seconds; длинные — остаются в БД.
+
+    async def _get_or_load_client(
+        self,
+        account_id: int,
+        account: dict[str, Any],
+        clients: dict[int, Any],
+    ) -> Any:
+        if account_id in clients:
+            return clients[account_id]
+        session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
+        client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+        clients[account_id] = client
+        await self.log(
+            f"Telethon: сессия загружена для {self._account_label(account)}",
+            level="debug",
+            context={"account_id": account_id},
+        )
+        return client
+
+    async def _pick_multi_account(
+        self,
+        account_ids: list[int],
+        cursor: int,
+        tried: set[int],
+    ) -> tuple[dict[str, Any] | None, int]:
+        """Следующий аккаунт без паузы и со свободным слотом."""
+        n = len(account_ids)
+        for step in range(n):
+            idx = (cursor + step) % n
+            aid = account_ids[idx]
+            if aid in tried:
+                continue
+            account = await self._refresh_multi_account(aid)
+            if not account:
+                tried.add(aid)
+                continue
+            if account.get("is_banned"):
+                tried.add(aid)
+                continue
+            if account.get("status") not in ("ready", "creating", "exhausted"):
+                if account.get("status") == "exhausted":
+                    tried.add(aid)
+                continue
+            slots = max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
+            if slots <= 0:
+                tried.add(aid)
+                continue
+            flood_rem = await account_flood_service.get_flood_remaining_seconds(aid)
+            if flood_rem > 0:
+                continue
+            return account, idx + 1
+        return None, cursor
+
+    async def _create_manual_bot_once(
+        self,
+        plan: dict[str, Any],
+        *,
+        avatar_bytes: Optional[bytes],
+        client,
+        account_id: int,
+    ) -> dict[str, Any]:
+        return await bot_service.create_bot(
+            campaign_id=self.campaign_id,
+            telegram_account_id=account_id,
+            target_url=plan["target_url"],
+            display_name=plan["display_name"],
+            username=plan["username"],
+            description=plan["description"],
+            about_text=plan.get("about_text") or "",
+            welcome_message=plan["welcome_message"],
+            welcome_button_enabled=bool(plan.get("welcome_button_enabled", True)),
+            welcome_button_text=plan.get("welcome_button_text")
+            or bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
+            keyword=None,
+            link_mode=plan.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
+            create_via_botfather=True,
+            auto_start=bool(plan.get("auto_start", True)),
+            avatar_bytes=avatar_bytes,
+            generate_avatar=False,
+            telethon_client=client,
+            use_referral_api=plan.get("use_referral_api"),
+            on_step=lambda msg, step: self.log(
+                msg,
+                context={
+                    "row_id": plan.get("row_id"),
+                    "username": plan.get("username"),
+                    "account_id": account_id,
+                    "status": "creating",
+                    "step": step or None,
+                },
+            ),
+        )
+
+    async def _handle_multi_account_error(
+        self,
+        exc: Exception,
+        account_id: int,
+        label: str,
+    ) -> str:
+        """Обработка ошибки при ротации: banned / flood / exhausted / rotate."""
+        details = getattr(exc, "details", None) or {}
+        msg = _format_creation_error(exc)
+
+        if details.get("botfather_blocked"):
+            await self._mark_account_banned(account_id, label, msg)
+            return "rotate"
+
+        if details.get("bots_limit_reached"):
+            await self._mark_account_exhausted(account_id, label)
+            return "rotate"
+
+        if details.get("flood_wait"):
+            raw_wait = int(details.get("wait_seconds") or 0)
+            total_pause = throttle_pause_total_sec(raw_wait)
+            if total_pause <= 0:
+                return "rotate"
+            await account_flood_service.record_flood_wait(account_id, total_pause)
+            human = _format_flood_wait_human(total_pause)
+            extra = ""
+            if post_throttle_delay_sec() > 0 and raw_wait > 0:
+                extra = f" (Telegram {raw_wait}s + post-throttle {post_throttle_delay_sec()}s)"
+            await self.log(
+                f"{label}: лимит BotFather {human}{extra} — следующий аккаунт",
+                level="warn",
+                context={
+                    "account_id": account_id,
+                    "wait_seconds": total_pause,
+                    "status": "waiting",
+                },
+            )
+            return "rotate"
+
+        if _is_rotate_account_error(exc) and not _is_bot_specific_error(exc):
+            raw_wait = 0
+            match = re.search(r"(\d+)\s*sec", msg.lower())
+            if match:
+                raw_wait = max(1, int(match.group(1)))
+            total_pause = throttle_pause_total_sec(raw_wait)
+            if total_pause <= 0:
+                return "rotate"
+            await account_flood_service.record_flood_wait(account_id, total_pause)
+            await self.log(
+                f"{label}: {msg[:160]} — пауза {_format_flood_wait_human(total_pause)}, следующий аккаунт",
+                level="warn",
+                context={"account_id": account_id, "wait_seconds": total_pause},
+            )
+            return "rotate"
+
+        return "fail"
+
+    async def _run_manual_multi(self, campaign: dict) -> None:
+        plans = list(self.manual_plans)
+        total = len(plans)
+        if not total:
+            raise ValueError("Пустой план ручного создания")
+
+        account_rows = await db.fetch_all(
+            """
+            SELECT * FROM telegram_accounts
+            WHERE campaign_id = $1 AND status IN ('ready', 'creating')
+              AND tdata_path IS NOT NULL AND tdata_path != ''
+              AND is_banned = FALSE
+            ORDER BY id
+            """,
+            self.campaign_id,
+        )
+        if not account_rows:
+            raise ValueError("Нет готовых аккаунтов для мультиаккаунтного режима")
+
+        account_ids = [int(a["id"]) for a in account_rows]
+        labels = [self._account_label(a) for a in account_rows]
+        total_slots = sum(
+            max(0, int(a["max_bots_limit"]) - int(a["bots_created"])) for a in account_rows
+        )
+
+        await self.log(
+            f"Мультиаккаунт: {total} бот(ов), {len(account_ids)} акк.: {', '.join(labels)}",
+            progress=f"0/{total}",
+        )
+        await self.log(
+            f"Суммарно свободных слотов: {total_slots}",
+            level="debug",
+            context={"account_ids": account_ids, "total_slots": total_slots},
+        )
+
+        use_referral = bool(plans[0].get("use_referral_api"))
+        link_source = (plans[0].get("link_source") or "") if plans else ""
+        mode = plans[0].get("link_mode") if plans else bot_promo_service.LINK_MODE_REDIRECT
+        mode_label = "с подсчётом переходов" if mode == bot_promo_service.LINK_MODE_REDIRECT else "прямые"
+        if use_referral:
+            await self.log("Ссылки: автоматически через реферальный API кампании")
+        elif link_source == "per_bot":
+            await self.log(f"Ссылки: своя для каждого бота ({mode_label})")
+        elif link_source == "campaign":
+            sample = (plans[0].get("target_url") or "")[:60] if plans else ""
+            suffix = f" — {sample}…" if sample else ""
+            await self.log(f"Ссылки: из кампании ({mode_label}){suffix}")
+        else:
+            sample = (plans[0].get("target_url") or "")[:60] if plans else ""
+            suffix = f" — {sample}…" if sample else ""
+            await self.log(f"Ссылки: общая для партии ({mode_label}){suffix}")
+
+        pending = list(plans)
+        created_count = 0
+        processed = 0
+        account_cursor = 0
+        clients: dict[int, Any] = {}
+        flood_contexts: dict[int, Any] = {}
+        from collections import defaultdict
+
+        account_success_counts: dict[int, int] = defaultdict(int)
+
+        try:
+            while pending:
+                if await self._is_cancelled():
+                    await self.log("Создание остановлено пользователем", level="warn")
+                    break
+
+                plan = pending[0]
+                idx = processed
+                uname = plan["username"]
+                row_id = plan.get("row_id", processed + 1)
+                tried_accounts: set[int] = set()
+                bot_done = False
+                last_error: str | None = None
+
+                await self.log(
+                    f"[{processed + 1}/{total}] @{uname} — выбор аккаунта",
+                    progress=f"{processed}/{total}: @{uname}",
+                    context={
+                        "row_id": row_id,
+                        "username": uname,
+                        "status": "pending",
+                    },
+                )
+
+                while not bot_done and len(tried_accounts) < len(account_ids):
+                    account, account_cursor = await self._pick_multi_account(
+                        account_ids,
+                        account_cursor,
+                        tried_accounts,
+                    )
+                    if account is None:
+                        if await self._wait_any_account_flood_clear(account_ids):
+                            break
+                        live_count = 0
+                        for aid in account_ids:
+                            if aid in tried_accounts:
+                                continue
+                            row = await self._refresh_multi_account(aid)
+                            if not row or row.get("is_banned"):
+                                continue
+                            slots = max(
+                                0,
+                                int(row["max_bots_limit"]) - int(row["bots_created"]),
+                            )
+                            if slots <= 0 or row.get("status") == "exhausted":
+                                continue
+                            live_count += 1
+                        if live_count == 0:
+                            await self.log(
+                                f"@{uname}: нет доступных аккаунтов — остановка очереди",
+                                level="error",
+                            )
+                            bot_done = True
+                            last_error = "Нет доступных аккаунтов"
+                            break
+                        continue
+
+                    account_id = int(account["id"])
+                    label = self._account_label(account)
+                    tried_accounts.add(account_id)
+
+                    await self.log(
+                        f"[{processed + 1}/{total}] @{uname} — аккаунт {label}",
+                        context={
+                            "row_id": row_id,
+                            "username": uname,
+                            "account_id": account_id,
+                            "status": "creating",
+                        },
+                    )
+
+                    await self._wait_account_flood(account_id, label)
+                    await db.execute(
+                        "UPDATE telegram_accounts SET status = 'creating', updated_at = NOW() WHERE id = $1",
+                        account_id,
+                    )
+
+                    avatar_bytes = None
+                    avatar_path = plan.get("avatar_path")
+                    if avatar_path:
+                        path = Path(avatar_path)
+                        if path.is_file():
+                            avatar_bytes = path.read_bytes()
+
+                    flood_ctx = flood_contexts.get(account_id)
+                    if flood_ctx is None:
+                        flood_ctx = account_flood_service.set_flood_account_context(account_id)
+                        flood_contexts[account_id] = flood_ctx
+
+                    try:
+                        client = await self._get_or_load_client(account_id, account, clients)
+                        bot = await self._create_manual_bot_once(
+                            plan,
+                            avatar_bytes=avatar_bytes,
+                            client=client,
+                            account_id=account_id,
+                        )
+                        pending.pop(0)
+                        processed += 1
+                        created_count += 1
+                        bot_done = True
+
+                        await db.execute(
+                            """
+                            UPDATE creation_jobs
+                            SET processed_accounts = $2,
+                                total_bots_created = $3,
+                                updated_at = NOW()
+                            WHERE id = $1
+                            """,
+                            self.job_id,
+                            processed,
+                            created_count,
+                        )
+                        await self.log(
+                            f"[{processed}/{total}] @{uname} — создан на {label}",
+                            level="info",
+                            progress=f"{processed}/{total}: готово",
+                            context={
+                                "row_id": row_id,
+                                "username": uname,
+                                "account_id": account_id,
+                                "status": "done",
+                                "bot_id": bot.get("id"),
+                            },
+                        )
+                        self._record_row_result(
+                            plan,
+                            idx,
+                            "done",
+                            bot_id=bot.get("id"),
+                            account_id=account_id,
+                        )
+
+                        acc = await self._refresh_multi_account(account_id)
+                        acc_status = "ready"
+                        if acc and int(acc["bots_created"]) >= int(acc["max_bots_limit"]):
+                            acc_status = "exhausted"
+                        await db.execute(
+                            "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
+                            account_id,
+                            acc_status,
+                        )
+
+                        account_success_counts[account_id] += 1
+                        if pending and await self._pace_between_bots(
+                            processed,
+                            total,
+                            account_id=account_id,
+                            skip_sleep=True,
+                            bots_on_account=account_success_counts[account_id],
+                        ):
+                            await self._mark_remaining_skipped(pending, 0)
+                            pending.clear()
+                            break
+
+                    except BadRequestError as exc:
+                        if await self._is_cancelled():
+                            break
+                        action = await self._handle_multi_account_error(
+                            exc, account_id, label
+                        )
+                        last_error = _format_creation_error(exc)
+                        if action == "rotate":
+                            acc = await self._refresh_multi_account(account_id)
+                            if acc and not acc.get("is_banned"):
+                                st = "ready"
+                                if int(acc["bots_created"]) >= int(acc["max_bots_limit"]):
+                                    st = "exhausted"
+                                await db.execute(
+                                    "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
+                                    account_id,
+                                    st,
+                                )
+                            continue
+                        bot_done = True
+                    except Exception as exc:
+                        if await self._is_cancelled():
+                            break
+                        last_error = _format_creation_error(exc)
+                        await self.log(
+                            f"{label}: @{uname} — {last_error}",
+                            level="error",
+                            context={
+                                "row_id": row_id,
+                                "username": uname,
+                                "account_id": account_id,
+                                "status": "error",
+                            },
+                        )
+                        if _is_bot_specific_error(exc):
+                            bot_done = True
+                        elif _is_rotate_account_error(exc):
+                            total_pause = throttle_pause_total_sec(0)
+                            if total_pause > 0:
+                                await account_flood_service.record_flood_wait(
+                                    account_id, total_pause
+                                )
+                            continue
+                        else:
+                            bot_done = True
+
+                if not bot_done and pending and pending[0] is plan:
+                    pending.pop(0)
+                    processed += 1
+                    await db.execute(
+                        """
+                        UPDATE creation_jobs
+                        SET processed_accounts = $2, updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        self.job_id,
+                        processed,
+                    )
+                    err_msg = last_error or "Не удалось создать на доступных аккаунтах"
+                    await self.log(
+                        f"[{processed}/{total}] @{uname} — {err_msg}",
+                        level="error",
+                        context={
+                            "row_id": row_id,
+                            "username": uname,
+                            "status": "error",
+                            "error": err_msg,
+                        },
+                    )
+                    self._record_row_result(plan, idx, "error", error=err_msg)
+
+        finally:
+            for token in flood_contexts.values():
+                account_flood_service.reset_flood_account_context(token)
+            for client in clients.values():
+                try:
+                    await client.disconnect()
+                except Exception:
+                    pass
+
+        await self.log(
+            f"Мультиаккаунт: создано {created_count} из {total}",
+            progress=f"{processed}/{total}",
+        )
         await self._finish_job(created_count, cancelled=await self._is_cancelled())
 
     async def _create_manual_bot_with_flood_retry(
@@ -771,7 +1404,9 @@ class CreationPipeline:
                         )
                         break
                 if idx + 1 < len(plan_items):
-                    if await self._pace_between_bots(idx + 1, len(plan_items)):
+                    if await self._pace_between_bots(
+                        idx + 1, len(plan_items), account_id=account_id
+                    ):
                         break
 
             acc_status = "ready"
@@ -885,7 +1520,9 @@ class CreationPipeline:
                         )
                         break
                 if idx + 1 < len(concepts):
-                    if await self._pace_between_bots(idx + 1, len(concepts)):
+                    if await self._pace_between_bots(
+                        idx + 1, len(concepts), account_id=account_id
+                    ):
                         break
 
             acc_status = "ready"

@@ -49,7 +49,7 @@
             </div>
             <div class="job-history-actions">
               <RouterLink
-                v-if="j.job_mode === 'manual'"
+                v-if="j.job_mode === 'manual' || j.job_mode === 'manual_multi'"
                 :to="bulkRestoreLink(j)"
                 class="btn btn-xs btn-ghost"
               >

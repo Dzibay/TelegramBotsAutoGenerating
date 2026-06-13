@@ -30,6 +30,7 @@ async def process_job(
     campaign_id: int,
     plans: list | None = None,
     manual_plans: list | None = None,
+    manual_multi: bool = False,
 ) -> None:
     from app.infrastructure.database import repository as db
 
@@ -69,6 +70,7 @@ async def process_job(
                 campaign_id,
                 plans=plans,
                 manual_plans=manual_plans,
+                manual_multi=manual_multi,
             )
             await pipeline.run()
         except Exception as exc:
@@ -93,13 +95,16 @@ async def process_job(
 async def _run_job_payload(data: dict) -> None:
     job_id = int(data["job_id"])
     campaign_id = int(data["campaign_id"])
-    manual_plans = data.get("manual_plans") if data.get("mode") == "manual" else None
+    mode = data.get("mode")
+    manual_plans = data.get("manual_plans") if mode in ("manual", "manual_multi") else None
     plans = None if manual_plans else data.get("plans")
+    manual_multi = mode == "manual_multi"
     await process_job(
         job_id,
         campaign_id,
         plans=plans,
         manual_plans=manual_plans,
+        manual_multi=manual_multi,
     )
 
 

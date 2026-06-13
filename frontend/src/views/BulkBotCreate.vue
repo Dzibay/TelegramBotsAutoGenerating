@@ -57,18 +57,41 @@
           <label>Аккаунт Telegram *</label>
           <select v-model.number="accountId" :disabled="!readyAccounts.length">
             <option :value="null" disabled>Выберите аккаунт</option>
+            <option
+              v-if="readyAccounts.length >= 1"
+              :value="MULTI_ACCOUNT_MODE"
+            >
+              Все аккаунты (ротация)
+            </option>
             <option v-for="a in readyAccounts" :key="a.id" :value="a.id">
-              {{ accountLabel(a) }} ({{ a.bots_created }}/{{ a.max_bots_limit }})
+              {{ accountOptionLabel(a) }}
             </option>
           </select>
-          <p v-if="selectedAccount" class="field-hint slots-hint">
+          <ul
+            v-if="readyAccountsWithPause.length"
+            class="account-pause-list"
+          >
+            <li v-for="a in readyAccountsWithPause" :key="a.id">
+              {{ accountLabel(a) }}: пауза BotFather {{ formatWaitLabel(floodRemainingSec(a)) }}
+            </li>
+          </ul>
+          <p v-if="isMultiAccountMode && readyAccounts.length" class="field-hint slots-hint">
+            Ротация по {{ readyAccounts.length }} акк. · свободно слотов:
+            <strong>{{ freeSlots }}</strong>
+          </p>
+          <p v-else-if="selectedAccount" class="field-hint slots-hint">
             Свободно слотов: <strong>{{ freeSlots }}</strong> из {{ selectedAccount.max_bots_limit }}
           </p>
           <p v-else-if="!readyAccounts.length" class="error-text">
             Нет готовых аккаунтов с доступными слотами.
           </p>
           <p v-else-if="isSelectedAccountBusy && !isJobActive" class="info-banner">
-            На этом аккаунте уже выполняется задача. Выберите другой аккаунт или дождитесь завершения.
+            <template v-if="isMultiAccountMode">
+              Уже выполняется задача на всех аккаунтах — дождитесь завершения или остановите её.
+            </template>
+            <template v-else>
+              На этом аккаунте уже выполняется задача. Выберите другой аккаунт или дождитесь завершения.
+            </template>
           </p>
         </div>
 
@@ -122,8 +145,14 @@
         <div class="rows-head">
           <div>
             <h3 class="block-title">Боты в партии</h3>
-            <p v-if="selectedAccount" class="rows-summary muted">
-              Аккаунт: {{ accountLabel(selectedAccount) }} · свободно {{ freeSlots }} слот(ов) ·
+            <p v-if="accountId && (selectedAccount || isMultiAccountMode)" class="rows-summary muted">
+              <template v-if="isMultiAccountMode">
+                Ротация: {{ readyAccounts.length }} акк.
+              </template>
+              <template v-else>
+                Аккаунт: {{ accountLabel(selectedAccount) }}
+              </template>
+              · свободно {{ freeSlots }} слот(ов) ·
               готово: {{ readyRowsCount }}
             </p>
           </div>
@@ -544,6 +573,7 @@ import {
   findAnchorForRowIndex,
 } from '../utils/bulkBotAvatars';
 import { parseBulkBotPaste } from '../utils/bulkBotPasteParse';
+import { formatWaitLabel, getAccountFloodRemainingSec } from '../utils/floodWait';
 import {
   validateBulkBatch,
   validateManualBulkBatch,
@@ -598,6 +628,8 @@ const manualWizardSteps = [
   { id: 'list', label: 'Список ботов' },
   { id: 'create', label: 'Создание' },
 ];
+const MULTI_ACCOUNT_MODE = 0;
+
 const campaignId = computed(() => Number(route.params.id));
 
 const mode = ref('manual');
@@ -643,7 +675,9 @@ const activeJobsPanelRef = ref(null);
 const startingJob = ref(false);
 const cancellingJob = ref(false);
 const lastLogId = ref(0);
+const nowTick = ref(Date.now());
 let pollTimer = null;
+let floodTickTimer = null;
 
 const isJobActive = computed(
   () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
@@ -657,11 +691,18 @@ function jobUsesAccount(job, accId) {
   return ids.has(accId);
 }
 
-const isSelectedAccountBusy = computed(() =>
-  activeJobs.value.some(
+const isSelectedAccountBusy = computed(() => {
+  if (isMultiAccountMode.value) {
+    return activeJobs.value.some(
+      (j) =>
+        ['queued', 'running'].includes(j.status) &&
+        (j.job_mode === 'manual_multi' || j.job_mode === 'auto')
+    );
+  }
+  return activeJobs.value.some(
     (j) => ['queued', 'running'].includes(j.status) && jobUsesAccount(j, accountId.value)
-  )
-);
+  );
+});
 
 function onActiveJobsUpdate(jobs) {
   activeJobs.value = jobs;
@@ -693,11 +734,25 @@ const readyAccounts = computed(() =>
   )
 );
 
+const readyAccountsWithPause = computed(() =>
+  readyAccounts.value.filter((a) => floodRemainingSec(a) > 0)
+);
+
 const selectedAccount = computed(() =>
   readyAccounts.value.find((a) => a.id === accountId.value) ?? null
 );
 
+const isMultiAccountMode = computed(() => accountId.value === MULTI_ACCOUNT_MODE);
+
+const totalFreeSlots = computed(() =>
+  readyAccounts.value.reduce(
+    (sum, a) => sum + Math.max(0, a.max_bots_limit - a.bots_created),
+    0
+  )
+);
+
 const freeSlots = computed(() => {
+  if (isMultiAccountMode.value) return totalFreeSlots.value;
   if (!selectedAccount.value) return 0;
   return Math.max(0, selectedAccount.value.max_bots_limit - selectedAccount.value.bots_created);
 });
@@ -729,6 +784,8 @@ const manualValidation = computed(() =>
     linkSource: linkSource.value,
     campaignResourceUrl: campaignResourceUrl.value,
     batchUrl: targetUrl.value,
+    multiAccount: isMultiAccountMode.value,
+    readyAccounts: readyAccounts.value,
   })
 );
 
@@ -738,8 +795,8 @@ const readyRowsCount = computed(
 
 const canGoStep2 = computed(
   () =>
-    accountId.value &&
-    selectedAccount.value &&
+    accountId.value != null &&
+    (selectedAccount.value || isMultiAccountMode.value) &&
     sharedTexts.value.description?.trim() &&
     sharedTexts.value.welcome_message?.trim() &&
     isLinkStepValid(linkSource.value, {
@@ -828,9 +885,13 @@ const canCreateAi = computed(
 );
 
 function applySnapshotToForm(payload, sourceJobId) {
-  if (!payload || payload.mode !== 'manual') return false;
+  if (!payload || !['manual', 'manual_multi'].includes(payload.mode)) return false;
 
-  accountId.value = payload.telegram_account_id;
+  if (payload.multi_account) {
+    accountId.value = MULTI_ACCOUNT_MODE;
+  } else {
+    accountId.value = payload.telegram_account_id;
+  }
   linkSource.value = payload.link_source || LINK_SOURCE.BATCH;
   if (payload.link_source === LINK_SOURCE.BATCH && payload.default_target_url) {
     targetUrl.value = payload.default_target_url;
@@ -908,6 +969,17 @@ async function restoreFromHistory(job) {
 
 function accountLabel(a) {
   return accountDisplayLabel(a);
+}
+
+function floodRemainingSec(a) {
+  return getAccountFloodRemainingSec(a, nowTick.value);
+}
+
+function accountOptionLabel(a) {
+  const base = `${accountLabel(a)} (${a.bots_created}/${a.max_bots_limit})`;
+  const flood = floodRemainingSec(a);
+  if (flood > 0) return `${base} · пауза ${formatWaitLabel(flood)}`;
+  return base;
 }
 
 function targetUrlForDraft() {
@@ -1245,7 +1317,8 @@ async function startManualCreation() {
   form.append(
     'data',
     JSON.stringify({
-      telegram_account_id: accountId.value,
+      multi_account: isMultiAccountMode.value,
+      telegram_account_id: isMultiAccountMode.value ? null : accountId.value,
       default_target_url: linkSource.value === LINK_SOURCE.PER_BOT ? '' : sharedBatchUrl.value,
       link_mode: resolvedLinkMode.value,
       auto_start: autoStart.value,
@@ -1495,6 +1568,9 @@ watch([linkSource, campaignResourceUrl, usesReferralApi], () => {
 });
 
 onMounted(async () => {
+  floodTickTimer = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
   try {
     await settingsStore.fetchBotfatherPacing();
     const data = await campaignService.get(campaignId.value);
@@ -1538,6 +1614,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopJobPolling();
+  if (floodTickTimer) clearInterval(floodTickTimer);
 });
 </script>
 
@@ -1664,6 +1741,14 @@ onUnmounted(() => {
   font-size: 0.85rem;
   font-style: italic;
   word-break: break-all;
+}
+
+.account-pause-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: #fbbf24;
+  list-style: disc;
 }
 
 .slots-hint strong {

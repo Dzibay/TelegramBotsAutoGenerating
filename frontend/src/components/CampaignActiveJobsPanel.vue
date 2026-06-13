@@ -109,7 +109,12 @@ function progressPercent(job) {
 }
 
 function jobModeLabel(mode) {
-  const map = { manual: 'ручная', planned: 'план', auto: 'авто' };
+  const map = {
+    manual: 'ручная',
+    manual_multi: 'мультиаккаунт',
+    planned: 'план',
+    auto: 'авто',
+  };
   return map[mode] || mode;
 }
 

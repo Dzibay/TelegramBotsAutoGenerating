@@ -70,32 +70,50 @@ export function validateManualBulkBatch(rows, account, sharedTexts, options = {}
     linkSource = 'batch',
     campaignResourceUrl = '',
     batchUrl = '',
+    multiAccount = false,
+    readyAccounts = [],
   } = options;
   const errors = [];
   const warnings = [];
 
-  if (!account) {
+  let slots = 0;
+
+  if (multiAccount) {
+    if (!readyAccounts.length) {
+      errors.push('Нет готовых аккаунтов для мультиаккаунтного режима.');
+      return { errors, warnings };
+    }
+    slots = readyAccounts.reduce(
+      (sum, a) => sum + Math.max(0, a.max_bots_limit - a.bots_created),
+      0
+    );
+    if (slots <= 0) {
+      errors.push('На всех аккаунтах достигнут лимит ботов.');
+    }
+  } else if (!account) {
     errors.push('Выберите аккаунт Telegram.');
     return { errors, warnings };
+  } else {
+    if (account.is_banned) {
+      errors.push('Выбранный аккаунт забанен и не может использоваться для создания ботов.');
+    }
+
+    if (account.bots_created >= account.max_bots_limit) {
+      errors.push(`На аккаунте достигнут лимит ботов (${account.max_bots_limit}).`);
+    }
+
+    slots = Math.max(0, account.max_bots_limit - account.bots_created);
   }
 
-  if (account.is_banned) {
-    errors.push('Выбранный аккаунт забанен и не может использоваться для создания ботов.');
-  }
-
-  if (account.bots_created >= account.max_bots_limit) {
-    errors.push(`На аккаунте достигнут лимит ботов (${account.max_bots_limit}).`);
-  }
-
-  const slots = Math.max(0, account.max_bots_limit - account.bots_created);
   const readyRows = rows.filter((r) => r.displayName?.trim() && r.username?.trim());
 
   if (!readyRows.length) {
     errors.push('Добавьте хотя бы одного бота с именем и username.');
   } else if (readyRows.length > slots) {
-    errors.push(
-      `В партии ${readyRows.length} ботов, свободно слотов на аккаунте: ${slots}.`
-    );
+    const slotLabel = multiAccount
+      ? `суммарно свободно слотов: ${slots}`
+      : `свободно слотов на аккаунте: ${slots}`;
+    errors.push(`В партии ${readyRows.length} ботов, ${slotLabel}.`);
   }
 
   if (!sharedTexts?.description?.trim()) {

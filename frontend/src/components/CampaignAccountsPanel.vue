@@ -97,6 +97,9 @@
             · в кампании: {{ a.bots_in_db }}
           </span>
           <span v-if="a.tdata_on_disk === false" class="warn-tag">· нет экспорта</span>
+          <span v-else-if="floodRemainingSec(a) > 0" class="flood-tag">
+            · пауза BotFather: {{ formatWaitLabel(floodRemainingSec(a)) }}
+          </span>
           <span v-else-if="a.can_create_bots" class="ok-tag">· можно создавать</span>
         </p>
 
@@ -194,12 +197,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 import InlineTaskIndicator from './InlineTaskIndicator.vue';
 import EmptyState from './EmptyState.vue';
 import PreparedAccountPicker from './PreparedAccountPicker.vue';
 import StatusBadge from './StatusBadge.vue';
 import { accountDisplayLabel } from '../utils/accountLabel';
+import { formatWaitLabel, getAccountFloodRemainingSec } from '../utils/floodWait';
 
 const props = defineProps({
   accounts: { type: Array, default: () => [] },
@@ -223,6 +227,22 @@ const botsExpanded = reactive({});
 const editingId = ref(null);
 const editLabel = ref('');
 const labelSavingId = ref(null);
+const nowTick = ref(Date.now());
+let floodTickTimer = null;
+
+onMounted(() => {
+  floodTickTimer = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
+});
+
+onUnmounted(() => {
+  if (floodTickTimer) clearInterval(floodTickTimer);
+});
+
+function floodRemainingSec(account) {
+  return getAccountFloodRemainingSec(account, nowTick.value);
+}
 
 function displayLabel(a) {
   return accountDisplayLabel(a);
@@ -469,6 +489,10 @@ defineExpose({
 
 .warn-tag {
   color: #f87171;
+}
+
+.flood-tag {
+  color: #fbbf24;
 }
 
 .ok-tag {

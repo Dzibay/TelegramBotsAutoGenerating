@@ -77,7 +77,7 @@ class StartManualBulkRequest(BaseModel):
         description="referral | per_bot | campaign | batch",
     )
     shared_texts: ManualSharedTexts
-    bots: list[ManualBotItem] = Field(..., min_length=1, max_length=50)
+    bots: list[ManualBotItem] = Field(..., min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def _validate_account_mode(self) -> "StartManualBulkRequest":

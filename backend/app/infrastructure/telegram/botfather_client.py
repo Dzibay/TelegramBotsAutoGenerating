@@ -12,6 +12,7 @@ from app.core.logging import get_logger
 from app.infrastructure.telegram.botfather_pacing import (
     max_server_flood_wait_sec,
     pace_before_conversation,
+    throttle_pause_total_sec,
 )
 from app.utils.telegram_username import normalize_bot_username
 
@@ -51,8 +52,8 @@ async def _handle_flood_wait(exc: FloodWaitError, *, context: str) -> None:
         await account_flood_service.record_flood_wait(acc_id, wait)
     if wait <= max_server_flood_wait_sec():
         await asyncio.sleep(wait + 1)
-        if acc_id:
-            await account_flood_service.clear_flood_wait(acc_id)
+        # Не сбрасываем botfather_flood_until: пауза остаётся в БД до истечения
+        # (важно при отмене задачи во время ожидания и перезапуске).
         return
     _raise_flood_wait(wait)
 
@@ -139,7 +140,13 @@ async def _wait_reply(conv, timeout: float = 45.0):
         return reply
     except asyncio.TimeoutError:
         _abandon_pending_response(conv)
-        raise BadRequestError("BotFather не ответил вовремя. Попробуйте ещё раз.")
+        raise BadRequestError(
+            "BotFather не ответил вовремя. Попробуйте ещё раз.",
+            details={
+                "flood_wait": True,
+                "wait_seconds": throttle_pause_total_sec(0),
+            },
+        )
 
     reply = _latest_incoming(conv)
     if not reply:
@@ -164,9 +171,21 @@ def _is_username_invalid_reply(text: str) -> bool:
 
 
 def _is_cannot_create_now_reply(text: str) -> bool:
-    """BotFather: «you cannot create new bots at this time» — аккаунт ограничен."""
+    """BotFather: аккаунт ограничен — создание ботов недоступно."""
     low = (text or "").lower()
-    return "cannot create new bots" in low or "can't create new bots" in low
+    if "cannot create new bots" in low or "can't create new bots" in low:
+        return True
+    restricted_markers = (
+        "your account is limited",
+        "account is limited",
+        "account was limited",
+        "limited and can't",
+        "your account was blocked",
+        "account was blocked",
+        "blocked by telegram",
+        "banned from creating",
+    )
+    return any(marker in low for marker in restricted_markers)
 
 
 def _is_botfather_menu_reply(text: str) -> bool:

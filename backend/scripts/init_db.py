@@ -42,10 +42,13 @@ def _migration_files() -> list[Path]:
         "migrate_bot_welcome_button.sql",
         "migrate_ai_generations.sql",
         "migrate_campaign_default_texts.sql",
+        "migrate_campaign_welcome_button_defaults.sql",
         "migrate_campaign_referral.sql",
         "migrate_creation_job_history.sql",
         "migrate_account_botfather_flood.sql",
         "migrate_job_account_ids.sql",
+        "migrate_account_is_banned.sql",
+        "migrate_job_mode_manual_multi.sql",
     )
     files: list[Path] = []
     for name in names:
@@ -62,6 +65,10 @@ def _sql_files() -> list[Path]:
 
 # Один процесс за раз: api + worker + prep-worker + bot-runner стартуют параллельно
 _SCHEMA_ADVISORY_LOCK_KEY = 839204712
+
+
+async def _execute_sql_file(conn, path: Path) -> None:
+    await conn.execute(path.read_text(encoding="utf-8"))
 
 
 async def apply_schema(
@@ -83,7 +90,7 @@ async def apply_schema(
         await conn.execute(f"SELECT pg_advisory_lock({_SCHEMA_ADVISORY_LOCK_KEY})")
         try:
             for sql_path in _sql_files():
-                await conn.execute(sql_path.read_text(encoding="utf-8"))
+                await _execute_sql_file(conn, sql_path)
         finally:
             await conn.execute(f"SELECT pg_advisory_unlock({_SCHEMA_ADVISORY_LOCK_KEY})")
     finally:

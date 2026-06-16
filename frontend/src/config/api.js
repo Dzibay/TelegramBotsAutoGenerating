@@ -13,7 +13,7 @@ export const API_ENDPOINTS = {
     VERIFY_ACCOUNTS: (id) => `/campaigns/${id}/accounts/verify-all`,
     VERIFY_ACCOUNT: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}/verify`,
-    REMOVE_ACCOUNT: (campaignId, accountId) =>
+    UPDATE_ACCOUNT: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}`,
     ACCOUNT_BOTS: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}/bots`,
@@ -32,6 +32,7 @@ export const API_ENDPOINTS = {
     GET: (id) => `/jobs/${id}`,
     LOGS: (id) => `/jobs/${id}/logs`,
     CANCEL: (id) => `/jobs/${id}/cancel`,
+    ADD_ACCOUNTS: (id) => `/jobs/${id}/accounts`,
     RETRY: (id) => `/jobs/${id}/retry`,
     SNAPSHOT_AVATAR: (jobId, rowId) => `/jobs/${jobId}/snapshot-avatar/${rowId}`,
   },

@@ -8,6 +8,7 @@ from app.core.dependencies import get_current_user
 from app.core.exceptions import BadRequestError
 from app.domain.models.bot_models import CampaignUpdateRequest
 from app.domain.models.campaign_models import (
+    AccountUpdateRequest,
     CampaignCreateRequest,
     GenerateKeywordsRequest,
     StartCreationJobRequest,
@@ -43,6 +44,8 @@ async def create_campaign(
         default_about_text=body.default_about_text,
         default_description=body.default_description,
         default_welcome_message=body.default_welcome_message,
+        default_welcome_button_enabled=body.default_welcome_button_enabled,
+        default_welcome_button_text=body.default_welcome_button_text,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_CREATED)
 
@@ -64,9 +67,6 @@ async def create_campaign_full(
     except (json.JSONDecodeError, TypeError, ValueError):
         raise BadRequestError("Некорректный список prepared_account_ids")
 
-    if not prepared_ids:
-        raise BadRequestError("Выберите хотя бы один подготовленный аккаунт")
-
     campaign = await campaign_service.create_campaign(
         title=body.title,
         keywords=body.keywords,
@@ -75,19 +75,34 @@ async def create_campaign_full(
         default_about_text=body.default_about_text,
         default_description=body.default_description,
         default_welcome_message=body.default_welcome_message,
+        default_welcome_button_enabled=body.default_welcome_button_enabled,
+        default_welcome_button_text=body.default_welcome_button_text,
     )
     campaign_id = campaign["id"]
 
-    uploaded = await prepared_account_service.attach_to_campaign(campaign_id, prepared_ids)
-    await account_health.verify_all_accounts(campaign_id)
+    uploaded: list = []
+    verify_summary = None
+    if prepared_ids:
+        uploaded = await prepared_account_service.attach_to_campaign(campaign_id, prepared_ids)
+        verify_result = await account_health.verify_all_accounts(campaign_id)
+        verify_summary = {
+            "total": verify_result["total"],
+            "verified_ok": verify_result["verified_ok"],
+            "verified_failed": verify_result["verified_failed"],
+        }
 
     job = None
-    if auto_start.lower() in ("1", "true", "yes", "on"):
+    if prepared_ids and auto_start.lower() in ("1", "true", "yes", "on"):
         job = await job_service.start_creation_job(campaign_id)
 
     campaign = await campaign_service.get_campaign(campaign_id)
     return success_response(
-        data={"campaign": campaign, "accounts": uploaded, "job": job},
+        data={
+            "campaign": campaign,
+            "accounts": uploaded,
+            "job": job,
+            "verify_summary": verify_summary,
+        },
         message=SuccessMessages.CAMPAIGN_CREATED,
     )
 
@@ -110,6 +125,8 @@ async def update_campaign(
         default_about_text=body.default_about_text,
         default_description=body.default_description,
         default_welcome_message=body.default_welcome_message,
+        default_welcome_button_enabled=body.default_welcome_button_enabled,
+        default_welcome_button_text=body.default_welcome_button_text,
     )
     return success_response(data={"campaign": campaign}, message=SuccessMessages.CAMPAIGN_UPDATED)
 
@@ -263,6 +280,24 @@ async def delete_account_bot(
 ):
     data = await account_service.delete_account_bot(campaign_id, account_id, username)
     return success_response(data=data, message="Бот удалён")
+
+
+@router.patch("/{campaign_id}/accounts/{account_id}")
+async def update_account(
+    campaign_id: int,
+    account_id: int,
+    body: AccountUpdateRequest,
+    _user: dict = Depends(get_current_user),
+):
+    account = await account_service.update_account(
+        campaign_id,
+        account_id,
+        label=body.label,
+        is_banned=body.is_banned,
+        patch_label="label" in body.model_fields_set,
+        patch_banned="is_banned" in body.model_fields_set,
+    )
+    return success_response(data={"account": account}, message="Настройки аккаунта обновлены")
 
 
 @router.delete("/{campaign_id}/accounts/{account_id}")

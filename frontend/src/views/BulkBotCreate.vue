@@ -57,18 +57,41 @@
           <label>Аккаунт Telegram *</label>
           <select v-model.number="accountId" :disabled="!readyAccounts.length">
             <option :value="null" disabled>Выберите аккаунт</option>
+            <option
+              v-if="readyAccounts.length >= 1"
+              :value="MULTI_ACCOUNT_MODE"
+            >
+              Все аккаунты (ротация)
+            </option>
             <option v-for="a in readyAccounts" :key="a.id" :value="a.id">
-              {{ accountLabel(a) }} ({{ a.bots_created }}/{{ a.max_bots_limit }})
+              {{ accountOptionLabel(a) }}
             </option>
           </select>
-          <p v-if="selectedAccount" class="field-hint slots-hint">
+          <ul
+            v-if="readyAccountsWithPause.length"
+            class="account-pause-list"
+          >
+            <li v-for="a in readyAccountsWithPause" :key="a.id">
+              {{ accountLabel(a) }}: пауза BotFather {{ formatWaitLabel(floodRemainingSec(a)) }}
+            </li>
+          </ul>
+          <p v-if="isMultiAccountMode && readyAccounts.length" class="field-hint slots-hint">
+            Ротация по {{ readyAccounts.length }} акк. · свободно слотов:
+            <strong>{{ freeSlots }}</strong>
+          </p>
+          <p v-else-if="selectedAccount" class="field-hint slots-hint">
             Свободно слотов: <strong>{{ freeSlots }}</strong> из {{ selectedAccount.max_bots_limit }}
           </p>
           <p v-else-if="!readyAccounts.length" class="error-text">
             Нет готовых аккаунтов с доступными слотами.
           </p>
           <p v-else-if="isSelectedAccountBusy && !isJobActive" class="info-banner">
-            На этом аккаунте уже выполняется задача. Выберите другой аккаунт или дождитесь завершения.
+            <template v-if="isMultiAccountMode">
+              Уже выполняется задача на всех аккаунтах — дождитесь завершения или остановите её.
+            </template>
+            <template v-else>
+              На этом аккаунте уже выполняется задача. Выберите другой аккаунт или дождитесь завершения.
+            </template>
           </p>
         </div>
 
@@ -122,8 +145,14 @@
         <div class="rows-head">
           <div>
             <h3 class="block-title">Боты в партии</h3>
-            <p v-if="selectedAccount" class="rows-summary muted">
-              Аккаунт: {{ accountLabel(selectedAccount) }} · свободно {{ freeSlots }} слот(ов) ·
+            <p v-if="accountId && (selectedAccount || isMultiAccountMode)" class="rows-summary muted">
+              <template v-if="isMultiAccountMode">
+                Ротация: {{ readyAccounts.length }} акк.
+              </template>
+              <template v-else>
+                Аккаунт: {{ accountLabel(selectedAccount) }}
+              </template>
+              · свободно {{ freeSlots }} слот(ов) ·
               готово: {{ readyRowsCount }}
             </p>
           </div>
@@ -140,49 +169,109 @@
           <li v-for="(msg, i) in manualValidation.warnings" :key="'w' + i">{{ msg }}</li>
         </ul>
 
+        <details class="paste-block">
+          <summary>Вставить список (имя, username)</summary>
+          <p class="field-hint block-hint">
+            Одна строка — один бот. Формат: <code>имя,username</code> или <code>имя, username</code>
+            (пробел после запятой необязателен). Пустые строки и <code>#</code> игнорируются.
+          </p>
+          <textarea
+            v-model="pasteText"
+            class="paste-input"
+            rows="5"
+            placeholder="VPN Bot, vpn_free_bot&#10;Music Bot, music_helper_bot"
+          />
+          <div class="paste-actions">
+            <button
+              type="button"
+              class="btn btn-sm"
+              :disabled="!pasteText.trim()"
+              @click="applyPasteList"
+            >
+              Заполнить таблицу
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              :disabled="!pasteText.trim()"
+              @click="clearPaste"
+            >
+              Очистить
+            </button>
+          </div>
+          <p v-if="pasteMessage" class="paste-msg ok">{{ pasteMessage }}</p>
+          <ul v-if="pasteErrors.length" class="val-list val-list--warn paste-errors">
+            <li v-for="(msg, i) in pasteErrors" :key="'p' + i">{{ msg }}</li>
+          </ul>
+        </details>
+
+        <p class="field-hint avatar-hint">
+          Загрузите аватарку в колонке слева и потяните нижний край — одна картинка применится на несколько ботов в группе.
+        </p>
+
         <div class="bulk-table-scroll">
           <div class="bulk-table manual-table">
-            <div class="bulk-head manual-grid">
-              <span>#</span>
-              <span>Аватар</span>
-              <span>Имя *</span>
-              <span>Username *</span>
-              <span>{{ linkSource === 'per_bot' ? 'Ссылка *' : 'Ссылка' }}</span>
-              <span></span>
+            <div class="manual-table-header">
+              <span class="manual-head-avatar">Аватар</span>
+              <div class="bulk-head manual-grid-no-avatar manual-head-cols">
+                <span>#</span>
+                <span>Имя *</span>
+                <span>Username *</span>
+                <span>{{ linkSource === 'per_bot' ? 'Ссылка *' : 'Ссылка' }}</span>
+                <span></span>
+              </div>
             </div>
 
-            <div v-for="(row, i) in manualRows" :key="row.id" class="bulk-row">
-              <div class="manual-grid bulk-main">
-                <span class="row-num">{{ i + 1 }}</span>
-                <BulkAvatarCell
-                  @update:file="row.avatarFile = $event"
-                  @update:preview="row.avatarPreview = $event"
+            <div
+              v-for="group in avatarAnchorGroups"
+              :key="`g-${group.row.id}`"
+              class="manual-group"
+            >
+              <div class="manual-group-avatar">
+                <BulkAvatarStretchCell
+                  :preview-url="group.row.avatarPreview"
+                  :span="group.span"
+                  :max-span="manualRows.length - group.index"
+                  @update:file="onAnchorAvatarFile(group.index, $event)"
+                  @update:preview="onAnchorAvatarPreview(group.index, $event)"
+                  @update:span="setAnchorSpan(group.index, $event)"
                 />
-                <input v-model="row.displayName" type="text" placeholder="Имя бота" />
-                <input
-                  :value="row.username"
-                  type="text"
-                  placeholder="@username"
-                  @input="row.username = $event.target.value.replace(/^@/, '')"
-                />
-                <input
-                  v-if="linkSource === 'per_bot'"
-                  v-model="row.targetUrl"
-                  type="url"
-                  placeholder="https://..."
-                />
-                <span v-else-if="linkSource === 'referral'" class="muted link-api-hint">через API</span>
-                <span v-else class="muted link-api-hint">{{ sharedBatchUrl || 'общая' }}</span>
-                <button
-                  type="button"
-                  class="btn btn-xs btn-ghost danger"
-                  :disabled="manualRows.length <= 1"
-                  @click="removeManualRow(i)"
-                >
-                  ×
-                </button>
               </div>
-              <p v-if="row.error" class="row-err">{{ row.error }}</p>
+              <div class="manual-group-rows">
+                <div
+                  v-for="(row, j) in manualRows.slice(group.index, group.index + group.span)"
+                  :key="row.id"
+                  class="bulk-row"
+                >
+                  <div class="manual-grid-no-avatar bulk-main">
+                    <span class="row-num">{{ group.index + j + 1 }}</span>
+                    <input v-model="row.displayName" type="text" placeholder="Имя бота" />
+                    <input
+                      :value="row.username"
+                      type="text"
+                      placeholder="@username"
+                      @input="row.username = $event.target.value.replace(/^@/, '')"
+                    />
+                    <input
+                      v-if="linkSource === 'per_bot'"
+                      v-model="row.targetUrl"
+                      type="url"
+                      placeholder="https://..."
+                    />
+                    <span v-else-if="linkSource === 'referral'" class="muted link-api-hint">через API</span>
+                    <span v-else class="muted link-api-hint">{{ sharedBatchUrl || 'общая' }}</span>
+                    <button
+                      type="button"
+                      class="btn btn-xs btn-ghost danger"
+                      :disabled="manualRows.length <= 1"
+                      @click="removeManualRow(group.index + j)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <p v-if="row.error" class="row-err row-err--inline">{{ row.error }}</p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -223,6 +312,48 @@
           :job-created="activeJob?.total_bots_created ?? null"
           :job-message="activeJob?.progress_message ?? ''"
         />
+
+        <div
+          v-if="isMultiActiveJob"
+          class="add-accounts-block"
+        >
+          <h4 class="add-accounts-title">Аккаунты в ротации</h4>
+          <p class="field-hint">
+            В задаче: {{ jobAccountIds.size }} акк.
+            <span v-if="addableAccountsForJob.length">
+              · можно добавить ещё {{ addableAccountsForJob.length }}
+            </span>
+          </p>
+          <ul v-if="jobAccountsList.length" class="job-accounts-list">
+            <li v-for="a in jobAccountsList" :key="a.id">
+              {{ accountLabel(a) }}
+              <span v-if="floodRemainingSec(a) > 0" class="pause-tag">
+                пауза {{ formatWaitLabel(floodRemainingSec(a)) }}
+              </span>
+            </li>
+          </ul>
+          <div v-if="addableAccountsForJob.length" class="add-accounts-form">
+            <label v-for="a in addableAccountsForJob" :key="a.id" class="add-acc-check">
+              <input
+                v-model="selectedAccountsToAdd"
+                type="checkbox"
+                :value="a.id"
+              />
+              {{ accountOptionLabel(a) }}
+            </label>
+            <button
+              type="button"
+              class="btn btn-sm"
+              :disabled="!selectedAccountsToAdd.length || addingAccountsToJob"
+              @click="addAccountsToActiveJob"
+            >
+              {{ addingAccountsToJob ? 'Добавление…' : 'Добавить в задачу' }}
+            </button>
+          </div>
+          <p v-else-if="isJobActive" class="muted small">
+            Все готовые аккаунты уже в задаче или заняты другими задачами.
+          </p>
+        </div>
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
         <p v-if="creationSummary" class="summary-text">{{ creationSummary }}</p>
@@ -450,7 +581,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
-import BulkAvatarCell from '../components/BulkAvatarCell.vue';
+import BulkAvatarStretchCell from '../components/BulkAvatarStretchCell.vue';
 import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BulkLinkSourceField from '../components/BulkLinkSourceField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
@@ -461,7 +592,8 @@ import { campaignService, jobService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
-import { applyCampaignTextDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
+import { applyCampaignTextDefaults, applyCampaignButtonDefaults, campaignTextDefaultsSnapshot } from '../utils/campaignTextDefaults';
+import { accountDisplayLabel } from '../utils/accountLabel';
 import {
   estimateBulkCreationSec,
   formatDurationSec,
@@ -477,9 +609,18 @@ import {
   LINK_SOURCE,
 } from '../utils/bulkLinkSource';
 import {
+  getAvatarAnchorGroups,
+  normalizeAvatarSpans,
+  resolveRowAvatar,
+  findAnchorForRowIndex,
+} from '../utils/bulkBotAvatars';
+import { parseBulkBotPaste } from '../utils/bulkBotPasteParse';
+import { formatWaitLabel, getAccountFloodRemainingSec } from '../utils/floodWait';
+import {
   validateBulkBatch,
   validateManualBulkBatch,
 } from '../utils/bulkBatchValidate';
+
 const JOB_SNAPSHOT_KEY = (id) => `bulk_manual_job_${id}`;
 
 let rowSeq = 0;
@@ -492,6 +633,7 @@ function newManualRow() {
     targetUrl: '',
     avatarFile: null,
     avatarPreview: null,
+    avatarSpan: 1,
     queueStatus: 'pending',
     error: null,
     createdBotId: null,
@@ -528,6 +670,8 @@ const manualWizardSteps = [
   { id: 'list', label: 'Список ботов' },
   { id: 'create', label: 'Создание' },
 ];
+const MULTI_ACCOUNT_MODE = 0;
+
 const campaignId = computed(() => Number(route.params.id));
 
 const mode = ref('manual');
@@ -551,6 +695,9 @@ const sharedTexts = ref({
 });
 
 const manualRows = ref([newManualRow(), newManualRow(), newManualRow()]);
+const pasteText = ref('');
+const pasteErrors = ref([]);
+const pasteMessage = ref(null);
 const aiRows = ref([newAiRow(), newAiRow(), newAiRow()]);
 
 const generating = ref(false);
@@ -569,11 +716,40 @@ const activeJobs = ref([]);
 const activeJobsPanelRef = ref(null);
 const startingJob = ref(false);
 const cancellingJob = ref(false);
+const addingAccountsToJob = ref(false);
+const selectedAccountsToAdd = ref([]);
 const lastLogId = ref(0);
+const nowTick = ref(Date.now());
 let pollTimer = null;
+let floodTickTimer = null;
 
 const isJobActive = computed(
   () => activeJob.value && ['queued', 'running'].includes(activeJob.value.status)
+);
+
+const isMultiActiveJob = computed(
+  () => isJobActive.value && activeJob.value?.job_mode === 'manual_multi'
+);
+
+const jobAccountIds = computed(() => new Set(activeJob.value?.account_ids || []));
+
+const jobAccountsList = computed(() =>
+  accounts.value.filter((a) => jobAccountIds.value.has(a.id))
+);
+
+function isAccountBusyOnOtherJob(accId) {
+  return activeJobs.value.some(
+    (j) =>
+      ['queued', 'running'].includes(j.status) &&
+      j.id !== activeJob.value?.id &&
+      jobUsesAccount(j, accId)
+  );
+}
+
+const addableAccountsForJob = computed(() =>
+  readyAccounts.value.filter(
+    (a) => !jobAccountIds.value.has(a.id) && !isAccountBusyOnOtherJob(a.id)
+  )
 );
 
 function jobUsesAccount(job, accId) {
@@ -584,25 +760,68 @@ function jobUsesAccount(job, accId) {
   return ids.has(accId);
 }
 
-const isSelectedAccountBusy = computed(() =>
-  activeJobs.value.some(
+const isSelectedAccountBusy = computed(() => {
+  if (isMultiAccountMode.value) {
+    return activeJobs.value.some(
+      (j) =>
+        ['queued', 'running'].includes(j.status) &&
+        (j.job_mode === 'manual_multi' || j.job_mode === 'auto')
+    );
+  }
+  return activeJobs.value.some(
     (j) => ['queued', 'running'].includes(j.status) && jobUsesAccount(j, accountId.value)
-  )
-);
+  );
+});
 
 function onActiveJobsUpdate(jobs) {
   activeJobs.value = jobs;
 }
 
+const avatarAnchorGroups = computed(() => getAvatarAnchorGroups(manualRows.value));
+
+function setAnchorSpan(anchorIndex, span) {
+  manualRows.value[anchorIndex].avatarSpan = span;
+  normalizeAvatarSpans(manualRows.value);
+}
+
+function onAnchorAvatarFile(anchorIndex, file) {
+  manualRows.value[anchorIndex].avatarFile = file;
+}
+
+function onAnchorAvatarPreview(anchorIndex, preview) {
+  const row = manualRows.value[anchorIndex];
+  if (row.avatarPreview && row.avatarPreview !== preview) {
+    URL.revokeObjectURL(row.avatarPreview);
+  }
+  row.avatarPreview = preview;
+  if (!preview) row.avatarFile = null;
+}
+
 const readyAccounts = computed(() =>
-  accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots !== false)
+  accounts.value.filter(
+    (a) => a.status === 'ready' && a.can_create_bots !== false && !a.is_banned
+  )
+);
+
+const readyAccountsWithPause = computed(() =>
+  readyAccounts.value.filter((a) => floodRemainingSec(a) > 0)
 );
 
 const selectedAccount = computed(() =>
   readyAccounts.value.find((a) => a.id === accountId.value) ?? null
 );
 
+const isMultiAccountMode = computed(() => accountId.value === MULTI_ACCOUNT_MODE);
+
+const totalFreeSlots = computed(() =>
+  readyAccounts.value.reduce(
+    (sum, a) => sum + Math.max(0, a.max_bots_limit - a.bots_created),
+    0
+  )
+);
+
 const freeSlots = computed(() => {
+  if (isMultiAccountMode.value) return totalFreeSlots.value;
   if (!selectedAccount.value) return 0;
   return Math.max(0, selectedAccount.value.max_bots_limit - selectedAccount.value.bots_created);
 });
@@ -634,6 +853,8 @@ const manualValidation = computed(() =>
     linkSource: linkSource.value,
     campaignResourceUrl: campaignResourceUrl.value,
     batchUrl: targetUrl.value,
+    multiAccount: isMultiAccountMode.value,
+    readyAccounts: readyAccounts.value,
   })
 );
 
@@ -643,8 +864,8 @@ const readyRowsCount = computed(
 
 const canGoStep2 = computed(
   () =>
-    accountId.value &&
-    selectedAccount.value &&
+    accountId.value != null &&
+    (selectedAccount.value || isMultiAccountMode.value) &&
     sharedTexts.value.description?.trim() &&
     sharedTexts.value.welcome_message?.trim() &&
     isLinkStepValid(linkSource.value, {
@@ -733,9 +954,13 @@ const canCreateAi = computed(
 );
 
 function applySnapshotToForm(payload, sourceJobId) {
-  if (!payload || payload.mode !== 'manual') return false;
+  if (!payload || !['manual', 'manual_multi'].includes(payload.mode)) return false;
 
-  accountId.value = payload.telegram_account_id;
+  if (payload.multi_account) {
+    accountId.value = MULTI_ACCOUNT_MODE;
+  } else {
+    accountId.value = payload.telegram_account_id;
+  }
   linkSource.value = payload.link_source || LINK_SOURCE.BATCH;
   if (payload.link_source === LINK_SOURCE.BATCH && payload.default_target_url) {
     targetUrl.value = payload.default_target_url;
@@ -762,6 +987,7 @@ function applySnapshotToForm(payload, sourceJobId) {
     targetUrl: bot.target_url || '',
     avatarFile: null,
     avatarPreview: null,
+    avatarSpan: 1,
     queueStatus: 'pending',
     error: null,
     createdBotId: null,
@@ -811,7 +1037,18 @@ async function restoreFromHistory(job) {
 }
 
 function accountLabel(a) {
-  return a.label || a.phone || `#${a.id}`;
+  return accountDisplayLabel(a);
+}
+
+function floodRemainingSec(a) {
+  return getAccountFloodRemainingSec(a, nowTick.value);
+}
+
+function accountOptionLabel(a) {
+  const base = `${accountLabel(a)} (${a.bots_created}/${a.max_bots_limit})`;
+  const flood = floodRemainingSec(a);
+  if (flood > 0) return `${base} · пауза ${formatWaitLabel(flood)}`;
+  return base;
 }
 
 function targetUrlForDraft() {
@@ -992,7 +1229,9 @@ function goToBotsStep() {
     if (!sharedTexts.value.about_text?.trim()) {
       sharedTexts.value.about_text = campaign.value.default_about_text || '';
     }
+    applyCampaignButtonDefaults(sharedTexts.value, campaign.value);
   }
+  normalizeAvatarSpans(manualRows.value);
   wizardStep.value = 2;
 }
 
@@ -1012,14 +1251,66 @@ function goToCreateStep() {
 function addRow() {
   if (manualRows.value.length >= freeSlots.value && freeSlots.value > 0) return;
   manualRows.value.push(newManualRow());
+  normalizeAvatarSpans(manualRows.value);
 }
 
 function addRows(n) {
   for (let i = 0; i < n; i++) addRow();
 }
 
+function clearPaste() {
+  pasteText.value = '';
+  pasteErrors.value = [];
+  pasteMessage.value = null;
+}
+
+function applyPasteList() {
+  pasteMessage.value = null;
+  const { entries, errors } = parseBulkBotPaste(pasteText.value);
+  pasteErrors.value = errors;
+
+  if (!entries.length) {
+    pasteMessage.value = errors.length ? null : 'Не найдено строк для импорта';
+    return;
+  }
+
+  const limit = Math.max(1, freeSlots.value || entries.length);
+  const slice = entries.slice(0, limit);
+
+  manualRows.value.forEach((r) => {
+    if (r.avatarPreview) URL.revokeObjectURL(r.avatarPreview);
+  });
+
+  manualRows.value = slice.map((e) => {
+    const row = newManualRow();
+    row.displayName = e.displayName;
+    row.username = e.username;
+    return row;
+  });
+  normalizeAvatarSpans(manualRows.value);
+
+  const skipped = entries.length - slice.length;
+  pasteMessage.value =
+    `Загружено ${slice.length} бот(ов) в таблицу` +
+    (skipped > 0 ? ` (ещё ${skipped} не вошли — лимит слотов на аккаунте)` : '');
+}
+
 function removeManualRow(i) {
+  const anchor = findAnchorForRowIndex(manualRows.value, i);
+  if (anchor && i === anchor.index && anchor.span > 1) {
+    const next = manualRows.value[i + 1];
+    if (next) {
+      next.avatarFile = manualRows.value[i].avatarFile;
+      next.avatarPreview = manualRows.value[i].avatarPreview;
+      next.avatarSpan = anchor.span - 1;
+    }
+  } else if (anchor && i > anchor.index) {
+    manualRows.value[anchor.index].avatarSpan = anchor.span - 1;
+  }
+  const removed = manualRows.value[i];
+  if (removed?.avatarPreview) URL.revokeObjectURL(removed.avatarPreview);
   manualRows.value.splice(i, 1);
+  normalizeAvatarSpans(manualRows.value);
 }
 
 function resetQueueRows() {
@@ -1054,6 +1345,26 @@ async function cancelActiveJob() {
     submitError.value = e.response?.data?.error || 'Не удалось остановить задачу';
   } finally {
     cancellingJob.value = false;
+  }
+}
+
+async function addAccountsToActiveJob() {
+  if (!activeJob.value?.id || !selectedAccountsToAdd.value.length) return;
+  addingAccountsToJob.value = true;
+  submitError.value = null;
+  try {
+    activeJob.value = await jobService.addAccounts(
+      activeJob.value.id,
+      selectedAccountsToAdd.value
+    );
+    selectedAccountsToAdd.value = [];
+    accounts.value = await campaignService.getAccounts(campaignId.value);
+    await pollJob();
+    await activeJobsPanelRef.value?.loadJobs?.();
+  } catch (e) {
+    submitError.value = e.response?.data?.error || 'Не удалось добавить аккаунты';
+  } finally {
+    addingAccountsToJob.value = false;
   }
 }
 
@@ -1095,7 +1406,8 @@ async function startManualCreation() {
   form.append(
     'data',
     JSON.stringify({
-      telegram_account_id: accountId.value,
+      multi_account: isMultiAccountMode.value,
+      telegram_account_id: isMultiAccountMode.value ? null : accountId.value,
       default_target_url: linkSource.value === LINK_SOURCE.PER_BOT ? '' : sharedBatchUrl.value,
       link_mode: resolvedLinkMode.value,
       auto_start: autoStart.value,
@@ -1112,8 +1424,9 @@ async function startManualCreation() {
     })
   );
   for (const row of rowsToCreate) {
-    if (row.avatarFile) {
-      form.append(`avatar_${row.id}`, row.avatarFile);
+    const avatarFile = resolveRowAvatar(row, manualRows.value);
+    if (avatarFile) {
+      form.append(`avatar_${row.id}`, avatarFile);
     }
   }
 
@@ -1318,6 +1631,7 @@ watch(
     if (!sharedTexts.value.about_text?.trim()) {
       sharedTexts.value.about_text = c.default_about_text || '';
     }
+    applyCampaignButtonDefaults(sharedTexts.value, c);
     aiRows.value.forEach((row) => {
       if (row.draft) applyCampaignTextDefaults(row.draft, c);
     });
@@ -1343,6 +1657,9 @@ watch([linkSource, campaignResourceUrl, usesReferralApi], () => {
 });
 
 onMounted(async () => {
+  floodTickTimer = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
   try {
     await settingsStore.fetchBotfatherPacing();
     const data = await campaignService.get(campaignId.value);
@@ -1360,6 +1677,7 @@ onMounted(async () => {
     sharedTexts.value.description = data.campaign.default_description || '';
     sharedTexts.value.welcome_message = data.campaign.default_welcome_message || '';
     sharedTexts.value.about_text = data.campaign.default_about_text || '';
+    applyCampaignButtonDefaults(sharedTexts.value, data.campaign);
 
     accounts.value = await campaignService.getAccounts(campaignId.value);
     const first = readyAccounts.value[0];
@@ -1385,6 +1703,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopJobPolling();
+  if (floodTickTimer) clearInterval(floodTickTimer);
 });
 </script>
 
@@ -1513,6 +1832,51 @@ onUnmounted(() => {
   word-break: break-all;
 }
 
+.account-pause-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.82rem;
+  color: #fbbf24;
+  list-style: disc;
+}
+
+.add-accounts-block {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border, #333);
+}
+
+.add-accounts-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.job-accounts-list {
+  margin: 0.5rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  list-style: disc;
+}
+
+.pause-tag {
+  color: #fbbf24;
+  font-size: 0.8rem;
+}
+
+.add-accounts-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.add-acc-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+
 .slots-hint strong {
   color: #4ade80;
 }
@@ -1566,6 +1930,114 @@ onUnmounted(() => {
   align-items: center;
 }
 
+.manual-table-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.15rem;
+}
+
+.manual-head-avatar {
+  width: 3.75rem;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.manual-head-cols {
+  flex: 1;
+  min-width: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.manual-grid-no-avatar {
+  display: grid;
+  grid-template-columns: 2rem 1.2fr 1.1fr 1.3fr 2rem;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.manual-group {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+}
+
+.manual-group:last-child {
+  border-bottom: none;
+}
+
+.manual-group-avatar {
+  width: 3.75rem;
+  flex-shrink: 0;
+  padding: 0.45rem 0.35rem;
+  border-right: 1px solid var(--border);
+  background: rgba(8, 12, 20, 0.25);
+}
+
+.manual-group-rows {
+  flex: 1;
+  min-width: 0;
+}
+
+.avatar-hint {
+  margin: 0 0 0.75rem;
+  font-size: 0.8rem;
+}
+
+.paste-block {
+  margin: 0 0 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(8, 12, 20, 0.35);
+}
+
+.paste-block summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.paste-block code {
+  font-size: 0.78rem;
+  color: #93c5fd;
+}
+
+.paste-input {
+  width: 100%;
+  margin-top: 0.65rem;
+  font-size: 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.45;
+}
+
+.paste-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.paste-msg.ok {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: #4ade80;
+}
+
+.paste-errors {
+  margin-top: 0.5rem;
+}
+
+.row-err--inline {
+  margin: 0.15rem 0 0.35rem 2rem;
+}
+
 .ai-grid {
   display: grid;
   grid-template-columns: 2rem 1.1fr 1fr 1fr 1fr 4.5rem 5.5rem;
@@ -1578,6 +2050,15 @@ onUnmounted(() => {
   color: var(--muted);
   padding-bottom: 0.35rem;
   border-bottom: 1px solid var(--border);
+}
+
+.manual-group-rows .bulk-row {
+  border-bottom: none;
+  padding: 0.5rem 0.35rem;
+}
+
+.manual-group-rows .bulk-row:not(:last-child) {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
 }
 
 .bulk-row {

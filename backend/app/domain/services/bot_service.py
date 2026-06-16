@@ -401,6 +401,7 @@ async def generate_bot_draft(
         else:
             raise
 
+    defaults = bot_promo_service.campaign_text_defaults(campaign)
     return {
         "campaign_id": campaign_id,
         "telegram_account_id": telegram_account_id,
@@ -415,8 +416,8 @@ async def generate_bot_draft(
         "description": description,
         "welcome_message": welcome,
         "about_text": about_draft,
-        "welcome_button_enabled": True,
-        "welcome_button_text": bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT,
+        "welcome_button_enabled": defaults["welcome_button_enabled"],
+        "welcome_button_text": defaults["welcome_button_text"],
         "avatar_prompt": profile.get("avatar_prompt", promo["avatar_prompt"]),
         "ai_fallback": ai_fallback,
         "ai_hint": (

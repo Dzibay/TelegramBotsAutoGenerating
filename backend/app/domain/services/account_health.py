@@ -43,7 +43,12 @@ def account_capabilities(row: dict[str, Any]) -> dict[str, Any]:
     if status == "exhausted" and bots >= limit:
         can_create = False
 
+    if row.get("is_banned"):
+        can_create = False
+
     hints: list[str] = []
+    if row.get("is_banned"):
+        hints.append("Аккаунт забанен — создание ботов недоступно")
     if not has_tdata:
         hints.append("Нет файлов сессии — уберите аккаунт и добавьте заново из подготовленных")
     elif status == "pending":
@@ -53,7 +58,7 @@ def account_capabilities(row: dict[str, Any]) -> dict[str, Any]:
         hints.append(f"Ошибка: {err}. Нажмите «Проверить» снова")
     elif status == "exhausted" and bots >= limit:
         hints.append("Достигнут лимит ботов на аккаунте")
-    elif status == "ready" and has_tdata:
+    elif status == "ready" and has_tdata and not row.get("is_banned"):
         hints.append("Готов к созданию ботов")
     elif status == "creating":
         hints.append("Идёт создание ботов")
@@ -97,6 +102,7 @@ def _serialize_account(row: dict[str, Any], extra: Optional[dict] = None) -> dic
         "bots_in_telegram": bots_created,
         "last_error": row.get("last_error"),
         "prepared_account_id": row.get("prepared_account_id"),
+        "is_banned": bool(row.get("is_banned")),
         "tdata_on_disk": caps["tdata_on_disk"],
         "can_create_bots": caps["can_create_bots"],
         "health_hint": caps["health_hint"],

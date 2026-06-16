@@ -58,7 +58,8 @@ def build_manual_input_snapshot(
         bots.append(entry)
 
     return {
-        "mode": "manual",
+        "mode": "manual_multi" if body.multi_account else "manual",
+        "multi_account": bool(body.multi_account),
         "telegram_account_id": body.telegram_account_id,
         "link_source": link_source,
         "link_mode": body.link_mode,
@@ -136,7 +137,7 @@ def build_result_snapshot(
     if error_message:
         result["error_message"] = error_message[:500]
 
-    if input_snapshot and input_snapshot.get("mode") == "manual":
+    if input_snapshot and input_snapshot.get("mode") in ("manual", "manual_multi"):
         done_ids = {
             int(r["row_id"])
             for r in row_results
@@ -240,7 +241,8 @@ def retry_payload_to_request(retry_payload: dict[str, Any]) -> StartManualBulkRe
         raise BadRequestError("В снимке задачи нет ботов для повтора")
     shared = retry_payload.get("shared_texts") or {}
     return StartManualBulkRequest(
-        telegram_account_id=int(retry_payload["telegram_account_id"]),
+        telegram_account_id=retry_payload.get("telegram_account_id"),
+        multi_account=bool(retry_payload.get("multi_account")),
         default_target_url=retry_payload.get("default_target_url"),
         link_mode=retry_payload.get("link_mode") or "redirect",
         auto_start=bool(retry_payload.get("auto_start", True)),

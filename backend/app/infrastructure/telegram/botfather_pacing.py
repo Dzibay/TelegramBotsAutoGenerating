@@ -41,5 +41,11 @@ def post_throttle_delay_sec() -> int:
     return _pacing().post_throttle_delay_sec
 
 
+def throttle_pause_total_sec(wait_seconds: int = 0) -> int:
+    """Суммарная пауза на аккаунт после throttle/timeout: ожидание Telegram + post_throttle."""
+    wait = max(0, int(wait_seconds))
+    return wait + post_throttle_delay_sec()
+
+
 def max_server_flood_wait_sec() -> int:
     return _pacing().max_server_flood_wait

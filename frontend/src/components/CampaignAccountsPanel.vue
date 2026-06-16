@@ -37,15 +37,59 @@
         v-for="a in accounts"
         :key="a.id"
         class="account-card"
-        :class="{ 'account-card--ok': a.status === 'ready', 'account-card--err': a.status === 'error' }"
+        :class="{
+          'account-card--ok': a.status === 'ready' && !a.is_banned,
+          'account-card--err': a.status === 'error',
+          'account-card--banned': a.is_banned,
+        }"
       >
         <div class="acc-top">
           <div class="acc-title">
-            <strong>{{ a.label || a.phone || `Аккаунт #${a.id}` }}</strong>
-            <span v-if="a.phone" class="phone">{{ a.phone }}</span>
+            <div v-if="editingId === a.id" class="label-edit">
+              <input
+                v-model="editLabel"
+                type="text"
+                maxlength="200"
+                placeholder="Название аккаунта"
+                @keydown.enter="saveLabel(a)"
+                @keydown.esc="cancelEdit"
+              />
+              <button
+                type="button"
+                class="btn btn-xs"
+                :disabled="labelSavingId === a.id"
+                @click="saveLabel(a)"
+              >
+                {{ labelSavingId === a.id ? '…' : 'OK' }}
+              </button>
+              <button type="button" class="btn btn-xs btn-ghost" @click="cancelEdit">×</button>
+            </div>
+            <template v-else>
+              <strong>{{ displayLabel(a) }}</strong>
+              <button
+                type="button"
+                class="btn-edit-name"
+                title="Изменить название"
+                :disabled="busy"
+                @click="startEdit(a)"
+              >
+                ✎
+              </button>
+              <span v-if="a.is_banned" class="ban-tag">Забанен</span>
+            </template>
           </div>
           <StatusBadge :status="a.status" />
         </div>
+
+        <label v-if="editingId !== a.id" class="ban-toggle">
+          <input
+            type="checkbox"
+            :checked="!!a.is_banned"
+            :disabled="busy || labelSavingId === a.id || busyId === a.id"
+            @change="toggleBanned(a, $event.target.checked)"
+          />
+          Аккаунт забанен (нельзя выбирать при создании ботов)
+        </label>
 
         <p class="acc-meta">
           Ботов: {{ botCountLabel(a) }} / {{ a.max_bots_limit }}
@@ -53,6 +97,9 @@
             · в кампании: {{ a.bots_in_db }}
           </span>
           <span v-if="a.tdata_on_disk === false" class="warn-tag">· нет экспорта</span>
+          <span v-else-if="floodRemainingSec(a) > 0" class="flood-tag">
+            · пауза BotFather: {{ formatWaitLabel(floodRemainingSec(a)) }}
+          </span>
           <span v-else-if="a.can_create_bots" class="ok-tag">· можно создавать</span>
         </p>
 
@@ -150,11 +197,13 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue';
 import InlineTaskIndicator from './InlineTaskIndicator.vue';
 import EmptyState from './EmptyState.vue';
 import PreparedAccountPicker from './PreparedAccountPicker.vue';
 import StatusBadge from './StatusBadge.vue';
+import { accountDisplayLabel } from '../utils/accountLabel';
+import { formatWaitLabel, getAccountFloodRemainingSec } from '../utils/floodWait';
 
 const props = defineProps({
   accounts: { type: Array, default: () => [] },
@@ -170,19 +219,74 @@ const props = defineProps({
   attachMessage: { type: String, default: null },
 });
 
-const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot']);
+const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot', 'update-label', 'update-banned']);
 
 const selectedIds = ref([]);
 const pickerRef = ref(null);
 const botsExpanded = reactive({});
+const editingId = ref(null);
+const editLabel = ref('');
+const labelSavingId = ref(null);
+const nowTick = ref(Date.now());
+let floodTickTimer = null;
 
-const readyCount = computed(() => props.accounts.filter((a) => a.status === 'ready').length);
+onMounted(() => {
+  floodTickTimer = setInterval(() => {
+    nowTick.value = Date.now();
+  }, 1000);
+});
+
+onUnmounted(() => {
+  if (floodTickTimer) clearInterval(floodTickTimer);
+});
+
+function floodRemainingSec(account) {
+  return getAccountFloodRemainingSec(account, nowTick.value);
+}
+
+function displayLabel(a) {
+  return accountDisplayLabel(a);
+}
+
+function startEdit(account) {
+  editingId.value = account.id;
+  editLabel.value = account.label || '';
+  nextTick(() => {
+    const el = document.querySelector('.label-edit input');
+    el?.focus();
+  });
+}
+
+function cancelEdit() {
+  editingId.value = null;
+  editLabel.value = '';
+}
+
+function saveLabel(account) {
+  const next = editLabel.value.trim();
+  if (next === (account.label || '').trim()) {
+    cancelEdit();
+    return;
+  }
+  labelSavingId.value = account.id;
+  emit('update-label', { account, label: next || null });
+  cancelEdit();
+  labelSavingId.value = null;
+}
+
+function toggleBanned(account, checked) {
+  if (!!account.is_banned === checked) return;
+  emit('update-banned', { account, is_banned: checked });
+}
+
+const readyCount = computed(() => props.accounts.filter((a) => a.status === 'ready' && !a.is_banned).length);
 const errorCount = computed(() => props.accounts.filter((a) => a.status === 'error').length);
+const bannedCount = computed(() => props.accounts.filter((a) => a.is_banned).length);
 
 const summary = computed(() => {
   if (props.attachMessage) return props.attachMessage;
   if (!props.accounts.length) return null;
-  return `Готовых: ${readyCount.value} · с ошибкой: ${errorCount.value} · всего: ${props.accounts.length}`;
+  return `Готовых: ${readyCount.value} · с ошибкой: ${errorCount.value}${bannedCount.value ? ` · забанено: ${bannedCount.value}` : ''} · всего: ${props.accounts.length}`;
 });
 
 const summaryClass = computed(() => {
@@ -299,6 +403,12 @@ defineExpose({
   background: rgba(239, 68, 68, 0.04);
 }
 
+.account-card--banned {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.06);
+  opacity: 0.92;
+}
+
 .acc-top {
   display: flex;
   justify-content: space-between;
@@ -307,12 +417,64 @@ defineExpose({
 }
 
 .acc-title strong {
-  display: block;
+  display: inline;
 }
 
-.phone {
-  font-size: 0.8rem;
+.label-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.label-edit input {
+  flex: 1;
+  min-width: 8rem;
+  font-size: 0.85rem;
+}
+
+.btn-edit-name {
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.35rem;
+  border: none;
+  background: transparent;
   color: var(--muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1;
+  border-radius: 4px;
+}
+
+.btn-edit-name:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.ban-tag {
+  display: inline-block;
+  margin-top: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.ban-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.ban-toggle input {
+  width: auto;
+  margin-top: 0.15rem;
+  flex-shrink: 0;
 }
 
 .acc-meta {
@@ -327,6 +489,10 @@ defineExpose({
 
 .warn-tag {
   color: #f87171;
+}
+
+.flood-tag {
+  color: #fbbf24;
 }
 
 .ok-tag {

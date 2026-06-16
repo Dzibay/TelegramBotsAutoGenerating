@@ -1,6 +1,11 @@
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+
+class AccountUpdateRequest(BaseModel):
+    label: Optional[str] = Field(None, max_length=200)
+    is_banned: Optional[bool] = None
 
 
 class CampaignCreateRequest(BaseModel):
@@ -14,6 +19,8 @@ class CampaignCreateRequest(BaseModel):
     default_about_text: Optional[str] = Field(None, max_length=120)
     default_description: Optional[str] = Field(None, max_length=512)
     default_welcome_message: Optional[str] = Field(None, max_length=2000)
+    default_welcome_button_enabled: Optional[bool] = True
+    default_welcome_button_text: Optional[str] = Field(None, max_length=64)
 
 
 class GenerateKeywordsRequest(BaseModel):
@@ -52,7 +59,11 @@ class ManualBotItem(BaseModel):
 class StartManualBulkRequest(BaseModel):
     """Ручная массовая партия: общие тексты + список ботов."""
 
-    telegram_account_id: int
+    telegram_account_id: Optional[int] = None
+    multi_account: bool = Field(
+        False,
+        description="Ротация по всем готовым аккаунтам кампании",
+    )
     default_target_url: Optional[str] = Field(None, max_length=2048)
     link_mode: str = Field("redirect", max_length=32)
     auto_start: bool = True
@@ -67,3 +78,17 @@ class StartManualBulkRequest(BaseModel):
     )
     shared_texts: ManualSharedTexts
     bots: list[ManualBotItem] = Field(..., min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def _validate_account_mode(self) -> "StartManualBulkRequest":
+        if self.multi_account:
+            return self
+        if not self.telegram_account_id:
+            raise ValueError("Укажите telegram_account_id или включите multi_account")
+        return self
+
+
+class AddJobAccountsRequest(BaseModel):
+    """Добавить аккаунты в выполняющуюся мультиаккаунтную задачу."""
+
+    account_ids: list[int] = Field(..., min_length=1, max_length=50)

@@ -16,6 +16,7 @@ from app.core import (
 from app.core.logging import get_logger
 from app.infrastructure.cache.redis_client import close_redis, init_redis
 from app.infrastructure.database.pool import close_pool, init_pool
+from app.infrastructure.database.schema_patches import apply_startup_schema_patches
 
 init_logging()
 logger = get_logger(__name__)
@@ -57,6 +58,7 @@ app.include_router(settings.router, prefix="/api/v1", tags=["settings"])
 async def startup() -> None:
     Config.validate()
     await init_pool()
+    await apply_startup_schema_patches()
     await init_redis(Config.REDIS_URL)
     logger.info("API started (env=%s)", os.getenv("ENVIRONMENT", "development"))
 

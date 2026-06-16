@@ -29,9 +29,6 @@
             <Rocket :size="14" />
             Создать ботов
           </RouterLink>
-          <button type="button" class="btn-ghost btn-sm btn-danger" @click="onDeleteCampaign">
-            Удалить
-          </button>
         </div>
       </div>
       <p v-if="campaign.resource_url" class="resource">
@@ -209,6 +206,8 @@
           @verify="onVerifyAccount"
           @verify-all="onVerifyAllAccounts"
           @remove="onRemoveAccount"
+          @update-label="onUpdateAccountLabel"
+          @update-banned="onUpdateAccountBanned"
           @load-bots="onLoadAccountBots"
           @delete-bot="onDeleteAccountBot"
         />
@@ -315,7 +314,6 @@
               </td>
               <td class="account-cell">
                 <span class="account-name">{{ b.account_label || accountLabelById(b.telegram_account_id) }}</span>
-                <span v-if="b.account_phone" class="account-phone">{{ b.account_phone }}</span>
               </td>
               <td class="date-cell">{{ formatDateTime(b.created_at) }}</td>
               <td class="activity-cell">
@@ -381,12 +379,13 @@ import { useWorkflowStore } from '../stores/workflowStore';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { accountDisplayLabel } from '../utils/accountLabel';
 import { telegramBotUrl } from '../utils/botLink';
 
 const taskStore = useAsyncTaskStore();
 
 function accountLabel(account) {
-  return account?.label || account?.phone || `Аккаунт #${account?.id}`;
+  return accountDisplayLabel(account);
 }
 
 function botLink(b) {
@@ -469,7 +468,7 @@ const hasActiveJobs = computed(() =>
 );
 
 const readyAccountsCount = computed(
-  () => accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots).length
+  () => accounts.value.filter((a) => a.status === 'ready' && a.can_create_bots && !a.is_banned).length
 );
 
 const hasServiceUrl = computed(
@@ -483,6 +482,10 @@ const createBlockedReason = computed(() => {
     return 'Сначала укажите ссылку на сервис в настройках кампании.';
   }
   if (readyAccountsCount.value === 0) {
+    const hasBanned = accounts.value.some((a) => a.is_banned);
+    if (hasBanned && accounts.value.some((a) => a.status === 'ready')) {
+      return 'Все готовые аккаунты помечены как забаненные — снимите флаг «Забанен» или добавьте другие аккаунты.';
+    }
     return 'Нет готовых аккаунтов — на вкладке «Аккаунты» добавьте и нажмите «Проверить все».';
   }
   return null;
@@ -623,16 +626,6 @@ async function onStart() {
     loadError.value = e.response?.data?.error || 'Не удалось запустить';
   } finally {
     starting.value = false;
-  }
-}
-
-async function onDeleteCampaign() {
-  if (!confirm(`Удалить кампанию «${campaign.value.title}»?`)) return;
-  try {
-    await campaignService.remove(campaignId.value);
-    router.push({ name: 'dashboard' });
-  } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка удаления';
   }
 }
 
@@ -838,7 +831,7 @@ async function onDeleteAccountBot({ account, bot }) {
 }
 
 async function onRemoveAccount(account) {
-  if (!confirm(`Убрать «${account.label || account.phone || account.id}» из кампании?`)) return;
+  if (!confirm(`Убрать «${accountDisplayLabel(account)}» из кампании?`)) return;
   accountBusy.value = true;
   accountBusyId.value = account.id;
   try {
@@ -850,6 +843,32 @@ async function onRemoveAccount(account) {
     loadError.value = err.response?.data?.error || 'Не удалось убрать аккаунт';
   } finally {
     accountBusy.value = false;
+    accountBusyId.value = null;
+  }
+}
+
+async function onUpdateAccountLabel({ account, label }) {
+  accountBusyId.value = account.id;
+  loadError.value = null;
+  try {
+    const updated = await campaignService.updateAccount(campaignId.value, account.id, { label });
+    patchAccount(updated);
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Не удалось сохранить название';
+  } finally {
+    accountBusyId.value = null;
+  }
+}
+
+async function onUpdateAccountBanned({ account, is_banned }) {
+  accountBusyId.value = account.id;
+  loadError.value = null;
+  try {
+    const updated = await campaignService.updateAccount(campaignId.value, account.id, { is_banned });
+    patchAccount(updated);
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Не удалось обновить статус бана';
+  } finally {
     accountBusyId.value = null;
   }
 }

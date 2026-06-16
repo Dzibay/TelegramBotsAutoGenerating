@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
     default_about_text TEXT,
     default_description TEXT,
     default_welcome_message TEXT,
+    default_welcome_button_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    default_welcome_button_text TEXT NOT NULL DEFAULT 'Перейти по ссылке',
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'queued', 'running', 'completed', 'failed', 'cancelled')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -34,6 +36,7 @@ CREATE TABLE IF NOT EXISTS telegram_accounts (
     last_error TEXT,
     botfather_flood_until TIMESTAMPTZ,
     botfather_flood_seconds INT,
+    is_banned BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -74,7 +77,7 @@ CREATE TABLE IF NOT EXISTS creation_jobs (
     status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
     job_mode TEXT
-        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'planned', 'auto')),
+        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'manual_multi', 'planned', 'auto')),
     total_accounts INT NOT NULL DEFAULT 0,
     processed_accounts INT NOT NULL DEFAULT 0,
     total_bots_created INT NOT NULL DEFAULT 0,
@@ -178,6 +181,7 @@ CREATE TABLE IF NOT EXISTS prepared_accounts (
     username TEXT,
     status TEXT NOT NULL DEFAULT 'available'
         CHECK (status IN ('available', 'in_use', 'disabled')),
+    is_banned BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

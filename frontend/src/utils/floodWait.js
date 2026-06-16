@@ -31,10 +31,27 @@ export function isFloodWaitError(err) {
 
 export function formatWaitLabel(seconds) {
   const s = Math.max(0, Math.ceil(seconds));
+  if (s >= 3600) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return m ? `${h} ч. ${m} мин.` : `${h} ч.`;
+  }
   if (s >= 60) {
     const m = Math.floor(s / 60);
     const r = s % 60;
     return r ? `${m} мин. ${r} сек.` : `${m} мин.`;
   }
   return `${s} сек.`;
+}
+
+/** Оставшаяся пауза BotFather для аккаунта (сек.), с учётом botfather_flood_until. */
+export function getAccountFloodRemainingSec(account, nowMs = Date.now()) {
+  if (account?.botfather_flood_until) {
+    const until = new Date(account.botfather_flood_until).getTime();
+    if (Number.isFinite(until)) {
+      return Math.max(0, Math.ceil((until - nowMs) / 1000));
+    }
+  }
+  const sec = Number(account?.botfather_flood_remaining_sec);
+  return Number.isFinite(sec) && sec > 0 ? Math.ceil(sec) : 0;
 }

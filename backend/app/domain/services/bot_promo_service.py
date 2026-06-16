@@ -176,11 +176,19 @@ def embed_link_in_description(
 def campaign_text_defaults(campaign: dict | None) -> dict[str, str | None]:
     """Дефолтные тексты из настроек кампании (без вставки ссылки)."""
     if not campaign:
-        return {"description": None, "about_text": None, "welcome_message": None}
+        return {
+            "description": None,
+            "about_text": None,
+            "welcome_message": None,
+            "welcome_button_enabled": True,
+            "welcome_button_text": WELCOME_BUTTON_TEXT_DEFAULT,
+        }
     return {
         "description": ((campaign.get("default_description") or "").strip() or None),
         "about_text": ((campaign.get("default_about_text") or "").strip() or None),
         "welcome_message": ((campaign.get("default_welcome_message") or "").strip() or None),
+        "welcome_button_enabled": bool(campaign.get("default_welcome_button_enabled", True)),
+        "welcome_button_text": welcome_button_label(campaign.get("default_welcome_button_text")),
     }
 
 

@@ -2,6 +2,8 @@
  * Проверки партии ботов перед генерацией и созданием.
  * @returns {{ errors: string[], warnings: string[] }}
  */
+import { accountDisplayLabel } from './accountLabel';
+
 export function validateBulkBatch(rows, readyAccounts) {
   const errors = [];
   const warnings = [];
@@ -19,6 +21,10 @@ export function validateBulkBatch(rows, readyAccounts) {
     const acc = readyAccounts.find((a) => a.id === row.accountId);
     if (!acc) {
       errors.push(`Строка ${n}: аккаунт недоступен для создания ботов.`);
+      continue;
+    }
+    if (acc.is_banned) {
+      errors.push(`Строка ${n}: аккаунт «${accountDisplayLabel(acc)}» забанен.`);
       continue;
     }
     if (acc.bots_created >= acc.max_bots_limit) {
@@ -40,7 +46,7 @@ export function validateBulkBatch(rows, readyAccounts) {
     const slots = acc.max_bots_limit - acc.bots_created;
     if (lineNums.length > slots) {
       errors.push(
-        `Аккаунт «${acc.label || acc.phone || accountId}»: в партии ${lineNums.length} ботов, свободно слотов: ${Math.max(0, slots)}.`
+        `Аккаунт «${accountDisplayLabel(acc)}»: в партии ${lineNums.length} ботов, свободно слотов: ${Math.max(0, slots)}.`
       );
     }
   }
@@ -57,33 +63,57 @@ export function validateBulkBatch(rows, readyAccounts) {
  * Проверки ручной массовой партии (один аккаунт, общие тексты).
  * @returns {{ errors: string[], warnings: string[] }}
  */
+import { resolveRowAvatar } from './bulkBotAvatars';
+
 export function validateManualBulkBatch(rows, account, sharedTexts, options = {}) {
   const {
     linkSource = 'batch',
     campaignResourceUrl = '',
     batchUrl = '',
+    multiAccount = false,
+    readyAccounts = [],
   } = options;
   const errors = [];
   const warnings = [];
 
-  if (!account) {
+  let slots = 0;
+
+  if (multiAccount) {
+    if (!readyAccounts.length) {
+      errors.push('Нет готовых аккаунтов для мультиаккаунтного режима.');
+      return { errors, warnings };
+    }
+    slots = readyAccounts.reduce(
+      (sum, a) => sum + Math.max(0, a.max_bots_limit - a.bots_created),
+      0
+    );
+    if (slots <= 0) {
+      errors.push('На всех аккаунтах достигнут лимит ботов.');
+    }
+  } else if (!account) {
     errors.push('Выберите аккаунт Telegram.');
     return { errors, warnings };
+  } else {
+    if (account.is_banned) {
+      errors.push('Выбранный аккаунт забанен и не может использоваться для создания ботов.');
+    }
+
+    if (account.bots_created >= account.max_bots_limit) {
+      errors.push(`На аккаунте достигнут лимит ботов (${account.max_bots_limit}).`);
+    }
+
+    slots = Math.max(0, account.max_bots_limit - account.bots_created);
   }
 
-  if (account.bots_created >= account.max_bots_limit) {
-    errors.push(`На аккаунте достигнут лимит ботов (${account.max_bots_limit}).`);
-  }
-
-  const slots = Math.max(0, account.max_bots_limit - account.bots_created);
   const readyRows = rows.filter((r) => r.displayName?.trim() && r.username?.trim());
 
   if (!readyRows.length) {
     errors.push('Добавьте хотя бы одного бота с именем и username.');
   } else if (readyRows.length > slots) {
-    errors.push(
-      `В партии ${readyRows.length} ботов, свободно слотов на аккаунте: ${slots}.`
-    );
+    const slotLabel = multiAccount
+      ? `суммарно свободно слотов: ${slots}`
+      : `свободно слотов на аккаунте: ${slots}`;
+    errors.push(`В партии ${readyRows.length} ботов, ${slotLabel}.`);
   }
 
   if (!sharedTexts?.description?.trim()) {
@@ -117,7 +147,7 @@ export function validateManualBulkBatch(rows, account, sharedTexts, options = {}
     }
   }
 
-  const withoutAvatar = readyRows.filter((r) => !r.avatarFile);
+  const withoutAvatar = readyRows.filter((r) => !resolveRowAvatar(r, rows));
   if (withoutAvatar.length) {
     warnings.push(
       `${withoutAvatar.length} бот(ов) без аватара — в Telegram останется пустая картинка.`

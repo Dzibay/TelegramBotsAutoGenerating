@@ -28,14 +28,11 @@ def _job_account_ids(row: dict[str, Any]) -> set[int]:
 
 def _format_account_label(row: dict[str, Any]) -> str | None:
     label = row.get("account_label")
-    phone = row.get("account_phone")
-    if label:
-        return str(label)
-    if phone:
-        return str(phone)
+    if label and str(label).strip():
+        return str(label).strip()
     account_ids = _job_account_ids(row)
     if len(account_ids) == 1:
-        return f"#{next(iter(account_ids))}"
+        return f"Аккаунт #{next(iter(account_ids))}"
     if len(account_ids) > 1:
         return f"{len(account_ids)} акк."
     if row.get("job_mode") == "auto":
@@ -120,6 +117,7 @@ async def _find_account_conflicts(
     account_ids: set[int],
     *,
     is_auto: bool = False,
+    exclude_job_id: int | None = None,
 ) -> list[dict[str, Any]]:
     rows = await db.fetch_all(
         """
@@ -133,6 +131,8 @@ async def _find_account_conflicts(
     )
     conflicts: list[dict[str, Any]] = []
     for row in rows:
+        if exclude_job_id and int(row["id"]) == exclude_job_id:
+            continue
         mode = row.get("job_mode")
         job_accounts = _job_account_ids(row)
         if is_auto or mode == "auto":
@@ -150,6 +150,8 @@ def _conflict_message(conflicts: list[dict[str, Any]], account_ids: set[int]) ->
     mode = first.get("job_mode")
     if mode == "auto" or not account_ids:
         return "Уже выполняется автоматическая задача — дождитесь завершения или остановите её"
+    if len(account_ids) > 3:
+        return "Аккаунты заняты другими задачами — дождитесь завершения активных задач"
     label = _format_account_label(first) or f"#{first.get('telegram_account_id') or next(iter(account_ids))}"
     if len(conflicts) == 1:
         return f"На аккаунте «{label}» уже выполняется задача #{first['id']}"
@@ -170,6 +172,7 @@ async def start_creation_job(
         SELECT COUNT(*)::int FROM telegram_accounts
         WHERE campaign_id = $1 AND status IN ('ready', 'creating')
           AND tdata_path IS NOT NULL AND tdata_path != ''
+          AND is_banned = FALSE
         """,
         campaign_id,
     )
@@ -214,6 +217,20 @@ async def start_creation_job(
 
     if plan_list:
         account_ids = {int(p["telegram_account_id"]) for p in plan_list}
+        banned_rows = await db.fetch_all(
+            """
+            SELECT id, label, phone FROM telegram_accounts
+            WHERE campaign_id = $1 AND id = ANY($2::bigint[]) AND is_banned = TRUE
+            """,
+            campaign_id,
+            list(account_ids),
+        )
+        if banned_rows:
+            sample = banned_rows[0]
+            name = (sample.get("label") or "").strip() or f"Аккаунт #{sample['id']}"
+            raise ConflictError(
+                f"Аккаунт {name} забанен и не может использоваться для создания ботов"
+            )
         total_accounts = len(account_ids)
         progress = f"В очереди: {len(plan_list)} бот(ов) по плану"
         job_mode = "planned"
@@ -321,6 +338,23 @@ async def get_active_job(campaign_id: int) -> dict[str, Any] | None:
     return _job_row(row) if row else None
 
 
+async def _load_multi_creation_accounts(campaign_id: int) -> list[dict[str, Any]]:
+    return await db.fetch_all(
+        """
+        SELECT * FROM telegram_accounts
+        WHERE campaign_id = $1 AND status IN ('ready', 'creating')
+          AND tdata_path IS NOT NULL AND tdata_path != ''
+          AND is_banned = FALSE
+        ORDER BY id
+        """,
+        campaign_id,
+    )
+
+
+def _account_free_slots(account: dict[str, Any]) -> int:
+    return max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
+
+
 async def start_manual_creation_job(
     campaign_id: int,
     *,
@@ -333,25 +367,8 @@ async def start_manual_creation_job(
     if campaign["accounts_count"] < 1:
         raise ConflictError("Добавьте хотя бы один Telegram-аккаунт")
 
-    account = await db.fetch_one(
-        """
-        SELECT * FROM telegram_accounts
-        WHERE id = $1 AND campaign_id = $2
-        """,
-        body.telegram_account_id,
-        campaign_id,
-    )
-    if not account:
-        raise BadRequestError("Аккаунт не найден в этой кампании")
-    if account.get("status") not in ("ready", "creating") or not account.get("tdata_path"):
-        raise ConflictError("Аккаунт не готов к созданию ботов. Проверьте его в разделе «Аккаунты».")
-
-    slots = max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
     bots = body.bots
-    if len(bots) > slots:
-        raise ConflictError(
-            f"В партии {len(bots)} ботов, свободно слотов на аккаунте: {slots}."
-        )
+    multi_account = bool(body.multi_account)
 
     use_referral = (
         body.use_referral_api
@@ -393,6 +410,45 @@ async def start_manual_creation_job(
         if not default_raw:
             raise BadRequestError("Укажите общую ссылку для партии")
         default_url = bot_promo_service.normalize_target_url(default_raw)
+
+    if multi_account:
+        ready_accounts = await _load_multi_creation_accounts(campaign_id)
+        if not ready_accounts:
+            raise ConflictError(
+                "Нет готовых аккаунтов для мультиаккаунтного режима. "
+                "Проверьте аккаунты в разделе «Аккаунты»."
+            )
+        total_slots = sum(_account_free_slots(a) for a in ready_accounts)
+        if len(bots) > total_slots:
+            raise ConflictError(
+                f"В партии {len(bots)} ботов, суммарно свободно слотов: {total_slots}."
+            )
+        account_ids = {int(a["id"]) for a in ready_accounts}
+        primary_account_id = None
+    else:
+        account = await db.fetch_one(
+            """
+            SELECT * FROM telegram_accounts
+            WHERE id = $1 AND campaign_id = $2
+            """,
+            body.telegram_account_id,
+            campaign_id,
+        )
+        if not account:
+            raise BadRequestError("Аккаунт не найден в этой кампании")
+        if account.get("is_banned"):
+            raise ConflictError("Аккаунт забанен и не может использоваться для создания ботов")
+        if account.get("status") not in ("ready", "creating") or not account.get("tdata_path"):
+            raise ConflictError("Аккаунт не готов к созданию ботов. Проверьте его в разделе «Аккаунты».")
+
+        slots = _account_free_slots(account)
+        if len(bots) > slots:
+            raise ConflictError(
+                f"В партии {len(bots)} ботов, свободно слотов на аккаунте: {slots}."
+            )
+        account_ids = {int(body.telegram_account_id)}
+        primary_account_id = int(body.telegram_account_id)
+
     usernames_seen: set[str] = set()
     manual_plans: list[dict[str, Any]] = []
 
@@ -409,10 +465,11 @@ async def start_manual_creation_job(
         if not row_url:
             raise BadRequestError(f"Укажите ссылку для бота в строке {item.row_id}")
         row_url = bot_promo_service.normalize_target_url(row_url)
+        plan_account_id = None if multi_account else primary_account_id
         manual_plans.append(
             {
                 "row_id": item.row_id,
-                "telegram_account_id": body.telegram_account_id,
+                "telegram_account_id": plan_account_id,
                 "display_name": item.display_name.strip(),
                 "username": uname,
                 "target_url": row_url,
@@ -429,26 +486,33 @@ async def start_manual_creation_job(
             }
         )
 
-    account_ids = {int(body.telegram_account_id)}
     conflicts = await _find_account_conflicts(campaign_id, account_ids)
     if conflicts:
         raise ConflictError(_conflict_message(conflicts, account_ids))
 
     total = len(manual_plans)
+    job_mode = "manual_multi" if multi_account else "manual"
+    progress_msg = (
+        f"В очереди: {total} бот(ов), мультиаккаунт"
+        if multi_account
+        else f"В очереди: {total} бот(ов), ручная партия"
+    )
+    redis_mode = "manual_multi" if multi_account else "manual"
     row = await db.fetch_one(
         """
         INSERT INTO creation_jobs (
             campaign_id, status, total_accounts, progress_message, job_mode,
             retried_from_job_id, telegram_account_id, account_ids
         )
-        VALUES ($1, 'queued', $2, $3, 'manual', $4, $5, $6)
+        VALUES ($1, 'queued', $2, $3, $4, $5, $6, $7)
         RETURNING *
         """,
         campaign_id,
         total,
-        f"В очереди: {total} бот(ов), ручная партия",
+        progress_msg,
+        job_mode,
         retried_from_job_id,
-        body.telegram_account_id,
+        primary_account_id,
         list(account_ids),
     )
     job_id = row["id"]
@@ -473,7 +537,7 @@ async def start_manual_creation_job(
     )
     await job_history_service.persist_input_snapshot(
         job_id,
-        job_mode="manual",
+        job_mode=job_mode,
         snapshot=input_snapshot,
     )
 
@@ -498,7 +562,7 @@ async def start_manual_creation_job(
     payload: dict[str, Any] = {
         "job_id": job_id,
         "campaign_id": campaign_id,
-        "mode": "manual",
+        "mode": redis_mode,
         "manual_plans": manual_plans,
     }
     await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps(payload))
@@ -563,7 +627,7 @@ async def retry_creation_job(job_id: int) -> dict[str, Any]:
         raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
     result = job_history_service.parse_json_field(row.get("result_snapshot"))
     retry_payload = (result or {}).get("retry_payload")
-    if not retry_payload or retry_payload.get("mode") != "manual":
+    if not retry_payload or retry_payload.get("mode") not in ("manual", "manual_multi"):
         raise BadRequestError(
             "Для этой задачи нет сохранённых несозданных ботов. "
             "История доступна только для ручных партий с частичным результатом."
@@ -633,4 +697,90 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
     )
 
     updated = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    return _job_row(updated)
+
+
+async def add_accounts_to_multi_job(job_id: int, account_ids: list[int]) -> dict[str, Any]:
+    """Добавить аккаунты в выполняющуюся мультиаккаунтную задачу."""
+    from app.domain.services import job_log_service
+
+    row = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    if not row:
+        raise NotFoundError(ErrorMessages.JOB_NOT_FOUND)
+    if row.get("job_mode") != "manual_multi":
+        raise BadRequestError("Добавление аккаунтов доступно только для мультиаккаунтных задач")
+    if row["status"] not in ("queued", "running"):
+        raise ConflictError("Задача не выполняется — аккаунты можно добавить только в активную задачу")
+
+    campaign_id = int(row["campaign_id"])
+    current = _job_account_ids(row)
+    requested = {int(x) for x in account_ids if x is not None}
+    if not requested:
+        raise BadRequestError("Укажите id аккаунтов")
+
+    added: list[int] = []
+    labels: list[str] = []
+    for acc_id in sorted(requested):
+        if acc_id in current:
+            continue
+        account = await db.fetch_one(
+            """
+            SELECT * FROM telegram_accounts
+            WHERE id = $1 AND campaign_id = $2
+            """,
+            acc_id,
+            campaign_id,
+        )
+        if not account:
+            raise BadRequestError(f"Аккаунт #{acc_id} не найден в этой кампании")
+        if account.get("is_banned"):
+            raise ConflictError(f"Аккаунт #{acc_id} забанен")
+        if not account.get("tdata_path"):
+            raise ConflictError(f"Аккаунт #{acc_id} не готов — нет tdata")
+        if account.get("status") not in ("ready", "creating", "exhausted"):
+            raise ConflictError(
+                f"Аккаунт #{acc_id} не готов к созданию (статус: {account.get('status')})"
+            )
+        slots = max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
+        if slots <= 0:
+            raise ConflictError(f"На аккаунте #{acc_id} нет свободных слотов")
+
+        conflicts = await _find_account_conflicts(
+            campaign_id,
+            {acc_id},
+            exclude_job_id=job_id,
+        )
+        if conflicts:
+            other = conflicts[0]
+            raise ConflictError(
+                f"Аккаунт #{acc_id} занят задачей #{other['id']}"
+            )
+
+        label = (account.get("label") or "").strip() or f"Аккаунт #{acc_id}"
+        added.append(acc_id)
+        labels.append(label)
+
+    if not added:
+        raise BadRequestError("Все указанные аккаунты уже в задаче")
+
+    merged = sorted(current | set(added))
+    updated = await db.fetch_one(
+        """
+        UPDATE creation_jobs
+        SET account_ids = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING *
+        """,
+        job_id,
+        merged,
+    )
+
+    await job_log_service.append_log(
+        job_id,
+        f"Добавлены аккаунты в ротацию: {', '.join(labels)}",
+        level="info",
+        context={"account_ids": added, "status": "accounts_added"},
+        progress_message=updated.get("progress_message"),
+    )
+
     return _job_row(updated)

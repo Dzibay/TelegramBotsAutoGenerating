@@ -14,14 +14,23 @@
           {{ copiedPromo ? 'Скопировано' : 'Копировать' }}
         </button>
       </div>
-      <p v-if="isRedirect" class="stats">
-        Кликов по ссылке: <strong>{{ bot.click_count ?? 0 }}</strong>
-      </p>
+      <div class="stats-grid">
+        <p v-if="isRedirect" class="stats">
+          Кликов по ссылке: <strong>{{ bot.click_count ?? 0 }}</strong>
+        </p>
+      </div>
       <p v-if="isRedirect && bot.target_url" class="target-hint">
         Редирект на: <span class="muted">{{ bot.target_url }}</span>
       </p>
       <p v-else-if="!isRedirect" class="target-hint muted">
         Счётчик переходов не ведётся — пользователи идут напрямую на сайт.
+      </p>
+    </div>
+
+    <div v-if="botId" class="interaction-stats">
+      <p class="block-label">Активность в Telegram</p>
+      <p class="stats">
+        Нажатий Start: <strong>{{ bot.start_count ?? 0 }}</strong>
       </p>
     </div>
 
@@ -134,7 +143,8 @@ watch(
 }
 
 .promo-block,
-.tg-block {
+.tg-block,
+.interaction-stats {
   margin-bottom: 1rem;
 }
 
@@ -157,8 +167,15 @@ watch(
   color: var(--accent);
 }
 
+.stats-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.25rem;
+  margin-top: 0.5rem;
+}
+
 .stats {
-  margin: 0.5rem 0 0;
+  margin: 0;
   font-size: 0.875rem;
 }
 

@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS bots (
         CHECK (link_mode IN ('redirect', 'direct')),
     redirect_slug TEXT,
     click_count BIGINT NOT NULL DEFAULT 0,
+    start_count BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'active', 'stopped', 'failed', 'banned')),
     botfather_error TEXT,

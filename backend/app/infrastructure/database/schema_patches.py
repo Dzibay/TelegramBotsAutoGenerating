@@ -37,9 +37,17 @@ async def ensure_creation_jobs_job_mode_check() -> None:
     logger.info("Applied creation_jobs.job_mode constraint (manual_multi enabled)")
 
 
+async def ensure_bot_start_count_column() -> None:
+    """Счётчик нажатий /start в Telegram."""
+    await db.execute(
+        "ALTER TABLE bots ADD COLUMN IF NOT EXISTS start_count BIGINT NOT NULL DEFAULT 0"
+    )
+
+
 async def apply_startup_schema_patches() -> None:
     await db.execute(f"SELECT pg_advisory_lock({_SCHEMA_PATCH_LOCK_KEY})")
     try:
         await ensure_creation_jobs_job_mode_check()
+        await ensure_bot_start_count_column()
     finally:
         await db.execute(f"SELECT pg_advisory_unlock({_SCHEMA_PATCH_LOCK_KEY})")

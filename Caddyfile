@@ -11,3 +11,8 @@
 {$SITE_DOMAIN}, www.{$SITE_DOMAIN} {
 	reverse_proxy frontend:80
 }
+
+# neuro-com-admin (соседний compose-проект, сеть telegrambotsautogenerating_tgbots)
+neuro.{$SITE_DOMAIN} {
+	reverse_proxy neuro-com-admin:8443
+}

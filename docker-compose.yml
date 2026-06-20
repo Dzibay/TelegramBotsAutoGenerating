@@ -193,4 +193,6 @@ volumes:
 
 networks:
   tgbots:
+    # Фиксированное имя — neuro_com и другие compose подключаются как external
+    name: telegrambotsautogenerating_tgbots
     driver: bridge

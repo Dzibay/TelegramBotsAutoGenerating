@@ -282,7 +282,6 @@
               <th>Статус</th>
               <th>Аккаунт</th>
               <th>Создан</th>
-              <th class="th-stats">Статистика</th>
               <th>Активность</th>
               <th class="th-actions" />
             </tr>
@@ -317,14 +316,6 @@
                 <span class="account-name">{{ b.account_label || accountLabelById(b.telegram_account_id) }}</span>
               </td>
               <td class="date-cell">{{ formatDateTime(b.created_at) }}</td>
-              <td class="stats-cell">
-                <div v-if="botUsesRedirect(b)" class="bot-stats">
-                  <span class="bot-stat" title="Кликов по ссылке">
-                    Клики <strong>{{ b.click_count ?? 0 }}</strong>
-                  </span>
-                </div>
-                <span v-else class="muted">—</span>
-              </td>
               <td class="activity-cell">
                 <span class="activity-cell-content">
                   <span class="activity-dot" :class="`activity-dot--${b.status}`" />
@@ -403,10 +394,6 @@ function accountLabel(account) {
 
 function botLink(b) {
   return b.telegram_url || telegramBotUrl(b.username);
-}
-
-function botUsesRedirect(b) {
-  return (b?.link_mode || 'redirect') === 'redirect';
 }
 
 function avatarColorClass(b) {
@@ -1299,28 +1286,6 @@ onMounted(async () => {
 
 .th-actions {
   width: 2.5rem;
-}
-
-.th-stats {
-  white-space: nowrap;
-}
-
-.stats-cell {
-  white-space: nowrap;
-}
-
-.bot-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.78rem;
-  color: var(--muted);
-}
-
-.bot-stat strong {
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  font-weight: 600;
 }
 
 .bots-table td {

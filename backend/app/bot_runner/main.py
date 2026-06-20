@@ -76,15 +76,6 @@ def _welcome_reply_markup(bot_info: dict):
     )
 
 
-async def _record_start(bot_id: int) -> None:
-    try:
-        from app.domain.services import bot_promo_service
-
-        await bot_promo_service.record_bot_start(bot_id)
-    except Exception as exc:
-        logger.warning("Failed to record /start bot_id=%s: %s", bot_id, exc)
-
-
 async def _send_welcome(message, bot_info: dict) -> None:
     markup = _welcome_reply_markup(bot_info)
     await message.answer(
@@ -103,7 +94,6 @@ async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
 
     @dp.message(CommandStart())
     async def on_start(message: Message) -> None:
-        await _record_start(bot_info["id"])
         await _send_welcome(message, bot_info)
 
     @dp.message()

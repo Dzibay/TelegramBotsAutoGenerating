@@ -27,13 +27,6 @@
       </p>
     </div>
 
-    <div v-if="botId" class="interaction-stats">
-      <p class="block-label">Активность в Telegram</p>
-      <p class="stats">
-        Нажатий Start: <strong>{{ bot.start_count ?? 0 }}</strong>
-      </p>
-    </div>
-
     <div v-if="tgLink" class="tg-block">
       <p class="block-label">Чат с ботом в Telegram</p>
       <div class="link-row">
@@ -143,8 +136,7 @@ watch(
 }
 
 .promo-block,
-.tg-block,
-.interaction-stats {
+.tg-block {
   margin-bottom: 1rem;
 }
 

@@ -114,7 +114,6 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
         "tracking_url": tracking_url,
         "redirect_slug": slug,
         "click_count": int(row.get("click_count") or 0),
-        "start_count": int(row.get("start_count") or 0),
         "welcome_button_enabled": bool(row.get("welcome_button_enabled", True)),
         "welcome_button_text": bot_promo_service.welcome_button_label(
             row.get("welcome_button_text")
@@ -213,7 +212,7 @@ async def list_bots(
         JOIN campaigns c ON c.id = b.campaign_id
         LEFT JOIN telegram_accounts ta ON ta.id = b.telegram_account_id
         WHERE {' AND '.join(clauses)}
-        ORDER BY c.title, ta.id NULLS LAST, b.created_at DESC
+        ORDER BY b.created_at DESC, b.id DESC
         """,
         *params,
     )
@@ -1050,7 +1049,6 @@ async def verify_bot(bot_id: int) -> dict[str, Any]:
         if row.get("redirect_slug")
         else None,
         "click_count": int(row.get("click_count") or 0),
-        "start_count": int(row.get("start_count") or 0),
         "local_status": row.get("status"),
         "has_token": bool(row.get("token_encrypted")),
         "verified": False,

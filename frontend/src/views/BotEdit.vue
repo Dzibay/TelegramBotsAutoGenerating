@@ -12,6 +12,13 @@
         />
         <h1>@{{ bot.username || bot.id }}</h1>
         <StatusBadge :status="bot.status" />
+        <button
+          type="button"
+          class="btn btn-sm btn-ghost export-btn"
+          @click="onCopyExport"
+        >
+          {{ copiedExport ? 'Скопировано' : 'Копировать данные' }}
+        </button>
       </div>
     </header>
 
@@ -118,6 +125,7 @@ import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
+import { copyBotExportToClipboard } from '../utils/botExport';
 
 const taskStore = useAsyncTaskStore();
 
@@ -145,6 +153,7 @@ const saveError = ref(null);
 const saving = ref(false);
 const acting = ref(false);
 const pendingAvatarFile = ref(null);
+const copiedExport = ref(false);
 
 const form = ref({
   target_url: '',
@@ -262,6 +271,18 @@ function onVerified(result) {
   }
 }
 
+async function onCopyExport() {
+  try {
+    await copyBotExportToClipboard(profile.value);
+    copiedExport.value = true;
+    setTimeout(() => {
+      copiedExport.value = false;
+    }, 2000);
+  } catch {
+    saveError.value = 'Не удалось скопировать в буфер обмена';
+  }
+}
+
 async function onDelete() {
   if (!confirm('Удалить бота?')) return;
   acting.value = true;
@@ -292,5 +313,9 @@ onMounted(load);
   align-items: center;
   gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.export-btn {
+  margin-left: auto;
 }
 </style>

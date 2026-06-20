@@ -318,14 +318,12 @@
               </td>
               <td class="date-cell">{{ formatDateTime(b.created_at) }}</td>
               <td class="stats-cell">
-                <div class="bot-stats">
-                  <span class="bot-stat" title="Нажатий Start">
-                    Start <strong>{{ b.start_count ?? 0 }}</strong>
-                  </span>
-                  <span v-if="botUsesRedirect(b)" class="bot-stat" title="Кликов по ссылке">
+                <div v-if="botUsesRedirect(b)" class="bot-stats">
+                  <span class="bot-stat" title="Кликов по ссылке">
                     Клики <strong>{{ b.click_count ?? 0 }}</strong>
                   </span>
                 </div>
+                <span v-else class="muted">—</span>
               </td>
               <td class="activity-cell">
                 <span class="activity-cell-content">
@@ -360,6 +358,9 @@
                     <RouterLink :to="{ name: 'bot-edit', params: { id: b.id } }" class="menu-item">
                       Изменить
                     </RouterLink>
+                    <button type="button" class="menu-item" @click="onBotCopyExport(b)">
+                      {{ copiedExportBotId === b.id ? 'Скопировано' : 'Копировать данные' }}
+                    </button>
                     <button type="button" class="menu-item menu-item--danger" @click="onBotDelete(b)">
                       Удалить
                     </button>
@@ -392,6 +393,7 @@ import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { accountDisplayLabel } from '../utils/accountLabel';
 import { telegramBotUrl } from '../utils/botLink';
+import { copyBotExportToClipboard } from '../utils/botExport';
 
 const taskStore = useAsyncTaskStore();
 
@@ -508,6 +510,7 @@ const createBlockedReason = computed(() => {
 
 const botSearch = ref('');
 const botStatusFilter = ref('');
+const copiedExportBotId = ref(null);
 
 const filteredBots = computed(() => {
   let list = bots.value;
@@ -515,18 +518,25 @@ const filteredBots = computed(() => {
   if (botStatusFilter.value) {
     list = list.filter((b) => b.status === botStatusFilter.value);
   }
-  if (!q) return list;
-  return list.filter((b) => {
-    const hay = [
-      b.username,
-      b.display_name,
-      b.keyword,
-      String(b.id),
-    ]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase();
-    return hay.includes(q);
+  if (q) {
+    list = list.filter((b) => {
+      const hay = [
+        b.username,
+        b.display_name,
+        b.keyword,
+        String(b.id),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }
+  return [...list].sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    if (tb !== ta) return tb - ta;
+    return (b.id ?? 0) - (a.id ?? 0);
   });
 });
 
@@ -659,6 +669,19 @@ async function onBotStop(b) {
     await loadExtras();
   } catch (err) {
     loadError.value = err.response?.data?.error || 'Ошибка остановки';
+  }
+}
+
+async function onBotCopyExport(b) {
+  try {
+    const full = await botService.get(b.id);
+    await copyBotExportToClipboard(full);
+    copiedExportBotId.value = b.id;
+    setTimeout(() => {
+      if (copiedExportBotId.value === b.id) copiedExportBotId.value = null;
+    }, 2000);
+  } catch (err) {
+    loadError.value = err.response?.data?.error || 'Не удалось скопировать данные бота';
   }
 }
 

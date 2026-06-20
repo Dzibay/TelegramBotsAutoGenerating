@@ -292,18 +292,6 @@ def welcome_button_label(text: str | None) -> str:
 
 
 
-async def record_bot_start(bot_id: int) -> None:
-    """Увеличивает счётчик нажатий /start."""
-    await db.execute(
-        """
-        UPDATE bots
-        SET start_count = start_count + 1, updated_at = NOW()
-        WHERE id = $1
-        """,
-        bot_id,
-    )
-
-
 async def record_click(slug: str) -> dict[str, Any]:
     row = await db.fetch_one(
         """

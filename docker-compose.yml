@@ -8,8 +8,8 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
     ports:
-      # 5433 на хосте — чтобы не конфликтовать с локальным PostgreSQL на 5432
-      - "${DB_HOST_PORT:-5433}:5432"
+      # Только localhost на хосте — НЕ открывайте PostgreSQL в интернет
+      - "127.0.0.1:${DB_HOST_PORT:-5433}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
@@ -142,6 +142,7 @@ services:
     env_file: .env
     environment:
       SKIP_DB_INIT: "1"
+      REDIS_URL: ""
       ENVIRONMENT: production
       DB_HOST: postgres
       DB_PORT: 5432

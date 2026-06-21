@@ -1,6 +1,6 @@
 """Идемпотентные патчи схемы при старте приложения."""
 from app.core.logging import get_logger
-from app.infrastructure.database import repository as db
+from app.infrastructure.database.pool import get_pool
 
 logger = get_logger(__name__)
 
@@ -11,9 +11,9 @@ _JOB_MODE_CHECK = """
 """
 
 
-async def ensure_creation_jobs_job_mode_check() -> None:
+async def _ensure_creation_jobs_job_mode_check(conn) -> None:
     """Разрешает job_mode = manual_multi (мультиаккаунтное создание)."""
-    existing = await db.fetch_val(
+    existing = await conn.fetchval(
         """
         SELECT pg_get_constraintdef(oid)
         FROM pg_constraint
@@ -24,10 +24,10 @@ async def ensure_creation_jobs_job_mode_check() -> None:
     if existing and "manual_multi" in str(existing):
         return
 
-    await db.execute(
+    await conn.execute(
         "ALTER TABLE creation_jobs DROP CONSTRAINT IF EXISTS creation_jobs_job_mode_check"
     )
-    await db.execute(
+    await conn.execute(
         f"""
         ALTER TABLE creation_jobs
         ADD CONSTRAINT creation_jobs_job_mode_check
@@ -38,8 +38,10 @@ async def ensure_creation_jobs_job_mode_check() -> None:
 
 
 async def apply_startup_schema_patches() -> None:
-    await db.execute(f"SELECT pg_advisory_lock({_SCHEMA_PATCH_LOCK_KEY})")
-    try:
-        await ensure_creation_jobs_job_mode_check()
-    finally:
-        await db.execute(f"SELECT pg_advisory_unlock({_SCHEMA_PATCH_LOCK_KEY})")
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(f"SELECT pg_advisory_lock({_SCHEMA_PATCH_LOCK_KEY})")
+        try:
+            await _ensure_creation_jobs_job_mode_check(conn)
+        finally:
+            await conn.execute(f"SELECT pg_advisory_unlock({_SCHEMA_PATCH_LOCK_KEY})")

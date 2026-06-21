@@ -130,18 +130,16 @@ export const TASK_PRESETS = {
     verboseSteps: ['API: DELETE bot', 'DB: CASCADE / soft delete'],
   },
   SYNC_BOTFATHER: {
-    title: 'Обновление профиля бота',
+    title: 'Сохранение бота',
     icon: 'botfather',
-    estimatedSec: 90,
+    estimatedSec: 15,
     steps: [
-      'Подключение к аккаунту…',
-      'Обновление имени…',
-      'Описание и текст «О боте»…',
-      'Загрузка аватара…',
+      'Сохранение в базе…',
+      'Подготовка фоновой синхронизации…',
     ],
     verboseSteps: [
-      'BotFather: /setname, /setdescription, /setabouttext, /setuserpic',
-      'DB: UPDATE bot texts',
+      'API: PATCH /bots/{id} — быстрое сохранение',
+      'BotFather: /setname, /setdescription, /setabouttext — в фоне на сервере',
     ],
   },
   START_CAMPAIGN: {

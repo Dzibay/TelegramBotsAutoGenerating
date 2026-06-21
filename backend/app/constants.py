@@ -34,5 +34,6 @@ class SuccessMessages:
     ACCOUNT_UPLOADED = "Аккаунт загружен"
     BOT_CREATED = "Бот создан"
     BOT_UPDATED = "Бот обновлён"
+    BOT_UPDATED_SYNC_PENDING = "Бот сохранён. Обновление в Telegram выполняется в фоне."
     BOT_DELETED = "Бот удалён"
     SETTINGS_SAVED = "Настройки сохранены"

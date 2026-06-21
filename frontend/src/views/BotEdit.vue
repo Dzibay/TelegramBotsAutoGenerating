@@ -67,6 +67,7 @@
         Перегенерировать аватар через AI
       </label>
 
+      <p v-if="saveNotice" class="success-banner card">{{ saveNotice }}</p>
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <InlineTaskIndicator
         v-if="saving && form.sync_botfather"
@@ -151,6 +152,7 @@ const loading = ref(true);
 const avatarPreviewUrl = ref(null);
 const loadError = ref(null);
 const saveError = ref(null);
+const saveNotice = ref(null);
 const saving = ref(false);
 const acting = ref(false);
 const pendingAvatarFile = ref(null);
@@ -214,14 +216,18 @@ async function load() {
 async function onSave() {
   saving.value = true;
   saveError.value = null;
+  saveNotice.value = null;
   const syncBf = form.value.sync_botfather;
   try {
     const runUpdate = async () => {
+      let forceAvatarSync = false;
       if (pendingAvatarFile.value) {
-        bot.value = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
+        const avatarResult = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
+        bot.value = avatarResult.bot;
         pendingAvatarFile.value = null;
+        forceAvatarSync = syncBf;
       }
-      bot.value = await botService.update(bot.value.id, {
+      const result = await botService.update(bot.value.id, {
         target_url: form.value.target_url,
         link_mode: form.value.link_mode,
         display_name: profile.value.display_name,
@@ -233,10 +239,18 @@ async function onSave() {
         keyword: form.value.keyword,
         sync_botfather: syncBf,
         generate_avatar: form.value.generate_avatar,
+        force_avatar_sync: forceAvatarSync,
       });
+      bot.value = result.bot;
       applyBotToForm(bot.value);
       form.value.sync_botfather = false;
       form.value.generate_avatar = false;
+      if (result.telegramSyncPending) {
+        saveNotice.value = result.message
+          || 'Бот сохранён. Обновление в Telegram выполняется в фоне (1–2 мин).';
+      } else if (!saveNotice.value) {
+        saveNotice.value = result.message || 'Изменения сохранены.';
+      }
     };
     if (syncBf) {
       await taskStore.run('SYNC_BOTFATHER', runUpdate, {

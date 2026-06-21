@@ -1,6 +1,6 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
 
 from app.constants import HTTPStatus, SuccessMessages
@@ -141,9 +141,21 @@ async def create_bot(
 async def update_bot(
     bot_id: int,
     body: BotUpdateRequest,
+    background_tasks: BackgroundTasks,
     _user: dict = Depends(get_current_user),
 ):
-    bot = await bot_service.update_bot(bot_id, **body.model_dump(exclude_unset=True))
+    bot, sync_job = await bot_service.update_bot(bot_id, **body.model_dump(exclude_unset=True))
+    if sync_job:
+        background_tasks.add_task(
+            bot_service.run_botfather_sync,
+            bot_id,
+            generate_avatar=sync_job.get("generate_avatar", False),
+            upload_avatar=sync_job.get("upload_avatar", False),
+        )
+        return success_response(
+            data={"bot": bot, "telegram_sync_pending": True},
+            message=SuccessMessages.BOT_UPDATED_SYNC_PENDING,
+        )
     return success_response(data={"bot": bot}, message=SuccessMessages.BOT_UPDATED)
 
 
@@ -153,13 +165,9 @@ async def upload_bot_avatar(
     avatar: UploadFile = File(...),
     _user: dict = Depends(get_current_user),
 ):
-    from app.core.exceptions import BadRequestError
-
     avatar_bytes = await avatar.read()
-    if len(avatar_bytes) > 5 * 1024 * 1024:
-        raise BadRequestError("Аватар не больше 5 МБ")
-    bot = await bot_service.update_bot(bot_id, avatar_bytes=avatar_bytes, sync_botfather=True)
-    return success_response(data={"bot": bot}, message="Аватар обновлён")
+    bot = await bot_service.save_bot_avatar(bot_id, avatar_bytes)
+    return success_response(data={"bot": bot}, message="Аватар сохранён")
 
 
 @router.delete("/{bot_id}")

@@ -80,6 +80,10 @@ class BotUpdateRequest(BaseModel):
     keyword: Optional[str] = Field(None, max_length=100)
     sync_botfather: bool = Field(False, description="Применить имя, описание, about и аватар в BotFather")
     generate_avatar: bool = Field(False, description="Сгенерировать новый аватар AI при sync")
+    force_avatar_sync: bool = Field(
+        False,
+        description="Загрузить текущий avatar_path в BotFather при sync (после отдельной загрузки файла)",
+    )
 
     @field_validator(
         "display_name",

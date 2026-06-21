@@ -741,9 +741,27 @@ async def create_bots_batch(specs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
+async def save_bot_avatar(bot_id: int, avatar_bytes: bytes) -> dict[str, Any]:
+    """Сохраняет аватар на диск и в БД без обращения к BotFather."""
+    if len(avatar_bytes) > 5 * 1024 * 1024:
+        raise BadRequestError("Аватар не больше 5 МБ")
+    row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
+    if not row or not row.get("username"):
+        raise BadRequestError("У бота нет username для сохранения аватара")
+    path = _save_avatar_file(row["campaign_id"], row["username"], avatar_bytes)
+    row = await db.fetch_one(
+        "UPDATE bots SET avatar_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+        bot_id,
+        str(path),
+    )
+    return _bot_row(row)
+
+
+async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[str, Any] | None]:
     bot = await get_bot(bot_id)
     row_data = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
+    sync_botfather = bool(fields.pop("sync_botfather", False))
+    force_avatar_sync = bool(fields.pop("force_avatar_sync", False))
 
     link_mode = bot_promo_service.normalize_link_mode(
         fields.get("link_mode") if fields.get("link_mode") is not None else row_data.get("link_mode")
@@ -819,8 +837,8 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
     avatar_bytes = fields.pop("avatar_bytes", None)
     generate_avatar = fields.pop("generate_avatar", False)
 
-    if not updates and not fields.get("sync_botfather") and not avatar_bytes and not generate_avatar:
-        return bot
+    if not updates and not sync_botfather and not avatar_bytes and not generate_avatar:
+        return bot, None
 
     row = row_data
     if updates:
@@ -835,61 +853,92 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
         )
 
     if (avatar_bytes or generate_avatar) and row.get("username"):
-        account = await db.fetch_one(
-            "SELECT * FROM telegram_accounts WHERE id = $1",
-            row.get("telegram_account_id"),
-        )
-        if account:
-            client = None
-            try:
-                session_file = (
-                    Config.STORAGE_ROOT
-                    / "sessions"
-                    / str(row["campaign_id"])
-                    / f"{account['id']}.session"
+        if sync_botfather:
+            if avatar_bytes:
+                path = _save_avatar_file(row["campaign_id"], row["username"], avatar_bytes)
+                row = await db.fetch_one(
+                    "UPDATE bots SET avatar_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+                    bot_id,
+                    str(path),
                 )
-                client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
-                pl = bot_promo_service.resolve_public_link(
-                    row.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
-                    row.get("target_url") or "",
-                    row.get("redirect_slug"),
-                )
-                promo = bot_promo_service.build_promo_texts(
-                    public_link=pl,
-                    display_name=row["display_name"],
-                    keyword=row.get("keyword") or "",
-                )
-                path = await _apply_bot_avatar(
-                    client,
-                    row["campaign_id"],
-                    row["username"],
-                    avatar_bytes=avatar_bytes,
-                    generate_avatar=generate_avatar and not avatar_bytes,
-                    avatar_prompt=promo.get("avatar_prompt"),
-                )
-                if path:
-                    row = await db.fetch_one(
-                        "UPDATE bots SET avatar_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
-                        bot_id,
-                        str(path),
+        else:
+            account = await db.fetch_one(
+                "SELECT * FROM telegram_accounts WHERE id = $1",
+                row.get("telegram_account_id"),
+            )
+            if account:
+                client = None
+                try:
+                    session_file = (
+                        Config.STORAGE_ROOT
+                        / "sessions"
+                        / str(row["campaign_id"])
+                        / f"{account['id']}.session"
                     )
-            finally:
-                if client:
-                    await client.disconnect()
+                    client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+                    pl = bot_promo_service.resolve_public_link(
+                        row.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
+                        row.get("target_url") or "",
+                        row.get("redirect_slug"),
+                    )
+                    promo = bot_promo_service.build_promo_texts(
+                        public_link=pl,
+                        display_name=row["display_name"],
+                        keyword=row.get("keyword") or "",
+                    )
+                    path = await _apply_bot_avatar(
+                        client,
+                        row["campaign_id"],
+                        row["username"],
+                        avatar_bytes=avatar_bytes,
+                        generate_avatar=generate_avatar and not avatar_bytes,
+                        avatar_prompt=promo.get("avatar_prompt"),
+                    )
+                    if path:
+                        row = await db.fetch_one(
+                            "UPDATE bots SET avatar_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+                            bot_id,
+                            str(path),
+                        )
+                finally:
+                    if client:
+                        await client.disconnect()
 
-    if fields.get("sync_botfather"):
+    sync_job: dict[str, Any] | None = None
+    if sync_botfather:
         if not row.get("token_encrypted"):
             raise BadRequestError(
                 "Синхронизация с Telegram недоступна: у бота нет токена BotFather"
             )
+        sync_job = {
+            "generate_avatar": generate_avatar,
+            "upload_avatar": bool(avatar_bytes) or force_avatar_sync,
+        }
+
+    return _bot_row(row, include_welcome=True), sync_job
+
+
+async def run_botfather_sync(
+    bot_id: int,
+    *,
+    generate_avatar: bool = False,
+    upload_avatar: bool = False,
+) -> None:
+    """Фоновая синхронизация профиля бота с BotFather (после быстрого сохранения в БД)."""
+    row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
+    if not row or not row.get("token_encrypted"):
+        logger.warning("Skip BotFather sync bot_id=%s: no row or token", bot_id)
+        return
+    try:
         await _sync_botfather_promo(
             bot_id,
             row,
             generate_avatar=generate_avatar,
-            upload_avatar=bool(avatar_bytes),
+            upload_avatar=upload_avatar,
         )
-
-    return _bot_row(row, include_welcome=True)
+        logger.info("BotFather sync completed bot_id=%s @%s", bot_id, row.get("username"))
+    except Exception:
+        logger.exception("BotFather sync failed bot_id=%s @%s", bot_id, row.get("username"))
 
 
 async def _sync_botfather_promo(

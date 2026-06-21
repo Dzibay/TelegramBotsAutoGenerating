@@ -68,9 +68,12 @@ export const botService = {
   },
 
   async update(id, payload) {
-    const timeout = payload?.sync_botfather ? 180000 : 60000;
-    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout });
-    return res.data?.bot;
+    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout: 60000 });
+    return {
+      bot: res.data?.bot,
+      telegramSyncPending: res.data?.telegram_sync_pending === true,
+      message: res.data?.message,
+    };
   },
 
   async uploadAvatar(id, file) {
@@ -78,9 +81,12 @@ export const botService = {
     form.append('avatar', file);
     const res = await apiClient.post(`/bots/${id}/avatar`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
+      timeout: 60000,
     });
-    return res.data?.bot;
+    return {
+      bot: res.data?.bot,
+      message: res.data?.message,
+    };
   },
 
   async remove(id) {

@@ -77,11 +77,14 @@ def _welcome_reply_markup(bot_info: dict):
 
 
 async def _send_welcome(message, bot_info: dict) -> None:
+    from app.domain.services import bot_promo_service
+
     markup = _welcome_reply_markup(bot_info)
-    await message.answer(
-        bot_info["welcome_message"].format(link=bot_info["public_link"]),
-        reply_markup=markup,
+    text = bot_promo_service.apply_link_placeholder(
+        bot_info["welcome_message"],
+        bot_info["public_link"],
     )
+    await message.answer(text, reply_markup=markup)
 
 
 async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
@@ -101,24 +104,30 @@ async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
         await _send_welcome(message, bot_info)
 
     logger.info("Polling bot id=%s @%s", bot_info["id"], bot_info.get("username"))
-    poll_task = asyncio.create_task(dp.start_polling(bot))
-    stop_wait = asyncio.create_task(stop_event.wait())
-    done, pending = await asyncio.wait(
-        {poll_task, stop_wait},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    for t in pending:
-        t.cancel()
-    if poll_task in done and not poll_task.cancelled():
-        exc = poll_task.exception()
-        if exc:
-            raise exc
-    await bot.session.close()
+    try:
+        poll_task = asyncio.create_task(dp.start_polling(bot))
+        stop_wait = asyncio.create_task(stop_event.wait())
+        done, pending = await asyncio.wait(
+            {poll_task, stop_wait},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+        if poll_task in done and not poll_task.cancelled():
+            exc = poll_task.exception()
+            if exc:
+                raise exc
+    except Exception:
+        logger.exception("Polling failed bot id=%s @%s", bot_info["id"], bot_info.get("username"))
+        raise
+    finally:
+        await bot.session.close()
     logger.info("Stopped polling bot id=%s", bot_info["id"])
 
 
 def _bot_runtime_key(bot: dict) -> tuple:
     return (
+        bot.get("token"),
         bot.get("welcome_message"),
         bot.get("public_link"),
         bot.get("welcome_button_enabled"),
@@ -131,18 +140,28 @@ class BotRunnerManager:
         self._tasks: dict[int, asyncio.Task] = {}
         self._stops: dict[int, asyncio.Event] = {}
         self._runtime: dict[int, tuple] = {}
+        self._start_stagger_sec = 0.05
+
+    def _cleanup_bot(self, bid: int) -> None:
+        self._tasks.pop(bid, None)
+        self._stops.pop(bid, None)
+        self._runtime.pop(bid, None)
 
     async def _stop_bot(self, bid: int) -> None:
         if bid not in self._tasks:
             return
-        self._stops[bid].set()
-        task = self._tasks.pop(bid)
-        self._stops.pop(bid, None)
-        self._runtime.pop(bid, None)
-        try:
-            await asyncio.wait_for(task, timeout=10.0)
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            task.cancel()
+        task = self._tasks[bid]
+        if not task.done():
+            self._stops[bid].set()
+            try:
+                await asyncio.wait_for(task, timeout=10.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                task.cancel()
+        elif not task.cancelled():
+            exc = task.exception()
+            if exc:
+                logger.warning("Polling stopped bot id=%s: %s", bid, exc)
+        self._cleanup_bot(bid)
 
     def _start_bot(self, bot: dict) -> None:
         bid = bot["id"]
@@ -160,15 +179,25 @@ class BotRunnerManager:
         active_map = {b["id"]: b for b in active}
 
         for bid in list(self._tasks):
+            task = self._tasks[bid]
             if bid not in active_ids:
+                await self._stop_bot(bid)
+            elif task.done():
                 await self._stop_bot(bid)
             elif self._runtime.get(bid) != _bot_runtime_key(active_map[bid]):
                 await self._stop_bot(bid)
 
+        started = 0
         for bot in active:
             bid = bot["id"]
             if bid not in self._tasks:
+                if started:
+                    await asyncio.sleep(self._start_stagger_sec)
                 self._start_bot(bot)
+                started += 1
+
+        if started:
+            logger.info("Started polling for %s bot(s), total active=%s", started, len(self._tasks))
 
     async def run_forever(self) -> None:
         while True:

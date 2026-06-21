@@ -15,8 +15,8 @@ load_dotenv()
 class Config:
     APP_NAME = os.getenv("APP_NAME", "SeoBot")
 
-    # Вход на сайт — один пароль из env
-    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+    # Вход на сайт — один пароль из env (не путать с REDIS_PASSWORD)
+    ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 
     JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
     JWT_ALGORITHM = "HS256"

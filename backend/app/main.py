@@ -60,7 +60,11 @@ async def startup() -> None:
     await init_pool()
     await apply_startup_schema_patches()
     await init_redis(Config.REDIS_URL)
-    logger.info("API started (env=%s)", os.getenv("ENVIRONMENT", "development"))
+    logger.info(
+        "API started (env=%s, admin_password_len=%d)",
+        os.getenv("ENVIRONMENT", "development"),
+        len(Config.ADMIN_PASSWORD),
+    )
 
 
 @app.on_event("shutdown")

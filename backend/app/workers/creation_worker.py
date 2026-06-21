@@ -15,7 +15,7 @@ from app.config import Config
 from app.core.logging import get_logger, init_logging
 from app.domain.services.creation_pipeline import CreationPipeline
 from app.domain.services import job_log_service, job_service
-from app.infrastructure.cache.redis_client import close_redis, get_redis, init_redis
+from app.infrastructure.cache.redis_client import blocking_pop, close_redis, init_redis
 from app.infrastructure.database.pool import close_pool, init_pool
 
 init_logging()
@@ -109,11 +109,6 @@ async def _run_job_payload(data: dict) -> None:
 
 
 async def worker_loop() -> None:
-    redis = get_redis()
-    if not redis:
-        logger.error("Redis не настроен — worker не может работать")
-        return
-
     logger.info(
         "Worker слушает очередь %s (concurrency=%s)",
         Config.REDIS_JOB_QUEUE,
@@ -122,7 +117,7 @@ async def worker_loop() -> None:
     while True:
         _active_tasks.difference_update({t for t in _active_tasks if t.done()})
 
-        item = await redis.brpop(Config.REDIS_JOB_QUEUE, timeout=5)
+        item = await blocking_pop(Config.REDIS_JOB_QUEUE, timeout=5)
         if not item:
             continue
         _, payload = item

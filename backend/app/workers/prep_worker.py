@@ -15,7 +15,7 @@ from app.config import Config
 from app.core.logging import get_logger, init_logging
 from app.domain.services.prep_pipeline import AccountPrepPipeline
 from app.domain.services import prep_log_service
-from app.infrastructure.cache.redis_client import close_redis, get_redis, init_redis
+from app.infrastructure.cache.redis_client import blocking_pop, close_redis, init_redis
 from app.infrastructure.database.pool import close_pool, init_pool
 
 init_logging()
@@ -49,14 +49,9 @@ async def process_prep_job(payload: dict) -> None:
 
 
 async def worker_loop() -> None:
-    redis = get_redis()
-    if not redis:
-        logger.error("Redis не настроен")
-        return
-
     logger.info("Prep worker слушает %s", Config.REDIS_PREP_QUEUE)
     while True:
-        item = await redis.brpop(Config.REDIS_PREP_QUEUE, timeout=5)
+        item = await blocking_pop(Config.REDIS_PREP_QUEUE, timeout=5)
         if not item:
             continue
         try:

@@ -44,6 +44,70 @@ CREATION_STEP_LABELS = {
     "db_save": "Сохранение",
 }
 
+TELEGRAM_SYNC_IDLE = "idle"
+TELEGRAM_SYNC_PENDING = "pending"
+TELEGRAM_SYNC_SYNCING = "syncing"
+TELEGRAM_SYNC_SYNCED = "synced"
+TELEGRAM_SYNC_FAILED = "failed"
+
+
+async def _set_telegram_sync_status(
+    bot_id: int,
+    status: str,
+    *,
+    error: str | None = None,
+) -> None:
+    if status == TELEGRAM_SYNC_SYNCED:
+        await db.execute(
+            """
+            UPDATE bots
+            SET telegram_sync_status = $2,
+                botfather_error = NULL,
+                telegram_sync_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            bot_id,
+            status,
+        )
+        return
+    if status == TELEGRAM_SYNC_FAILED:
+        await db.execute(
+            """
+            UPDATE bots
+            SET telegram_sync_status = $2,
+                botfather_error = $3,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            bot_id,
+            status,
+            (error or "Ошибка синхронизации с Telegram")[:500],
+        )
+        return
+    if status == TELEGRAM_SYNC_PENDING:
+        await db.execute(
+            """
+            UPDATE bots
+            SET telegram_sync_status = $2,
+                botfather_error = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            bot_id,
+            status,
+        )
+        return
+    await db.execute(
+        """
+        UPDATE bots
+        SET telegram_sync_status = $2, updated_at = NOW()
+        WHERE id = $1
+        """,
+        bot_id,
+        status,
+    )
+
 
 def _wrap_creation_step_error(
     step_id: str,
@@ -120,6 +184,9 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
         ),
         "created_at": _iso(row.get("created_at")),
         "updated_at": _iso(row.get("updated_at")),
+        "telegram_sync_status": row.get("telegram_sync_status") or TELEGRAM_SYNC_IDLE,
+        "telegram_sync_error": row.get("botfather_error"),
+        "telegram_sync_at": _iso(row.get("telegram_sync_at")),
     }
     if include_welcome:
         out["welcome_message"] = row.get("welcome_message")
@@ -679,9 +746,10 @@ async def create_bot(
                 campaign_id, telegram_account_id, keyword, username, display_name,
                 description, about_text, token_encrypted, avatar_path, welcome_message,
                 welcome_button_enabled, welcome_button_text,
-                target_url, link_mode, redirect_slug, status
+                target_url, link_mode, redirect_slug, status,
+                telegram_sync_status, telegram_sync_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
             RETURNING *
             """,
             campaign_id,
@@ -700,6 +768,7 @@ async def create_bot(
             mode,
             slug,
             status,
+            TELEGRAM_SYNC_SYNCED if create_via_botfather and token else TELEGRAM_SYNC_IDLE,
         )
         await db.execute(
             """
@@ -916,6 +985,16 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
             "generate_avatar": generate_avatar,
             "upload_avatar": bool(avatar_bytes) or force_avatar_sync,
         }
+        row = await db.fetch_one(
+            """
+            UPDATE bots
+            SET telegram_sync_status = $2, botfather_error = NULL, updated_at = NOW()
+            WHERE id = $1
+            RETURNING *
+            """,
+            bot_id,
+            TELEGRAM_SYNC_PENDING,
+        )
 
     return _bot_row(row, include_welcome=True), sync_job
 
@@ -930,16 +1009,26 @@ async def run_botfather_sync(
     row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
     if not row or not row.get("token_encrypted"):
         logger.warning("Skip BotFather sync bot_id=%s: no row or token", bot_id)
+        await _set_telegram_sync_status(
+            bot_id,
+            TELEGRAM_SYNC_FAILED,
+            error="У бота нет токена для синхронизации",
+        )
         return
+    await _set_telegram_sync_status(bot_id, TELEGRAM_SYNC_SYNCING)
     try:
+        row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
         await _sync_botfather_promo(
             bot_id,
             row,
             generate_avatar=generate_avatar,
             upload_avatar=upload_avatar,
         )
+        await _set_telegram_sync_status(bot_id, TELEGRAM_SYNC_SYNCED)
         logger.info("BotFather sync completed bot_id=%s @%s", bot_id, row.get("username"))
-    except Exception:
+    except Exception as exc:
+        msg = getattr(exc, "message", None) or str(exc) or "Ошибка синхронизации с Telegram"
+        await _set_telegram_sync_status(bot_id, TELEGRAM_SYNC_FAILED, error=msg)
         logger.exception("BotFather sync failed bot_id=%s @%s", bot_id, row.get("username"))
 
 

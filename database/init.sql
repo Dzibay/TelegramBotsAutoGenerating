@@ -65,6 +65,9 @@ CREATE TABLE IF NOT EXISTS bots (
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'active', 'stopped', 'failed', 'banned')),
     botfather_error TEXT,
+    telegram_sync_status TEXT NOT NULL DEFAULT 'idle'
+        CHECK (telegram_sync_status IN ('idle', 'pending', 'syncing', 'synced', 'failed')),
+    telegram_sync_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

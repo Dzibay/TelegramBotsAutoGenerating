@@ -49,6 +49,7 @@ def _migration_files() -> list[Path]:
         "migrate_job_account_ids.sql",
         "migrate_account_is_banned.sql",
         "migrate_job_mode_manual_multi.sql",
+        "migrate_bot_telegram_sync.sql",
     )
     files: list[Path] = []
     for name in names:

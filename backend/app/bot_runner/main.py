@@ -5,6 +5,7 @@
 """
 import asyncio
 import sys
+import time
 
 from dotenv import load_dotenv
 
@@ -16,6 +17,10 @@ from app.infrastructure.database.pool import close_pool, init_pool
 
 init_logging()
 logger = get_logger(__name__)
+
+# Пауза после stop_polling — Telegram освобождает getUpdates не мгновенно
+POLLING_STOP_GRACE_SEC = 1.5
+RESTART_COOLDOWN_SEC = 3.0
 
 
 async def _load_active_bots() -> list[dict]:
@@ -87,6 +92,19 @@ async def _send_welcome(message, bot_info: dict) -> None:
     await message.answer(text, reply_markup=markup)
 
 
+async def _graceful_stop_polling(dp, poll_task: asyncio.Task) -> None:
+    try:
+        await dp.stop_polling()
+    except Exception as exc:
+        logger.debug("stop_polling: %s", exc)
+    poll_task.cancel()
+    try:
+        await poll_task
+    except asyncio.CancelledError:
+        pass
+    await asyncio.sleep(POLLING_STOP_GRACE_SEC)
+
+
 async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
     from aiogram import Bot, Dispatcher
     from aiogram.filters import CommandStart
@@ -105,22 +123,30 @@ async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
 
     logger.info("Polling bot id=%s @%s", bot_info["id"], bot_info.get("username"))
     try:
-        poll_task = asyncio.create_task(dp.start_polling(bot))
+        await bot.delete_webhook(drop_pending_updates=False)
+        poll_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
         stop_wait = asyncio.create_task(stop_event.wait())
         done, pending = await asyncio.wait(
             {poll_task, stop_wait},
             return_when=asyncio.FIRST_COMPLETED,
         )
-        for t in pending:
-            t.cancel()
-        if poll_task in done and not poll_task.cancelled():
-            exc = poll_task.exception()
-            if exc:
-                raise exc
+        if stop_wait in done:
+            await _graceful_stop_polling(dp, poll_task)
+        else:
+            for t in pending:
+                t.cancel()
+            if poll_task in done and not poll_task.cancelled():
+                exc = poll_task.exception()
+                if exc:
+                    raise exc
     except Exception:
         logger.exception("Polling failed bot id=%s @%s", bot_info["id"], bot_info.get("username"))
         raise
     finally:
+        try:
+            await dp.stop_polling()
+        except Exception:
+            pass
         await bot.session.close()
     logger.info("Stopped polling bot id=%s", bot_info["id"])
 
@@ -140,12 +166,15 @@ class BotRunnerManager:
         self._tasks: dict[int, asyncio.Task] = {}
         self._stops: dict[int, asyncio.Event] = {}
         self._runtime: dict[int, tuple] = {}
+        self._context: dict[int, dict] = {}
+        self._restart_after: dict[int, float] = {}
         self._start_stagger_sec = 0.05
 
     def _cleanup_bot(self, bid: int) -> None:
         self._tasks.pop(bid, None)
         self._stops.pop(bid, None)
         self._runtime.pop(bid, None)
+        self._context.pop(bid, None)
 
     async def _stop_bot(self, bid: int) -> None:
         if bid not in self._tasks:
@@ -154,24 +183,45 @@ class BotRunnerManager:
         if not task.done():
             self._stops[bid].set()
             try:
-                await asyncio.wait_for(task, timeout=10.0)
+                await asyncio.wait_for(task, timeout=15.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
         elif not task.cancelled():
             exc = task.exception()
             if exc:
                 logger.warning("Polling stopped bot id=%s: %s", bid, exc)
+        self._restart_after[bid] = time.monotonic() + RESTART_COOLDOWN_SEC
         self._cleanup_bot(bid)
+
+    def _hot_reload_bot(self, bot: dict) -> None:
+        """Обновить тексты/ссылки без перезапуска getUpdates (избегает TelegramConflictError)."""
+        bid = bot["id"]
+        ctx = self._context.get(bid)
+        if ctx is not None:
+            ctx.clear()
+            ctx.update(bot)
+        self._runtime[bid] = _bot_runtime_key(bot)
+        logger.info("Hot-reload bot id=%s @%s", bid, bot.get("username"))
 
     def _start_bot(self, bot: dict) -> None:
         bid = bot["id"]
+        ctx = dict(bot)
         stop_event = asyncio.Event()
         self._stops[bid] = stop_event
+        self._context[bid] = ctx
         self._runtime[bid] = _bot_runtime_key(bot)
+        self._restart_after.pop(bid, None)
         self._tasks[bid] = asyncio.create_task(
-            run_bot_polling(bot, stop_event),
+            run_bot_polling(ctx, stop_event),
             name=f"bot-{bid}",
         )
+
+    def _can_restart(self, bid: int) -> bool:
+        return time.monotonic() >= self._restart_after.get(bid, 0)
 
     async def sync(self) -> None:
         active = await _load_active_bots()
@@ -185,16 +235,24 @@ class BotRunnerManager:
             elif task.done():
                 await self._stop_bot(bid)
             elif self._runtime.get(bid) != _bot_runtime_key(active_map[bid]):
-                await self._stop_bot(bid)
+                old_key = self._runtime.get(bid)
+                new_key = _bot_runtime_key(active_map[bid])
+                if old_key and old_key[0] == new_key[0]:
+                    self._hot_reload_bot(active_map[bid])
+                else:
+                    await self._stop_bot(bid)
 
         started = 0
         for bot in active:
             bid = bot["id"]
-            if bid not in self._tasks:
-                if started:
-                    await asyncio.sleep(self._start_stagger_sec)
-                self._start_bot(bot)
-                started += 1
+            if bid in self._tasks:
+                continue
+            if not self._can_restart(bid):
+                continue
+            if started:
+                await asyncio.sleep(self._start_stagger_sec)
+            self._start_bot(bot)
+            started += 1
 
         if started:
             logger.info("Started polling for %s bot(s), total active=%s", started, len(self._tasks))

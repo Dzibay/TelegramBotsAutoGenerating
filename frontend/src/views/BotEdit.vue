@@ -24,6 +24,13 @@
 
     <p v-if="justCreated" class="success-banner card">Бот создан. Откройте его в Telegram и отправьте /start.</p>
 
+    <BotTelegramSyncStatus
+      v-if="!(justCreated && (bot.telegram_sync_status || 'idle') === 'synced')"
+      :status="bot.telegram_sync_status || 'idle'"
+      :error="bot.telegram_sync_error || ''"
+      :synced-at="bot.telegram_sync_at || ''"
+    />
+
     <BotTelegramPanel
       :bot="bot"
       :auto-verify="justCreated"
@@ -67,7 +74,7 @@
         Перегенерировать аватар через AI
       </label>
 
-      <p v-if="saveNotice" class="success-banner card">{{ saveNotice }}</p>
+      <p v-if="saveNotice && !isSyncInProgress" class="success-banner card">{{ saveNotice }}</p>
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
       <InlineTaskIndicator
         v-if="saving && form.sync_botfather"
@@ -115,19 +122,21 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import BotAvatar from '../components/BotAvatar.vue';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPanel from '../components/BotTelegramPanel.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
+import BotTelegramSyncStatus from '../components/BotTelegramSyncStatus.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { copyBotExportToClipboard } from '../utils/botExport';
 import { formatApiError } from '../utils/apiErrorMessage';
+import { isTelegramSyncInProgress } from '../utils/telegramSyncStatus';
 
 const taskStore = useAsyncTaskStore();
 
@@ -157,6 +166,11 @@ const saving = ref(false);
 const acting = ref(false);
 const pendingAvatarFile = ref(null);
 const copiedExport = ref(false);
+const syncPollTimer = ref(null);
+
+const isSyncInProgress = computed(() =>
+  isTelegramSyncInProgress(bot.value?.telegram_sync_status)
+);
 
 const form = ref({
   target_url: '',
@@ -206,12 +220,41 @@ async function load() {
   try {
     bot.value = await botService.get(Number(route.params.id));
     applyBotToForm(bot.value);
+    syncSyncPoll();
   } catch (e) {
     loadError.value = formatApiError(e, 'Бот не найден');
   } finally {
     loading.value = false;
   }
 }
+
+async function refreshBotStatus() {
+  if (!bot.value?.id) return;
+  try {
+    bot.value = await botService.get(bot.value.id);
+  } catch {
+    /* polling — не мешаем редактированию */
+  }
+}
+
+function stopSyncPoll() {
+  if (syncPollTimer.value) {
+    clearInterval(syncPollTimer.value);
+    syncPollTimer.value = null;
+  }
+}
+
+function syncSyncPoll() {
+  stopSyncPoll();
+  if (isTelegramSyncInProgress(bot.value?.telegram_sync_status)) {
+    syncPollTimer.value = setInterval(refreshBotStatus, 3000);
+  }
+}
+
+watch(
+  () => bot.value?.telegram_sync_status,
+  () => syncSyncPoll()
+);
 
 async function onSave() {
   saving.value = true;
@@ -245,11 +288,13 @@ async function onSave() {
       applyBotToForm(bot.value);
       form.value.sync_botfather = false;
       form.value.generate_avatar = false;
-      if (result.telegramSyncPending) {
-        saveNotice.value = result.message
-          || 'Бот сохранён. Обновление в Telegram выполняется в фоне (1–2 мин).';
-      } else if (!saveNotice.value) {
-        saveNotice.value = result.message || 'Изменения сохранены.';
+      if (isTelegramSyncInProgress(bot.value.telegram_sync_status)) {
+        saveNotice.value = null;
+        syncSyncPoll();
+      } else if (result.message) {
+        saveNotice.value = result.message;
+      } else {
+        saveNotice.value = 'Изменения сохранены.';
       }
     };
     if (syncBf) {
@@ -324,6 +369,7 @@ async function onDelete() {
 }
 
 onMounted(load);
+onUnmounted(stopSyncPoll);
 </script>
 
 <style scoped>

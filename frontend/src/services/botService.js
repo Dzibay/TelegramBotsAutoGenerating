@@ -1,4 +1,5 @@
 import apiClient from '../utils/apiClient';
+import { isTelegramSyncInProgress } from '../utils/telegramSyncStatus';
 
 export const botService = {
   async listGrouped() {
@@ -79,7 +80,8 @@ export const botService = {
     }
     return {
       bot: res.data.bot,
-      telegramSyncPending: res.data.telegram_sync_pending === true,
+      telegramSyncPending: isTelegramSyncInProgress(res.data.bot?.telegram_sync_status)
+        || res.data.telegram_sync_pending === true,
       message: res.data.message,
     };
   },

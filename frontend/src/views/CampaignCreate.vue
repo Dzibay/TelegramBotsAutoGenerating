@@ -41,6 +41,11 @@
       </details>
 
       <p v-if="submitError" class="error-text">{{ submitError }}</p>
+      <OperationStatus
+        v-if="submitting"
+        :message="taskStore.serverProgressMessage"
+        :status="taskStore.serverJobStatus"
+      />
       <InlineTaskIndicator
         v-if="submitting"
         :fallback-label="selectedPreparedIds.length ? 'Создаём кампанию и проверяем аккаунты…' : 'Создаём кампанию…'"
@@ -57,6 +62,7 @@ import { formatApiError } from '../utils/apiErrorMessage.js';
 import { ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
+import OperationStatus from '../components/OperationStatus.vue';
 import PreparedAccountPicker from '../components/PreparedAccountPicker.vue';
 import { campaignService } from '../services/campaignService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
@@ -83,19 +89,29 @@ async function onSubmit() {
 
     const data = await taskStore.run(
       hasAccounts ? 'CREATE_CAMPAIGN_FULL' : 'CREATE_CAMPAIGN',
-      async ({ logStep }) => {
+      async ({ logStep, setServerProgress }) => {
         if (hasAccounts) {
           logStep('POST create-full', 'debug', { accounts: selectedPreparedIds.value.length });
+          setServerProgress('Создаём кампанию и добавляем аккаунты…', 'running');
           const res = await campaignService.createFull({
             payload,
             preparedAccountIds: selectedPreparedIds.value,
             autoStart: false,
           });
-          logStep(`Кампания #${res.campaign?.id} создана`, 'success', res.verify_summary);
+          const summary = res.verify_summary;
+          if (summary) {
+            setServerProgress(
+              `Проверено: ${summary.verified ?? 0}/${summary.total ?? selectedPreparedIds.value.length}`,
+              'completed'
+            );
+          }
+          logStep(`Кампания #${res.campaign?.id} создана`, 'success', summary);
           return res;
         }
         logStep('POST /campaigns', 'debug');
+        setServerProgress('Создаём кампанию…', 'running');
         const campaign = await campaignService.create(payload);
+        setServerProgress('Кампания создана', 'completed');
         logStep(`Кампания #${campaign?.id} создана`, 'success');
         return { campaign };
       },

@@ -55,6 +55,12 @@ def get_redis() -> Optional[redis.Redis]:
 
 async def blocking_pop(queue: str, timeout: int = 5) -> tuple[str, str] | None:
     """BRPOP с автоматическим переподключением при обрыве соединения."""
+    result = await blocking_pop_any([queue], timeout=timeout)
+    return result
+
+
+async def blocking_pop_any(queues: list[str], timeout: int = 5) -> tuple[str, str] | None:
+    """BRPOP из первой непустой очереди. Возвращает (queue_name, payload)."""
     while True:
         client = get_redis()
         if not client:
@@ -62,7 +68,11 @@ async def blocking_pop(queue: str, timeout: int = 5) -> tuple[str, str] | None:
             await asyncio.sleep(5)
             continue
         try:
-            return await client.brpop(queue, timeout=timeout)
+            result = await client.brpop(queues, timeout=timeout)
+            if not result:
+                return None
+            queue_name, payload = result
+            return queue_name, payload
         except (redis.ConnectionError, redis.TimeoutError, OSError) as exc:
             logger.warning("Redis BRPOP failed (%s), reconnecting…", exc)
             await reconnect_redis()

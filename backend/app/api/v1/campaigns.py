@@ -2,9 +2,11 @@ import json
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi.responses import JSONResponse
 
 from app.constants import HTTPStatus, SuccessMessages
-from app.core.dependencies import get_current_user
+from app.core.dependencies import begin_idempotent_request, get_current_user
+from app.core.idempotency import IdempotencyContext, complete_idempotent, fail_idempotent
 from app.core.exceptions import BadRequestError
 from app.domain.models.bot_models import CampaignUpdateRequest
 from app.domain.models.campaign_models import (
@@ -23,6 +25,14 @@ _PREP_ONLY_MSG = (
 )
 
 router = APIRouter(prefix="/campaigns", tags=["campaigns"])
+
+
+def _idempotent_json(ctx: IdempotencyContext, response: JSONResponse) -> JSONResponse:
+    if ctx.replay:
+        body = ctx.replay.get("body") or ctx.replay
+        status = int(ctx.replay.get("status_code") or 200)
+        return JSONResponse(content=body, status_code=status)
+    return response
 
 
 @router.get("")
@@ -314,13 +324,22 @@ async def remove_account(
 async def start_campaign(
     campaign_id: int,
     body: StartCreationJobRequest | None = None,
+    idem: IdempotencyContext = Depends(begin_idempotent_request),
     _user: dict = Depends(get_current_user),
 ):
+    if idem.replay:
+        return _idempotent_json(idem, JSONResponse(content={}))
     plans = None
     if body and body.plans:
         plans = [p.model_dump() for p in body.plans]
-    job = await job_service.start_creation_job(campaign_id, plans=plans)
-    return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
+    try:
+        job = await job_service.start_creation_job(campaign_id, plans=plans)
+        payload = success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
+        await complete_idempotent(idem, {"status_code": 200, "body": payload})
+        return payload
+    except Exception:
+        await fail_idempotent(idem)
+        raise
 
 
 @router.get("/{campaign_id}/jobs")
@@ -342,8 +361,11 @@ async def list_campaign_jobs(
 async def start_manual_bulk(
     campaign_id: int,
     request: Request,
+    idem: IdempotencyContext = Depends(begin_idempotent_request),
     _user: dict = Depends(get_current_user),
 ):
+    if idem.replay:
+        return _idempotent_json(idem, JSONResponse(content={}))
     form = await request.form()
     raw = form.get("data")
     if not raw:
@@ -365,9 +387,15 @@ async def start_manual_bulk(
             raise BadRequestError(f"Аватар в строке {row_id} больше 5 МБ")
         if raw_bytes:
             avatars[row_id] = raw_bytes
-    job = await job_service.start_manual_creation_job(
-        campaign_id,
-        body=body,
-        avatars=avatars,
-    )
-    return success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
+    try:
+        job = await job_service.start_manual_creation_job(
+            campaign_id,
+            body=body,
+            avatars=avatars,
+        )
+        payload = success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
+        await complete_idempotent(idem, {"status_code": 200, "body": payload})
+        return payload
+    except Exception:
+        await fail_idempotent(idem)
+        raise

@@ -11,6 +11,9 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
     elapsedSec: 0,
     runtimeLogs: [],
     lastRuntimeLogs: [],
+    serverProgressMessage: '',
+    serverJobStatus: '',
+    useServerProgress: false,
     _elapsedTimer: null,
     _stepTimer: null,
   }),
@@ -21,6 +24,9 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
     },
 
     currentStep(state) {
+      if (state.useServerProgress && state.serverProgressMessage) {
+        return state.serverProgressMessage;
+      }
       if (!state.active) return '';
       const steps = state.active.steps;
       if (!steps?.length) return state.active.hint || '';
@@ -29,6 +35,17 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
 
     progressPercent(state) {
       if (!state.active) return 0;
+      if (state.useServerProgress) {
+        if (state.serverJobStatus === 'completed') return 100;
+        if (state.serverJobStatus === 'failed' || state.serverJobStatus === 'cancelled') return 100;
+        if (state.serverJobStatus === 'running') {
+          return Math.min(90, 20 + state.elapsedSec * 2);
+        }
+        if (state.serverJobStatus === 'queued') return 12;
+        if (state.serverJobStatus === 'syncing' || state.serverJobStatus === 'pending') {
+          return Math.min(88, 15 + state.elapsedSec * 2);
+        }
+      }
       const est = state.active.estimatedSec || 45;
       const ratio = state.elapsedSec / est;
       return Math.min(92, Math.round(ratio * 92));
@@ -43,7 +60,6 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
       return '';
     },
 
-    /** Логи текущей или последней синхронной операции. */
     visibleRuntimeLogs(state) {
       if (state.active && state.runtimeLogs.length) return state.runtimeLogs;
       return state.lastRuntimeLogs;
@@ -51,6 +67,18 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
   },
 
   actions: {
+    setServerProgress(message, status = '') {
+      this.serverProgressMessage = message || '';
+      this.serverJobStatus = status || '';
+      this.useServerProgress = !!(message || status);
+    },
+
+    clearServerProgress() {
+      this.serverProgressMessage = '';
+      this.serverJobStatus = '';
+      this.useServerProgress = false;
+    },
+
     logStep(message, level = 'info', detail = null) {
       const entry = {
         id: `client-${++logSeq}`,
@@ -74,6 +102,7 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
 
       const uiPrefs = useUiPrefsStore();
       this.runtimeLogs = [];
+      this.clearServerProgress();
       this._start({ ...preset, presetKey, context });
 
       const logStep = (message, level = 'info', detail = null) =>
@@ -89,7 +118,7 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
       logStep(`▶ ${preset.title}`, 'info', context);
 
       try {
-        const result = await fn({ logStep });
+        const result = await fn({ logStep, setServerProgress: (msg, st) => this.setServerProgress(msg, st) });
         logStep('✓ Готово', 'success');
         return result;
       } catch (err) {
@@ -99,6 +128,7 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
       } finally {
         this._finishProgress();
         this.lastRuntimeLogs = [...this.runtimeLogs];
+        this.clearServerProgress();
         this._stop();
       }
     },
@@ -117,9 +147,9 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
           this.elapsedSec = Math.floor((Date.now() - this.active.startedAt) / 1000);
         }
       }, 400);
-      if (task.steps?.length > 1) {
+      if (task.steps?.length > 1 && !this.useServerProgress) {
         this._stepTimer = setInterval(() => {
-          if (this.active && !this.active.done) {
+          if (this.active && !this.active.done && !this.useServerProgress) {
             this.active = {
               ...this.active,
               stepIndex: (this.active.stepIndex + 1) % task.steps.length,

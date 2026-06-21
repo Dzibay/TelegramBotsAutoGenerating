@@ -270,14 +270,59 @@ async def main() -> None:
     Config.validate()
     await init_pool()
     from app.infrastructure.database.schema_patches import apply_startup_schema_patches
+    from app.infrastructure.cache.redis_client import close_redis, get_redis, init_redis
+    from app.domain.services import maintenance_service
 
     await apply_startup_schema_patches()
+    await init_redis(Config.REDIS_URL)
     manager = BotRunnerManager()
+    stop = asyncio.Event()
+
+    async def _reload_listener() -> None:
+        redis = get_redis()
+        if not redis:
+            return
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(Config.REDIS_BOT_RUNNER_RELOAD_CHANNEL)
+        try:
+            while not stop.is_set():
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
+                if msg and msg.get("type") == "message":
+                    logger.info("Bot runner reload signal: %s", msg.get("data"))
+                    try:
+                        await manager.sync()
+                    except Exception as exc:
+                        logger.exception("Instant sync failed: %s", exc)
+        finally:
+            try:
+                await pubsub.unsubscribe(Config.REDIS_BOT_RUNNER_RELOAD_CHANNEL)
+                await pubsub.close()
+            except Exception:
+                pass
+
+    async def _maintenance_loop() -> None:
+        while not stop.is_set():
+            try:
+                await maintenance_service.run_maintenance_cycle()
+            except Exception as exc:
+                logger.exception("Maintenance failed: %s", exc)
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=120)
+            except asyncio.TimeoutError:
+                pass
+
+    listener_task = asyncio.create_task(_reload_listener())
+    maint_task = asyncio.create_task(_maintenance_loop())
     logger.info("Bot runner started (reload every %ss)", Config.BOT_RUNNER_RELOAD_INTERVAL_SEC)
     try:
         await manager.run_forever()
     finally:
+        stop.set()
+        listener_task.cancel()
+        maint_task.cancel()
+        await asyncio.gather(listener_task, maint_task, return_exceptions=True)
         await close_pool()
+        await close_redis()
 
 
 if __name__ == "__main__":

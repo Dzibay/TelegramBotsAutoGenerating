@@ -8,6 +8,17 @@ function getApiBaseUrl() {
   return '/api/v1';
 }
 
+function newIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `idem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+export { newIdempotencyKey };
+
+const MUTATING = new Set(['post', 'put', 'patch', 'delete']);
+
 const apiClient = axios.create({
   baseURL: getApiBaseUrl(),
   headers: { 'Content-Type': 'application/json' },
@@ -18,6 +29,10 @@ apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  const method = (config.method || 'get').toLowerCase();
+  if (MUTATING.has(method) && !config.headers['Idempotency-Key']) {
+    config.headers['Idempotency-Key'] = newIdempotencyKey();
   }
   return config;
 });

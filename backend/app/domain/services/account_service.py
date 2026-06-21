@@ -5,6 +5,7 @@ from app.config import Config
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.core.logging import get_logger
 from app.domain.services import campaign_service
+from app.domain.services.account_session_service import account_lock, acquire_cached_client
 from app.infrastructure.database import repository as db
 
 logger = get_logger(__name__)
@@ -135,6 +136,11 @@ async def _load_account_client(campaign_id: int, account_id: int, account: dict[
     return await load_client_from_tdata(Path(account["tdata_path"]), session_file)
 
 
+async def _use_account_client(campaign_id: int, account_id: int, account: dict[str, Any]):
+    """Загрузить клиент через кэш (caller holds account_lock or uses async with account_lock)."""
+    return await acquire_cached_client(campaign_id, account_id, account)
+
+
 async def sync_bots_created_count(account_id: int, telegram_bots_count: int) -> None:
     """Синхронизирует счётчик ботов с фактическим числом в Telegram."""
     await db.execute(
@@ -166,12 +172,12 @@ async def list_account_bots(campaign_id: int, account_id: int) -> dict[str, Any]
     account = await _get_campaign_account(campaign_id, account_id)
 
     client = None
-    try:
-        client, _ = await _load_account_client(campaign_id, account_id, account)
-        telegram_usernames = await list_bots_via_botfather(client)
-    finally:
-        if client:
-            await client.disconnect()
+    async with account_lock(account_id):
+        try:
+            client, _ = await _use_account_client(campaign_id, account_id, account)
+            telegram_usernames = await list_bots_via_botfather(client)
+        finally:
+            pass
 
     db_rows = await db.fetch_all(
         """
@@ -256,13 +262,13 @@ async def delete_account_bot(
     )
 
     client = None
-    try:
-        client, _ = await _load_account_client(campaign_id, account_id, account)
-        await delete_bot_via_botfather(client, uname)
-        remaining = await list_bots_via_botfather(client)
-    finally:
-        if client:
-            await client.disconnect()
+    async with account_lock(account_id):
+        try:
+            client, _ = await _use_account_client(campaign_id, account_id, account)
+            await delete_bot_via_botfather(client, uname)
+            remaining = await list_bots_via_botfather(client)
+        finally:
+            pass
 
     if db_row:
         await db.execute("DELETE FROM bots WHERE id = $1", db_row["id"])

@@ -356,6 +356,11 @@
         </div>
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
+        <OperationStatus
+          v-if="startingJob || creating"
+          :message="taskStore.serverProgressMessage"
+          :status="taskStore.serverJobStatus"
+        />
         <p v-if="creationSummary" class="summary-text">{{ creationSummary }}</p>
 
         <div class="wizard-nav">
@@ -563,6 +568,11 @@
       </div>
 
       <p v-if="submitError" class="error-text">{{ submitError }}</p>
+      <OperationStatus
+        v-if="creating"
+        :message="taskStore.serverProgressMessage"
+        :status="taskStore.serverJobStatus"
+      />
       <div class="submit-bar">
         <button
           type="button"
@@ -579,6 +589,7 @@
 
 <script setup>
 import { formatApiError } from '../utils/apiErrorMessage.js';
+import { pollCreationJob } from '../utils/serverTaskProgress';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
@@ -587,6 +598,7 @@ import BulkCreationQueue from '../components/BulkCreationQueue.vue';
 import BulkLinkSourceField from '../components/BulkLinkSourceField.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
+import OperationStatus from '../components/OperationStatus.vue';
 import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService, jobService } from '../services/campaignService';
@@ -1573,35 +1585,82 @@ function buildAiCreateSpec(row) {
 
 async function createAllAi() {
   if (!canCreateAi.value) return;
+  const rowsToCreate = rowsWithDraft.value;
+  if (!rowsToCreate.length) return;
+
   creating.value = true;
   submitError.value = null;
-  const specs = rowsWithDraft.value.map(buildAiCreateSpec);
-  let done = 0;
+  creationFinished.value = false;
+  creationSummary.value = '';
+  creationLogs.value = [];
+  lastLogId.value = 0;
+  floodWaitRemaining.value = 0;
+
+  const primaryAcc =
+    rowsToCreate.find((r) => r.accountId)?.accountId || accountId.value;
+
+  const form = new FormData();
+  form.append(
+    'data',
+    JSON.stringify({
+      multi_account: isMultiAccountMode.value,
+      telegram_account_id: isMultiAccountMode.value ? null : primaryAcc,
+      default_target_url: linkSource.value === LINK_SOURCE.PER_BOT ? '' : sharedBatchUrl.value,
+      link_mode: resolvedLinkMode.value,
+      auto_start: autoStart.value,
+      link_source: linkSource.value,
+      use_referral_api: useReferralLinks.value,
+      shared_texts: {
+        description:
+          sharedTexts.value.description?.trim() ||
+          rowsToCreate[0].draft?.description ||
+          'Описание',
+        welcome_message:
+          sharedTexts.value.welcome_message?.trim() ||
+          rowsToCreate[0].draft?.welcome_message ||
+          'Привет!',
+        about_text:
+          sharedTexts.value.about_text?.trim() ||
+          rowsToCreate[0].draft?.about_text ||
+          '',
+        welcome_button_enabled: sharedTexts.value.welcome_button_enabled !== false,
+        welcome_button_text: sharedTexts.value.welcome_button_text || 'Перейти по ссылке',
+      },
+      bots: rowsToCreate.map((r) => ({
+        row_id: r.id,
+        display_name: r.draft.display_name.trim(),
+        username: r.draft.username.replace(/^@/, '').trim(),
+        target_url:
+          linkSource.value === LINK_SOURCE.PER_BOT
+            ? r.draft.target_url || r.targetUrl || null
+            : null,
+        description: r.draft.description || undefined,
+        about_text: r.draft.about_text || undefined,
+        welcome_message: r.draft.welcome_message || undefined,
+        generate_avatar: true,
+      })),
+    })
+  );
+
   try {
-    for (const row of rowsWithDraft.value) {
-      done += 1;
-      createProgress.value = `${done}/${rowsWithDraft.value.length}`;
-      const spec = buildAiCreateSpec(row);
-      try {
-        await taskStore.run(
-          'CREATE_BOT',
-          async ({ logStep }) => {
-            logStep(`[${done}/${rowsWithDraft.value.length}] @${spec.username}`, 'info');
-            try {
-              const b = await botService.create(spec);
-              logStep(`@${spec.username} OK`, 'success', { id: b.id });
-              return b;
-            } catch (e) {
-              logStep(`@${spec.username}: ${formatApiError(e, 'Ошибка')}`, 'error');
-              throw e;
-            }
-          },
-          { username: spec.username }
-        );
-      } catch (e) {
-        row.error = formatApiError(e, 'Ошибка');
-      }
-    }
+    await taskStore.run(
+      'CREATE_BOTS_BATCH',
+      async ({ logStep, setServerProgress }) => {
+        logStep(`Постановка в очередь: ${rowsToCreate.length} бот(ов)…`, 'info');
+        const job = await campaignService.startManualBulk(campaignId.value, form);
+        activeJob.value = job;
+        saveJobSnapshot(job.id);
+        startJobPolling();
+        await pollCreationJob(job.id, {
+          logStep,
+          onProgress: (msg, st) => setServerProgress(msg, st),
+        });
+        await pollJob();
+        await activeJobsPanelRef.value?.loadJobs?.();
+        return job;
+      },
+      { count: rowsToCreate.length }
+    );
     router.push({
       name: 'campaign-workspace',
       params: { id: campaignId.value },

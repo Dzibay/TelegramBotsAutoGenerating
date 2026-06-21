@@ -16,6 +16,11 @@ from app.domain.services import (
     referral_link_service,
     username_service,
 )
+from app.domain.services.account_session_service import (
+    account_lock,
+    acquire_cached_client,
+    release_cached_session,
+)
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.botfather_client import (
@@ -129,12 +134,14 @@ class CreationPipeline:
         plans: list[dict[str, Any]] | None = None,
         manual_plans: list[dict[str, Any]] | None = None,
         manual_multi: bool = False,
+        batch_specs: list[dict[str, Any]] | None = None,
     ):
         self.job_id = job_id
         self.campaign_id = campaign_id
         self.plans = plans or []
         self.manual_plans = manual_plans or []
         self.manual_multi = manual_multi
+        self.batch_specs = batch_specs or []
         self.ai = AIService()
         self._row_results: list[dict[str, Any]] = []
 
@@ -324,6 +331,10 @@ class CreationPipeline:
         if not campaign:
             raise ValueError("Кампания не найдена")
 
+        if self.batch_specs:
+            await self._run_batch_create(campaign)
+            return
+
         if self.manual_plans:
             if self.manual_multi:
                 await self._run_manual_multi(campaign)
@@ -389,6 +400,193 @@ class CreationPipeline:
 
         await self._finish_job(total_created, cancelled=await self._is_cancelled())
 
+    async def run_single(self, spec: dict[str, Any], *, avatar_path: str | None = None) -> None:
+        """Создание одного бота (job_mode=single)."""
+        from app.domain.services import job_service
+
+        uname = (spec.get("username") or "?").lstrip("@")
+        account_id = int(spec["telegram_account_id"])
+        label = f"Аккаунт #{account_id}"
+        await self.log(f"Один бот: @{uname}", progress="Старт")
+        await self._wait_account_flood(account_id, label)
+        await db.execute(
+            "UPDATE telegram_accounts SET status = 'creating', updated_at = NOW() WHERE id = $1",
+            account_id,
+        )
+
+        avatar_bytes = None
+        if avatar_path:
+            path = Path(avatar_path)
+            if path.is_file():
+                avatar_bytes = path.read_bytes()
+
+        async def on_step(msg: str, step_id: str = "") -> None:
+            await self.log(msg, progress=msg[:120], context={"step": step_id} if step_id else None)
+
+        try:
+            bot = await bot_service.create_bot(
+                    campaign_id=self.campaign_id,
+                    telegram_account_id=account_id,
+                    target_url=spec["target_url"],
+                    display_name=spec["display_name"],
+                    username=spec["username"],
+                    description=spec.get("description") or "",
+                    welcome_message=spec.get("welcome_message") or "",
+                    about_text=spec.get("about_text") or "",
+                    welcome_button_enabled=spec.get("welcome_button_enabled", True),
+                    welcome_button_text=spec.get(
+                        "welcome_button_text", bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT
+                    ),
+                    keyword=spec.get("keyword"),
+                    redirect_slug=spec.get("redirect_slug"),
+                    link_mode=spec.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
+                    create_via_botfather=spec.get("create_via_botfather", True),
+                    auto_start=spec.get("auto_start", False),
+                    avatar_bytes=avatar_bytes,
+                    generate_avatar=bool(spec.get("generate_avatar", True)) and not avatar_bytes,
+                    use_referral_api=spec.get("use_referral_api"),
+                    on_step=on_step,
+                )
+            self._record_row_result(spec, 0, "done", bot_id=bot.get("id"))
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET total_bots_created = 1, processed_accounts = 1, updated_at = NOW()
+                WHERE id = $1
+                """,
+                self.job_id,
+            )
+            await self.log(
+                f"Бот #{bot['id']} @{bot.get('username')} создан",
+                level="success",
+                progress="Готово",
+                context={"bot_id": bot.get("id"), "username": bot.get("username"), "status": "done"},
+            )
+            await job_history_service.save_result_snapshot(
+                self.job_id,
+                row_results=self._row_results,
+                total_created=1,
+                finished_status="completed",
+            )
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET status = 'completed',
+                    finished_at = NOW(),
+                    progress_message = $2,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                self.job_id,
+                f"Готово: @{bot.get('username')}",
+            )
+            await job_service.sync_campaign_status(self.campaign_id)
+        except Exception as exc:
+            self._record_row_result(spec, 0, "error", error=str(exc)[:300])
+            await job_history_service.save_result_snapshot(
+                self.job_id,
+                row_results=self._row_results,
+                total_created=0,
+                finished_status="failed",
+                error_message=str(exc)[:500],
+            )
+            raise
+        finally:
+            acc = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
+            acc_status = "ready"
+            if acc and int(acc["bots_created"]) >= int(acc["max_bots_limit"]):
+                acc_status = "exhausted"
+            await db.execute(
+                "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
+                account_id,
+                acc_status,
+            )
+            if avatar_path:
+                try:
+                    Path(avatar_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            await release_cached_session(self.campaign_id, account_id, force_disconnect=True)
+
+    async def _run_batch_create(self, campaign: dict) -> None:
+        """Пакетное создание из POST /bots/batch-create (каждый spec — свой аккаунт)."""
+        specs = self.batch_specs
+        total = len(specs)
+        created_count = 0
+        await self.log(f"Пакетное создание: {total} бот(ов)", progress=f"0/{total}")
+
+        for idx, spec in enumerate(specs):
+            if await self._is_cancelled():
+                await self.log("Создание остановлено пользователем", level="warn")
+                break
+
+            uname = (spec.get("username") or "?").lstrip("@")
+            account_id = int(spec["telegram_account_id"])
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET processed_accounts = $2, updated_at = NOW()
+                WHERE id = $1
+                """,
+                self.job_id,
+                idx + 1,
+            )
+            await self.log(
+                f"[{idx + 1}/{total}] @{uname} — старт",
+                progress=f"{idx}/{total}: @{uname}",
+            )
+
+            async def on_step(msg: str, step_id: str = "") -> None:
+                await self.log(msg, context={"step": step_id or None, "username": uname})
+
+            try:
+                bot = await bot_service.create_bot(
+                    campaign_id=self.campaign_id,
+                    telegram_account_id=account_id,
+                    target_url=spec["target_url"],
+                    display_name=spec["display_name"],
+                    username=spec["username"],
+                    description=spec.get("description") or "",
+                    welcome_message=spec.get("welcome_message") or "",
+                    about_text=spec.get("about_text") or "",
+                    welcome_button_enabled=spec.get("welcome_button_enabled", True),
+                    welcome_button_text=spec.get(
+                        "welcome_button_text", bot_promo_service.WELCOME_BUTTON_TEXT_DEFAULT
+                    ),
+                    keyword=spec.get("keyword"),
+                    redirect_slug=spec.get("redirect_slug"),
+                    link_mode=spec.get("link_mode") or bot_promo_service.LINK_MODE_REDIRECT,
+                    create_via_botfather=spec.get("create_via_botfather", True),
+                    auto_start=spec.get("auto_start", False),
+                    generate_avatar=bool(spec.get("generate_avatar", True)),
+                    use_referral_api=spec.get("use_referral_api"),
+                    on_step=on_step,
+                )
+                created_count += 1
+                self._record_row_result(spec, idx, "done", bot_id=bot.get("id"))
+                await self.log(
+                    f"[{idx + 1}/{total}] @{uname} — готово (#{bot.get('id')})",
+                    level="success",
+                    progress=f"{idx + 1}/{total}",
+                )
+            except Exception as exc:
+                err = str(exc)[:300]
+                self._record_row_result(spec, idx, "error", error=err)
+                await self.log(f"[{idx + 1}/{total}] @{uname} — {err}", level="error")
+                if _should_stop_batch_on_error(exc):
+                    await self.log("Остановка партии из-за ограничения Telegram", level="error")
+                    break
+
+            if idx + 1 < total:
+                if await self._pace_between_bots(idx + 1, total, account_id=account_id):
+                    break
+
+        await self.log(
+            f"Пакет: создано {created_count} из {total}",
+            progress=f"{created_count}/{total}",
+        )
+        await self._finish_job(created_count, cancelled=await self._is_cancelled())
+
     async def _run_manual(self, campaign: dict) -> None:
         total = len(self.manual_plans)
         if not total:
@@ -436,18 +634,18 @@ class CreationPipeline:
         created_count = 0
         processed = 0
         session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
+
         client = None
-
-        try:
-            client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
-            await self.log(
-                f"Telethon session loaded for account #{account_id}",
-                level="debug",
-                context={"account_id": account_id, "plans": len(plans)},
-            )
-
-            flood_ctx = account_flood_service.set_flood_account_context(account_id)
+        flood_ctx = None
+        async with account_lock(account_id):
             try:
+                client, _ = await acquire_cached_client(self.campaign_id, account_id, account)
+                await self.log(
+                    f"Сессия Telethon загружена ({label})",
+                    level="debug",
+                )
+
+                flood_ctx = account_flood_service.set_flood_account_context(account_id)
                 for idx, plan in enumerate(plans):
                     if await self._is_cancelled():
                         await self.log("Создание остановлено пользователем", level="warn")
@@ -563,10 +761,9 @@ class CreationPipeline:
                             await self._mark_remaining_skipped(plans, idx + 1)
                             break
             finally:
-                account_flood_service.reset_flood_account_context(flood_ctx)
-        finally:
-            if client:
-                await client.disconnect()
+                if flood_ctx is not None:
+                    account_flood_service.reset_flood_account_context(flood_ctx)
+                await release_cached_session(self.campaign_id, account_id, force_disconnect=True)
 
         acc = await db.fetch_one("SELECT * FROM telegram_accounts WHERE id = $1", account_id)
         acc_status = "ready"
@@ -669,15 +866,17 @@ class CreationPipeline:
     ) -> Any:
         if account_id in clients:
             return clients[account_id]
-        session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
-        client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
-        clients[account_id] = client
-        await self.log(
-            f"Telethon: сессия загружена для {self._account_label(account)}",
-            level="debug",
-            context={"account_id": account_id},
-        )
-        return client
+        async with account_lock(account_id):
+            if account_id in clients:
+                return clients[account_id]
+            session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
+            client, _ = await acquire_cached_client(self.campaign_id, account_id, account)
+            clients[account_id] = client
+            await self.log(
+                f"Telethon: сессия загружена для {self._account_label(account)}",
+                level="debug",
+            )
+            return client
 
     async def _pick_multi_account(
         self,
@@ -738,7 +937,7 @@ class CreationPipeline:
             create_via_botfather=True,
             auto_start=bool(plan.get("auto_start", True)),
             avatar_bytes=avatar_bytes,
-            generate_avatar=False,
+            generate_avatar=bool(plan.get("generate_avatar")) and not avatar_bytes,
             telethon_client=client,
             use_referral_api=plan.get("use_referral_api"),
             on_step=lambda msg, step: self.log(
@@ -1168,11 +1367,8 @@ class CreationPipeline:
         finally:
             for token in flood_contexts.values():
                 account_flood_service.reset_flood_account_context(token)
-            for client in clients.values():
-                try:
-                    await client.disconnect()
-                except Exception:
-                    pass
+            for aid in clients:
+                await release_cached_session(self.campaign_id, aid, force_disconnect=True)
 
         await self.log(
             f"Мультиаккаунт: создано {created_count} из {total}",
@@ -1208,7 +1404,7 @@ class CreationPipeline:
                     create_via_botfather=True,
                     auto_start=bool(plan.get("auto_start", True)),
                     avatar_bytes=avatar_bytes,
-                    generate_avatar=False,
+                    generate_avatar=bool(plan.get("generate_avatar")) and not avatar_bytes,
                     telethon_client=client,
                     use_referral_api=plan.get("use_referral_api"),
                     on_step=lambda msg, step: self.log(
@@ -1417,77 +1613,77 @@ class CreationPipeline:
         created_count = 0
         resource_url = campaign.get("resource_url") or ""
 
-        try:
-            await self._wait_account_flood(account_id, label)
-            client, me = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
-            phone = getattr(me, "phone", None) or str(me.id)
-            await db.execute(
-                "UPDATE telegram_accounts SET phone = $2, updated_at = NOW() WHERE id = $1",
-                account_id,
-                phone,
-            )
-
-            for idx, item in enumerate(plan_items):
-                kw = (item.get("keyword") or "").strip()
-                if not kw:
-                    continue
-                await self.log(f"{label}: бот #{idx + 1} — «{kw}»")
-                concepts = await self.ai.analyze_niche(
-                    [kw],
-                    campaign.get("niche_description"),
-                    resource_url,
-                    1,
-                    campaign_id=self.campaign_id,
+        async with account_lock(account_id):
+            try:
+                await self._wait_account_flood(account_id, label)
+                client, me = await acquire_cached_client(self.campaign_id, account_id, account)
+                phone = getattr(me, "phone", None) or str(me.id)
+                await db.execute(
+                    "UPDATE telegram_accounts SET phone = $2, updated_at = NOW() WHERE id = $1",
+                    account_id,
+                    phone,
                 )
-                if not concepts:
-                    await self.log(f"{label}: AI не вернул профиль для «{kw}»", level="warn")
-                    continue
-                concept = concepts[0]
-                concept["keyword"] = kw
-                try:
-                    bot_id = await self._create_single_bot(
-                        client, campaign, account_id, concept, idx
+
+                for idx, item in enumerate(plan_items):
+                    kw = (item.get("keyword") or "").strip()
+                    if not kw:
+                        continue
+                    await self.log(f"{label}: бот #{idx + 1} — «{kw}»")
+                    concepts = await self.ai.analyze_niche(
+                        [kw],
+                        campaign.get("niche_description"),
+                        resource_url,
+                        1,
+                        campaign_id=self.campaign_id,
                     )
-                    if bot_id:
-                        created_count += 1
-                        await db.execute(
-                            """
-                            UPDATE telegram_accounts
-                            SET bots_created = bots_created + 1, updated_at = NOW()
-                            WHERE id = $1
-                            """,
-                            account_id,
+                    if not concepts:
+                        await self.log(f"{label}: AI не вернул профиль для «{kw}»", level="warn")
+                        continue
+                    concept = concepts[0]
+                    concept["keyword"] = kw
+                    try:
+                        bot_id = await self._create_single_bot(
+                            client, campaign, account_id, concept, idx
                         )
-                except Exception as exc:
-                    await self.log(
-                        f"{label}: «{kw}» — {exc}",
-                        level="error",
-                    )
-                    if _should_stop_batch_on_error(exc):
+                        if bot_id:
+                            created_count += 1
+                            await db.execute(
+                                """
+                                UPDATE telegram_accounts
+                                SET bots_created = bots_created + 1, updated_at = NOW()
+                                WHERE id = $1
+                                """,
+                                account_id,
+                            )
+                    except Exception as exc:
                         await self.log(
-                            f"{label}: остановка партии — Telegram требует паузу или аккаунт ограничен",
+                            f"{label}: «{kw}» — {exc}",
                             level="error",
                         )
-                        break
-                if idx + 1 < len(plan_items):
-                    if await self._pace_between_bots(
-                        idx + 1, len(plan_items), account_id=account_id
-                    ):
-                        break
+                        if _should_stop_batch_on_error(exc):
+                            await self.log(
+                                f"{label}: остановка партии — Telegram требует паузу или аккаунт ограничен",
+                                level="error",
+                            )
+                            break
+                    if idx + 1 < len(plan_items):
+                        if await self._pace_between_bots(
+                            idx + 1, len(plan_items), account_id=account_id
+                        ):
+                            break
 
-            acc_status = "ready"
-            if created_count + int(account["bots_created"]) >= account["max_bots_limit"]:
-                acc_status = "exhausted"
-            await db.execute(
-                "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
-                account_id,
-                acc_status,
-            )
-            await self.log(f"{label}: создано {created_count} из {len(plan_items)}")
-            return created_count
-        finally:
-            if client:
-                await client.disconnect()
+                acc_status = "ready"
+                if created_count + int(account["bots_created"]) >= account["max_bots_limit"]:
+                    acc_status = "exhausted"
+                await db.execute(
+                    "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
+                    account_id,
+                    acc_status,
+                )
+                await self.log(f"{label}: создано {created_count} из {len(plan_items)}")
+                return created_count
+            finally:
+                await release_cached_session(self.campaign_id, account_id, force_disconnect=True)
 
     async def _process_account(self, campaign: dict, account: dict) -> int:
         account_id = account["id"]
@@ -1514,106 +1710,106 @@ class CreationPipeline:
         client = None
         created_count = 0
 
-        try:
-            await self._wait_account_flood(account_id, label)
-            client, me = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
-            phone = getattr(me, "phone", None) or str(me.id)
-            await db.execute(
-                "UPDATE telegram_accounts SET phone = $2, updated_at = NOW() WHERE id = $1",
-                account_id,
-                phone,
-            )
-            await self.log(f"{label}: сессия OK ({phone})", context={"account_id": account_id})
-
-            keywords = [k.strip() for k in (campaign.get("keywords") or []) if k and k.strip()]
-            if not keywords:
-                await self.log(
-                    f"{label}: пропуск — у кампании нет ключевых слов",
-                    level="warn",
-                )
+        async with account_lock(account_id):
+            try:
+                await self._wait_account_flood(account_id, label)
+                client, me = await acquire_cached_client(self.campaign_id, account_id, account)
+                phone = getattr(me, "phone", None) or str(me.id)
                 await db.execute(
-                    "UPDATE telegram_accounts SET status = 'ready', updated_at = NOW() WHERE id = $1",
+                    "UPDATE telegram_accounts SET phone = $2, updated_at = NOW() WHERE id = $1",
                     account_id,
+                    phone,
                 )
-                return 0
-            resource_url = campaign.get("resource_url") or ""
-            await self.log(
-                f"{label}: AI — {slots} ботов по ключевым словам ({len(keywords)} в кампании)…"
-            )
-            concepts = await self.ai.analyze_niche(
-                keywords,
-                campaign.get("niche_description"),
-                resource_url,
-                slots,
-                campaign_id=self.campaign_id,
-            )
-            concepts = concepts[:slots]
-            if not concepts:
-                raise ValueError("AI не вернул концепты ботов")
+                await self.log(f"{label}: сессия OK ({phone})", context={"account_id": account_id})
 
-            await self.log(f"{label}: получено {len(concepts)} концептов")
-
-            for idx, concept in enumerate(concepts):
-                kw = concept.get("keyword", "?")
-                await self.log(f"{label}: бот #{idx + 1} — ключевое слово «{kw}»")
-                try:
-                    bot_id = await self._create_single_bot(
-                        client,
-                        campaign,
-                        account_id,
-                        concept,
-                        idx,
-                    )
-                    if bot_id:
-                        created_count += 1
-                        await db.execute(
-                            """
-                            UPDATE telegram_accounts
-                            SET bots_created = bots_created + 1, updated_at = NOW()
-                            WHERE id = $1
-                            """,
-                            account_id,
-                        )
-                except Exception as exc:
+                keywords = [k.strip() for k in (campaign.get("keywords") or []) if k and k.strip()]
+                if not keywords:
                     await self.log(
-                        f"{label}: бот «{concept.get('display_name', '?')}» — {exc}",
-                        level="error",
+                        f"{label}: пропуск — у кампании нет ключевых слов",
+                        level="warn",
                     )
-                    if _should_stop_batch_on_error(exc):
+                    await db.execute(
+                        "UPDATE telegram_accounts SET status = 'ready', updated_at = NOW() WHERE id = $1",
+                        account_id,
+                    )
+                    return 0
+                resource_url = campaign.get("resource_url") or ""
+                await self.log(
+                    f"{label}: AI — {slots} ботов по ключевым словам ({len(keywords)} в кампании)…"
+                )
+                concepts = await self.ai.analyze_niche(
+                    keywords,
+                    campaign.get("niche_description"),
+                    resource_url,
+                    slots,
+                    campaign_id=self.campaign_id,
+                )
+                concepts = concepts[:slots]
+                if not concepts:
+                    raise ValueError("AI не вернул концепты ботов")
+
+                await self.log(f"{label}: получено {len(concepts)} концептов")
+
+                for idx, concept in enumerate(concepts):
+                    kw = concept.get("keyword", "?")
+                    await self.log(f"{label}: бот #{idx + 1} — ключевое слово «{kw}»")
+                    try:
+                        bot_id = await self._create_single_bot(
+                            client,
+                            campaign,
+                            account_id,
+                            concept,
+                            idx,
+                        )
+                        if bot_id:
+                            created_count += 1
+                            await db.execute(
+                                """
+                                UPDATE telegram_accounts
+                                SET bots_created = bots_created + 1, updated_at = NOW()
+                                WHERE id = $1
+                                """,
+                                account_id,
+                            )
+                    except Exception as exc:
                         await self.log(
-                            f"{label}: остановка партии — Telegram требует паузу или аккаунт ограничен",
+                            f"{label}: бот «{concept.get('display_name', '?')}» — {exc}",
                             level="error",
                         )
-                        break
-                if idx + 1 < len(concepts):
-                    if await self._pace_between_bots(
-                        idx + 1, len(concepts), account_id=account_id
-                    ):
-                        break
+                        if _should_stop_batch_on_error(exc):
+                            await self.log(
+                                f"{label}: остановка партии — Telegram требует паузу или аккаунт ограничен",
+                                level="error",
+                            )
+                            break
+                    if idx + 1 < len(concepts):
+                        if await self._pace_between_bots(
+                            idx + 1, len(concepts), account_id=account_id
+                        ):
+                            break
 
-            acc_status = "ready"
-            if created_count >= account["max_bots_limit"]:
-                acc_status = "exhausted"
-            elif created_count == 0:
+                acc_status = "ready"
+                if created_count >= account["max_bots_limit"]:
+                    acc_status = "exhausted"
+                elif created_count == 0:
+                    await db.execute(
+                        """
+                        UPDATE telegram_accounts
+                        SET last_error = $2, updated_at = NOW()
+                        WHERE id = $1
+                        """,
+                        account_id,
+                        "Сессия OK, но боты не созданы (см. лог). Аккаунт готов для ручного создания.",
+                    )
                 await db.execute(
-                    """
-                    UPDATE telegram_accounts
-                    SET last_error = $2, updated_at = NOW()
-                    WHERE id = $1
-                    """,
+                    "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
                     account_id,
-                    "Сессия OK, но боты не созданы (см. лог). Аккаунт готов для ручного создания.",
+                    acc_status,
                 )
-            await db.execute(
-                "UPDATE telegram_accounts SET status = $2, updated_at = NOW() WHERE id = $1",
-                account_id,
-                acc_status,
-            )
-            await self.log(f"{label}: создано {created_count} ботов")
-            return created_count
-        finally:
-            if client:
-                await client.disconnect()
+                await self.log(f"{label}: создано {created_count} ботов")
+                return created_count
+            finally:
+                await release_cached_session(self.campaign_id, account_id, force_disconnect=True)
 
     async def _create_single_bot(
         self,

@@ -36,6 +36,10 @@ class Config:
     REDIS_URL = os.getenv("REDIS_URL", "")
     REDIS_JOB_QUEUE = os.getenv("REDIS_JOB_QUEUE", "tg_bots:creation_jobs")
     REDIS_PREP_QUEUE = os.getenv("REDIS_PREP_QUEUE", "tg_bots:account_prep_jobs")
+    REDIS_BOT_SYNC_QUEUE = os.getenv("REDIS_BOT_SYNC_QUEUE", "tg_bots:bot_sync_jobs")
+    REDIS_BOT_RUNNER_RELOAD_CHANNEL = os.getenv(
+        "REDIS_BOT_RUNNER_RELOAD_CHANNEL", "tg_bots:bot_runner_reload"
+    )
     WORKER_CONCURRENCY = max(1, int(os.getenv("WORKER_CONCURRENCY", "4")))
 
     CORS_ORIGINS = [
@@ -99,6 +103,9 @@ class Config:
 
     # Bot runner
     BOT_RUNNER_RELOAD_INTERVAL_SEC = max(10, int(os.getenv("BOT_RUNNER_RELOAD_INTERVAL_SEC", "60")))
+
+    # Кэш Telethon-сессий в памяти worker/API (0 = отключён, disconnect после каждой операции)
+    SESSION_CACHE_TTL_SEC = max(0, int(os.getenv("SESSION_CACHE_TTL_SEC", "90")))
 
     @staticmethod
     def validate() -> None:

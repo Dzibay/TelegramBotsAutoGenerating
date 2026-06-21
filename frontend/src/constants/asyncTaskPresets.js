@@ -106,16 +106,31 @@ export const TASK_PRESETS = {
     icon: 'botfather',
     estimatedSec: 180,
     steps: [
+      'Постановка в очередь…',
       'Подключение к аккаунту…',
       'Регистрация бота в Telegram…',
-      'Имя, username и аватар…',
-      'Описание и приветствие…',
       'Следующий бот в очереди…',
     ],
     verboseSteps: [
-      'API: POST create bot (sequential)',
+      'API: POST start-manual-bulk → creation_job',
+      'Worker: CreationPipeline (manual / manual_multi)',
       'Полный цикл BotFather на каждого бота',
       'Паузы между ботами (rate limit)',
+    ],
+  },
+  CREATE_BOTS_BATCH: {
+    title: 'Пакетное создание ботов',
+    icon: 'botfather',
+    estimatedSec: 120,
+    steps: [
+      'Постановка в очередь…',
+      'Создание ботов по очереди…',
+      'BotFather: имя, username, аватар…',
+    ],
+    verboseSteps: [
+      'API: POST /bots/batch-create → 202 + job',
+      'Worker: batch_create mode',
+      'Poll: creation_job progress + logs',
     ],
   },
   DELETE_BOT: {
@@ -156,6 +171,13 @@ export const TASK_PRESETS = {
       'Redis: enqueue creation_job',
       'Worker: CreationPipeline',
     ],
+  },
+  CREATE_CAMPAIGN: {
+    title: 'Создание кампании',
+    icon: 'botfather',
+    estimatedSec: 15,
+    steps: ['Создаём кампанию…', 'Сохранение настроек…'],
+    verboseSteps: ['API: POST /campaigns'],
   },
   CREATE_CAMPAIGN_FULL: {
     title: 'Создание кампании',

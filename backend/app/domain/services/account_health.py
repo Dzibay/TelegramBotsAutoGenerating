@@ -6,6 +6,7 @@ from app.config import Config
 from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.logging import get_logger
 from app.domain.services import campaign_service
+from app.domain.services.account_session_service import account_lock
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 
@@ -177,65 +178,66 @@ async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
         )
 
     client = None
-    try:
-        session_file = (
-            Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{account_id}.session"
-        )
-        client, me = await load_client_from_tdata(Path(row["tdata_path"]), session_file)
-        phone = getattr(me, "phone", None) or str(getattr(me, "id", ""))
-        username = getattr(me, "username", None)
-
-        await db.execute(
-            """
-            UPDATE telegram_accounts
-            SET status = 'ready',
-                phone = $2,
-                last_error = NULL,
-                updated_at = NOW()
-            WHERE id = $1
-            """,
-            account_id,
-            phone,
-        )
-        row = await _fetch_account_row(account_id)
-        msg = "Сессия OK"
-        if phone:
-            msg += f" ({phone})"
-        if username:
-            msg += f" @{username}"
-
-        from app.domain.services.account_service import sync_bots_created_count
-        from app.infrastructure.telegram.botfather_client import list_bots_via_botfather
-
+    async with account_lock(account_id):
         try:
-            tg_bots = await list_bots_via_botfather(client)
-            await sync_bots_created_count(account_id, len(tg_bots))
-            row = await _fetch_account_row(account_id)
-            msg += f" · ботов в Telegram: {len(tg_bots)}"
-        except Exception as sync_exc:
-            logger.warning("Bot count sync on verify id=%s: %s", account_id, sync_exc)
+            session_file = (
+                Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{account_id}.session"
+            )
+            client, me = await load_client_from_tdata(Path(row["tdata_path"]), session_file)
+            phone = getattr(me, "phone", None) or str(getattr(me, "id", ""))
+            username = getattr(me, "username", None)
 
-        return _serialize_account(row, {"verified": True, "verify_message": msg})
-    except Exception as exc:
-        err = str(exc)[:500]
-        logger.warning("Verify account id=%s failed: %s", account_id, err)
-        await db.execute(
-            """
-            UPDATE telegram_accounts
-            SET status = 'error', last_error = $2, updated_at = NOW()
-            WHERE id = $1
-            """,
-            account_id,
-            err,
-        )
-        row = await _fetch_account_row(account_id)
-        return _serialize_account(
-            row,
-            {"verified": False, "verify_message": f"Проверка не пройдена: {err}"},
-        )
-    finally:
-        if client:
-            await client.disconnect()
+            await db.execute(
+                """
+                UPDATE telegram_accounts
+                SET status = 'ready',
+                    phone = $2,
+                    last_error = NULL,
+                    updated_at = NOW()
+                WHERE id = $1
+                """,
+                account_id,
+                phone,
+            )
+            row = await _fetch_account_row(account_id)
+            msg = "Сессия OK"
+            if phone:
+                msg += f" ({phone})"
+            if username:
+                msg += f" @{username}"
+
+            from app.domain.services.account_service import sync_bots_created_count
+            from app.infrastructure.telegram.botfather_client import list_bots_via_botfather
+
+            try:
+                tg_bots = await list_bots_via_botfather(client)
+                await sync_bots_created_count(account_id, len(tg_bots))
+                row = await _fetch_account_row(account_id)
+                msg += f" · ботов в Telegram: {len(tg_bots)}"
+            except Exception as sync_exc:
+                logger.warning("Bot count sync on verify id=%s: %s", account_id, sync_exc)
+
+            return _serialize_account(row, {"verified": True, "verify_message": msg})
+        except Exception as exc:
+            err = str(exc)[:500]
+            logger.warning("Verify account id=%s failed: %s", account_id, err)
+            await db.execute(
+                """
+                UPDATE telegram_accounts
+                SET status = 'error', last_error = $2, updated_at = NOW()
+                WHERE id = $1
+                """,
+                account_id,
+                err,
+            )
+            row = await _fetch_account_row(account_id)
+            return _serialize_account(
+                row,
+                {"verified": False, "verify_message": f"Проверка не пройдена: {err}"},
+            )
+        finally:
+            if client:
+                await client.disconnect()
 
 
 async def verify_all_accounts(campaign_id: int) -> dict[str, Any]:

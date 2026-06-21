@@ -72,6 +72,11 @@
         </label>
 
         <p v-if="submitError" class="error-text">{{ submitError }}</p>
+        <OperationStatus
+          v-if="submitting"
+          :message="taskStore.serverProgressMessage"
+          :status="taskStore.serverJobStatus"
+        />
         <InlineTaskIndicator v-if="submitting" fallback-label="Запуск подготовки…" />
         <button type="button" :disabled="submitting || !files.length" @click="onSubmit">
           {{ submitting ? 'Отправка…' : 'Запустить подготовку' }}
@@ -201,12 +206,14 @@ import { RouterLink } from 'vue-router';
 import { useWorkflowStore } from '../stores/workflowStore';
 import AccountDropzone from '../components/AccountDropzone.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
+import OperationStatus from '../components/OperationStatus.vue';
 import JobLogPanel from '../components/JobLogPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { preparedAccountService } from '../services/preparedAccountService';
 import { prepService } from '../services/prepService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { accountDisplayLabel } from '../utils/accountLabel';
+import { pollPrepJob } from '../utils/serverTaskProgress';
 
 const taskStore = useAsyncTaskStore();
 const workflow = useWorkflowStore();
@@ -378,7 +385,7 @@ async function onSubmit() {
   try {
     const job = await taskStore.run(
       'PREP_ACCOUNTS',
-      async ({ logStep }) => {
+      async ({ logStep, setServerProgress }) => {
         logStep(`Upload ${files.value.length} archive(s)`, 'debug', { options: options.value });
         const j = await prepService.createJob({
           files: files.value,
@@ -389,6 +396,13 @@ async function onSubmit() {
           autoStart: autoStart.value,
         });
         logStep(`Job #${j.id} queued`, 'info', j);
+        await loadJob(j.id);
+        if (autoStart.value) {
+          await pollPrepJob(j.id, {
+            logStep,
+            onProgress: (msg, st) => setServerProgress(msg, st),
+          });
+        }
         return j;
       },
       { count: files.value.length }

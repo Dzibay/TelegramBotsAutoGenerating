@@ -368,6 +368,7 @@
 
 <script setup>
 import { formatApiError } from '../utils/apiErrorMessage.js';
+import { pollCreationJob } from '../utils/serverTaskProgress';
 import { computed, onMounted, ref, watch } from 'vue';
 import { Bot, Check, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
@@ -627,10 +628,17 @@ async function loadExtras() {
 async function onStart() {
   starting.value = true;
   try {
-    await taskStore.run('START_CAMPAIGN', async ({ logStep }) => {
-      logStep('POST /start — постановка задачи в очередь', 'debug');
+    await taskStore.run('START_CAMPAIGN', async ({ logStep, setServerProgress }) => {
+      logStep('Постановка автоматической задачи в очередь…', 'info');
       const j = await campaignService.start(campaignId.value);
-      logStep(`Job #${j.id} status=${j.status}`, 'info', j);
+      logStep(`Job #${j.id} — ${j.status}`, 'info', j);
+      if (j.id) {
+        await pollCreationJob(j.id, {
+          logStep,
+          onProgress: (msg, st) => setServerProgress(msg, st),
+          includeSnapshots: false,
+        });
+      }
       return j;
     });
     await loadCampaign();

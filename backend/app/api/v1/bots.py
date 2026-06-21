@@ -1,10 +1,11 @@
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.constants import HTTPStatus, SuccessMessages
-from app.core.dependencies import get_current_user
+from app.core.dependencies import begin_idempotent_request, get_current_user
+from app.core.idempotency import IdempotencyContext, complete_idempotent, fail_idempotent
 from app.domain.models.bot_models import (
     BotBatchCreateRequest,
     BotCreateRequest,
@@ -12,10 +13,18 @@ from app.domain.models.bot_models import (
     BotUpdateRequest,
     GenerateAvatarPreviewRequest,
 )
-from app.domain.services import bot_service
+from app.domain.services import bot_service, job_service
 from app.utils.response import success_response
 
 router = APIRouter(prefix="/bots", tags=["bots"])
+
+
+def _idempotent_json(ctx: IdempotencyContext, response: JSONResponse) -> JSONResponse:
+    if ctx.replay:
+        body = ctx.replay.get("body") or ctx.replay
+        status = int(ctx.replay.get("status_code") or 200)
+        return JSONResponse(content=body, status_code=status)
+    return response
 
 
 @router.get("")
@@ -90,22 +99,38 @@ async def get_bot(bot_id: int, _user: dict = Depends(get_current_user)):
     return success_response(data={"bot": bot})
 
 
-@router.post("/batch-create", status_code=HTTPStatus.CREATED)
+@router.post("/batch-create", status_code=202)
 async def create_bots_batch(
     body: BotBatchCreateRequest,
+    idem: IdempotencyContext = Depends(begin_idempotent_request),
     _user: dict = Depends(get_current_user),
 ):
-    specs = [b.model_dump() for b in body.bots]
-    result = await bot_service.create_bots_batch(specs)
-    return success_response(data=result, message="Пакетное создание завершено")
+    if idem.replay:
+        return _idempotent_json(idem, JSONResponse(content={}))
+    try:
+        specs = [b.model_dump() for b in body.bots]
+        job = await job_service.start_batch_create_job(specs)
+        payload = success_response(
+            data={"job": job, "queued": True},
+            message="Пакетное создание поставлено в очередь",
+        )
+        await complete_idempotent(idem, {"status_code": 202, "body": payload})
+        return payload
+    except Exception:
+        await fail_idempotent(idem)
+        raise
 
 
-@router.post("", status_code=HTTPStatus.CREATED)
+@router.post("", status_code=202)
 async def create_bot(
     data: str = Form(..., description="JSON BotCreateRequest"),
     avatar: Optional[UploadFile] = File(None),
+    idem: IdempotencyContext = Depends(begin_idempotent_request),
     _user: dict = Depends(get_current_user),
 ):
+    if idem.replay:
+        return _idempotent_json(idem, JSONResponse(content={}))
+
     body = BotCreateRequest.model_validate_json(data)
     avatar_bytes = None
     if avatar and avatar.filename:
@@ -114,49 +139,78 @@ async def create_bot(
             from app.core.exceptions import BadRequestError
 
             raise BadRequestError("Аватар не больше 5 МБ")
-    bot = await bot_service.create_bot(
-        campaign_id=body.campaign_id,
-        telegram_account_id=body.telegram_account_id,
-        target_url=body.target_url,
-        display_name=body.display_name,
-        username=body.username,
-        description=body.description,
-        about_text=body.about_text,
-        welcome_message=body.welcome_message,
-        welcome_button_enabled=body.welcome_button_enabled,
-        welcome_button_text=body.welcome_button_text,
-        keyword=body.keyword,
-        redirect_slug=body.redirect_slug,
-        link_mode=body.link_mode,
-        create_via_botfather=body.create_via_botfather,
-        auto_start=body.auto_start,
-        avatar_bytes=avatar_bytes,
-        generate_avatar=body.generate_avatar and not avatar_bytes,
-        use_referral_api=body.use_referral_api,
-    )
-    return success_response(data={"bot": bot}, message=SuccessMessages.BOT_CREATED)
+
+    avatar_path = None
+    if avatar_bytes:
+        avatar_path = bot_service.save_queued_avatar_bytes(avatar_bytes)
+
+    spec = {
+        "campaign_id": body.campaign_id,
+        "telegram_account_id": body.telegram_account_id,
+        "target_url": body.target_url,
+        "display_name": body.display_name,
+        "username": body.username,
+        "description": body.description,
+        "about_text": body.about_text,
+        "welcome_message": body.welcome_message,
+        "welcome_button_enabled": body.welcome_button_enabled,
+        "welcome_button_text": body.welcome_button_text,
+        "keyword": body.keyword,
+        "redirect_slug": body.redirect_slug,
+        "link_mode": body.link_mode,
+        "create_via_botfather": body.create_via_botfather,
+        "auto_start": body.auto_start,
+        "generate_avatar": body.generate_avatar and not avatar_bytes,
+        "use_referral_api": body.use_referral_api,
+    }
+
+    try:
+        job = await job_service.start_single_bot_job(
+            body.campaign_id,
+            spec,
+            avatar_path=avatar_path,
+        )
+        payload = success_response(
+            data={"job": job, "queued": True},
+            message="Бот поставлен в очередь создания",
+        )
+        await complete_idempotent(idem, {"status_code": 202, "body": payload})
+        return payload
+    except Exception:
+        await fail_idempotent(idem)
+        raise
 
 
 @router.patch("/{bot_id}")
 async def update_bot(
     bot_id: int,
     body: BotUpdateRequest,
-    background_tasks: BackgroundTasks,
+    idem: IdempotencyContext = Depends(begin_idempotent_request),
     _user: dict = Depends(get_current_user),
 ):
-    bot, sync_job = await bot_service.update_bot(bot_id, **body.model_dump(exclude_unset=True))
-    if sync_job:
-        background_tasks.add_task(
-            bot_service.run_botfather_sync,
-            bot_id,
-            generate_avatar=sync_job.get("generate_avatar", False),
-            upload_avatar=sync_job.get("upload_avatar", False),
-        )
-        return success_response(
-            data={"bot": bot, "telegram_sync_pending": True},
-            message=SuccessMessages.BOT_UPDATED_SYNC_PENDING,
-        )
-    return success_response(data={"bot": bot}, message=SuccessMessages.BOT_UPDATED)
+    if idem.replay:
+        return _idempotent_json(idem, JSONResponse(content={}))
+
+    try:
+        bot, sync_job = await bot_service.update_bot(bot_id, **body.model_dump(exclude_unset=True))
+        if sync_job:
+            await bot_service.enqueue_botfather_sync(
+                bot_id,
+                generate_avatar=sync_job.get("generate_avatar", False),
+                upload_avatar=sync_job.get("upload_avatar", False),
+            )
+            payload = success_response(
+                data={"bot": bot, "telegram_sync_pending": True},
+                message=SuccessMessages.BOT_UPDATED_SYNC_PENDING,
+            )
+            await complete_idempotent(idem, {"status_code": 200, "body": payload})
+            return payload
+        payload = success_response(data={"bot": bot}, message=SuccessMessages.BOT_UPDATED)
+        await complete_idempotent(idem, {"status_code": 200, "body": payload})
+        return payload
+    except Exception:
+        await fail_idempotent(idem)
+        raise
 
 
 @router.post("/{bot_id}/avatar")

@@ -76,6 +76,11 @@
 
       <p v-if="saveNotice && !isSyncInProgress" class="success-banner card">{{ saveNotice }}</p>
       <p v-if="saveError" class="error-text">{{ saveError }}</p>
+      <OperationStatus
+        v-if="saving && form.sync_botfather"
+        :message="taskStore.serverProgressMessage"
+        :status="taskStore.serverJobStatus"
+      />
       <InlineTaskIndicator
         v-if="saving && form.sync_botfather"
         :username="bot.username"
@@ -131,12 +136,15 @@ import BotTelegramPanel from '../components/BotTelegramPanel.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import BotTelegramSyncStatus from '../components/BotTelegramSyncStatus.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
+import OperationStatus from '../components/OperationStatus.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { copyBotExportToClipboard } from '../utils/botExport';
 import { formatApiError } from '../utils/apiErrorMessage';
 import { isTelegramSyncInProgress } from '../utils/telegramSyncStatus';
+import { pollBotTelegramSync } from '../utils/serverTaskProgress';
+import { newIdempotencyKey } from '../utils/apiClient';
 
 const taskStore = useAsyncTaskStore();
 
@@ -262,7 +270,7 @@ async function onSave() {
   saveNotice.value = null;
   const syncBf = form.value.sync_botfather;
   try {
-    const runUpdate = async () => {
+    const runUpdate = async ({ logStep, setServerProgress } = {}) => {
       let forceAvatarSync = false;
       if (pendingAvatarFile.value) {
         const avatarResult = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
@@ -270,27 +278,37 @@ async function onSave() {
         pendingAvatarFile.value = null;
         forceAvatarSync = syncBf;
       }
-      const result = await botService.update(bot.value.id, {
-        target_url: form.value.target_url,
-        link_mode: form.value.link_mode,
-        display_name: profile.value.display_name,
-        description: profile.value.description,
-        about_text: profile.value.about_text,
-        welcome_message: profile.value.welcome_message,
-        welcome_button_enabled: profile.value.welcome_button_enabled,
-        welcome_button_text: profile.value.welcome_button_text,
-        keyword: form.value.keyword,
-        sync_botfather: syncBf,
-        generate_avatar: form.value.generate_avatar,
-        force_avatar_sync: forceAvatarSync,
-      });
+      const idempotencyKey = newIdempotencyKey();
+      const result = await botService.update(
+        bot.value.id,
+        {
+          target_url: form.value.target_url,
+          link_mode: form.value.link_mode,
+          display_name: profile.value.display_name,
+          description: profile.value.description,
+          about_text: profile.value.about_text,
+          welcome_message: profile.value.welcome_message,
+          welcome_button_enabled: profile.value.welcome_button_enabled,
+          welcome_button_text: profile.value.welcome_button_text,
+          keyword: form.value.keyword,
+          sync_botfather: syncBf,
+          generate_avatar: form.value.generate_avatar,
+          force_avatar_sync: forceAvatarSync,
+        },
+        { idempotencyKey }
+      );
       bot.value = result.bot;
       applyBotToForm(bot.value);
       form.value.sync_botfather = false;
       form.value.generate_avatar = false;
-      if (isTelegramSyncInProgress(bot.value.telegram_sync_status)) {
+      if (result.telegramSyncPending || isTelegramSyncInProgress(bot.value.telegram_sync_status)) {
         saveNotice.value = null;
-        syncSyncPoll();
+        logStep?.('Синхронизация с Telegram поставлена в очередь…', 'info');
+        bot.value = await pollBotTelegramSync(bot.value.id, {
+          onProgress: (msg, st) => setServerProgress?.(msg, st),
+        });
+        applyBotToForm(bot.value);
+        saveNotice.value = result.message || 'Изменения сохранены и синхронизированы с Telegram.';
       } else if (result.message) {
         saveNotice.value = result.message;
       } else {

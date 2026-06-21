@@ -7,7 +7,7 @@ logger = get_logger(__name__)
 _SCHEMA_PATCH_LOCK_KEY = 839204713
 
 _JOB_MODE_CHECK = """
-    CHECK (job_mode IS NULL OR job_mode IN ('manual', 'manual_multi', 'planned', 'auto'))
+    CHECK (job_mode IS NULL OR job_mode IN ('manual', 'manual_multi', 'planned', 'auto', 'single', 'batch_create'))
 """
 
 
@@ -21,7 +21,7 @@ async def _ensure_creation_jobs_job_mode_check(conn) -> None:
           AND conname = 'creation_jobs_job_mode_check'
         """
     )
-    if existing and "manual_multi" in str(existing):
+    if existing and "manual_multi" in str(existing) and "batch_create" in str(existing):
         return
 
     await conn.execute(

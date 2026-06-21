@@ -112,6 +112,7 @@
 
         <div v-show="wizardStep === 3" class="wizard-pane">
           <p v-if="submitError" class="error-text">{{ submitError }}</p>
+          <OperationStatus v-if="submitting" :message="jobProgress" :status="jobStatus" />
           <InlineTaskIndicator v-if="submitting" fallback-label="Создаём бота в Telegram…" />
           <div class="actions">
             <button type="button" class="btn-ghost" @click="wizardStep = 2">← К текстам</button>
@@ -139,13 +140,15 @@
 </template>
 
 <script setup>
-import { formatApiError } from '../utils/apiErrorMessage.js';
+import { newIdempotencyKey } from '../utils/apiClient';
+import { pollCreationJob } from '../utils/serverTaskProgress';
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
 import BotProfileFields from '../components/BotProfileFields.vue';
 import BotTelegramPreview from '../components/BotTelegramPreview.vue';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
+import OperationStatus from '../components/OperationStatus.vue';
 import WizardSteps from '../components/WizardSteps.vue';
 import { botService } from '../services/botService';
 import { campaignService } from '../services/campaignService';
@@ -176,6 +179,8 @@ const draftPublicLink = ref(null);
 const generating = ref(false);
 const submitting = ref(false);
 const submitError = ref(null);
+const jobProgress = ref('');
+const jobStatus = ref('');
 const autoStart = ref(true);
 const generateAvatar = ref(true);
 const avatarFile = ref(null);
@@ -343,7 +348,22 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function createBotWithFloodRetry(uname) {
+async function waitForSingleBotJob(jobId, logStep, setServerProgress) {
+  const job = await pollCreationJob(jobId, {
+    logStep,
+    onProgress: (msg, st) => {
+      jobProgress.value = msg || jobProgress.value;
+      jobStatus.value = st || '';
+      setServerProgress?.(msg, st);
+    },
+  });
+  const rows = job.result_snapshot?.row_results || [];
+  const botId = rows.find((r) => r.status === 'done')?.bot_id;
+  if (botId) return botService.get(botId);
+  throw new Error('Задача завершена, но бот не найден в результате');
+}
+
+async function createBotWithFloodRetry(uname, logStep, setServerProgress) {
   const payload = {
     campaign_id: campaignId.value,
     telegram_account_id: accountId.value,
@@ -362,10 +382,16 @@ async function createBotWithFloodRetry(uname) {
     auto_start: autoStart.value,
     generate_avatar: generateAvatar.value,
   };
+  const idempotencyKey = newIdempotencyKey();
   let retries = 0;
   while (retries <= 3) {
     try {
-      return await botService.create(payload, avatarFile.value);
+      const result = await botService.create(payload, avatarFile.value, { idempotencyKey });
+      if (result.queued && result.job?.id) {
+        logStep('Бот поставлен в очередь создания', 'info', { job_id: result.job.id });
+        return waitForSingleBotJob(result.job.id, logStep, setServerProgress);
+      }
+      return result.bot;
     } catch (e) {
       const waitSec = getFloodWaitSeconds(e);
       if (waitSec != null && retries < 3) {
@@ -391,13 +417,15 @@ async function onSubmit() {
   }
   submitting.value = true;
   submitError.value = null;
+  jobProgress.value = '';
+  jobStatus.value = '';
   const uname = form.value.username.replace(/^@/, '');
   try {
     const bot = await taskStore.run(
       'CREATE_BOT',
-      async ({ logStep }) => {
+      async ({ logStep, setServerProgress }) => {
         logStep(`Создание @${uname} через BotFather`, 'info');
-        const b = await createBotWithFloodRetry(uname);
+        const b = await createBotWithFloodRetry(uname, logStep, setServerProgress);
         logStep(`Бот #${b.id} @${b.username} создан`, 'success', { bot_id: b.id });
         return b;
       },

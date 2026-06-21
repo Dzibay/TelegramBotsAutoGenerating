@@ -36,7 +36,7 @@ app.add_middleware(
     allow_origins=Config.CORS_ORIGINS,
     allow_credentials=Config.CORS_SUPPORTS_CREDENTIALS,
     allow_methods=Config.CORS_METHODS,
-    allow_headers=["*", "Authorization", "Content-Type"],
+    allow_headers=["*", "Authorization", "Content-Type", "Idempotency-Key"],
     expose_headers=["*"],
 )
 
@@ -60,6 +60,9 @@ async def startup() -> None:
     await init_pool()
     await apply_startup_schema_patches()
     await init_redis(Config.REDIS_URL)
+    from app.domain.services import maintenance_service
+
+    await maintenance_service.run_maintenance_cycle()
     logger.info(
         "API started (env=%s, admin_password_len=%d)",
         os.getenv("ENVIRONMENT", "development"),

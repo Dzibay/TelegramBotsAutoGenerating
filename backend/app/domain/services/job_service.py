@@ -118,17 +118,19 @@ async def _find_account_conflicts(
     *,
     is_auto: bool = False,
     exclude_job_id: int | None = None,
+    conn=None,
 ) -> list[dict[str, Any]]:
-    rows = await db.fetch_all(
-        """
+    query = """
         SELECT j.*, ta.label AS account_label, ta.phone AS account_phone
         FROM creation_jobs j
         LEFT JOIN telegram_accounts ta ON ta.id = j.telegram_account_id
         WHERE j.campaign_id = $1 AND j.status IN ('queued', 'running')
         ORDER BY j.id
-        """,
-        campaign_id,
-    )
+    """
+    if conn is not None:
+        rows = await db.tx_fetch_all(conn, query, campaign_id)
+    else:
+        rows = await db.fetch_all(query, campaign_id)
     conflicts: list[dict[str, Any]] = []
     for row in rows:
         if exclude_job_id and int(row["id"]) == exclude_job_id:
@@ -141,6 +143,40 @@ async def _find_account_conflicts(
         if account_ids & job_accounts:
             conflicts.append(row)
     return conflicts
+
+
+async def _enqueue_creation_payload(payload: dict[str, Any]) -> None:
+    redis = get_redis()
+    if not redis:
+        job_id = payload.get("job_id")
+        if job_id:
+            await db.execute(
+                """
+                UPDATE creation_jobs SET status = 'failed', error_message = $2, updated_at = NOW()
+                WHERE id = $1
+                """,
+                job_id,
+                "Redis недоступен — worker не получит задачу",
+            )
+        raise ConflictError("Redis недоступен. Запустите redis или docker compose up redis")
+    await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps(payload))
+
+
+async def verify_job_accounts_available(
+    job_id: int,
+    campaign_id: int,
+    account_ids: set[int],
+    *,
+    is_auto: bool = False,
+) -> bool:
+    """False = аккаунты заняты другой задачей (нужно отложить)."""
+    conflicts = await _find_account_conflicts(
+        campaign_id,
+        account_ids,
+        is_auto=is_auto,
+        exclude_job_id=job_id,
+    )
+    return not conflicts
 
 
 def _conflict_message(conflicts: list[dict[str, Any]], account_ids: set[int]) -> str:
@@ -245,30 +281,34 @@ async def start_creation_job(
         job_mode = "auto"
         primary_account_id = None
 
-    conflicts = await _find_account_conflicts(
-        campaign_id,
-        account_ids,
-        is_auto=job_mode == "auto",
-    )
-    if conflicts:
-        raise ConflictError(_conflict_message(conflicts, account_ids))
-
-    row = await db.fetch_one(
-        """
-        INSERT INTO creation_jobs (
-            campaign_id, status, total_accounts, progress_message, job_mode,
-            telegram_account_id, account_ids
+    async with db.transaction() as conn:
+        await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
+        conflicts = await _find_account_conflicts(
+            campaign_id,
+            account_ids,
+            is_auto=job_mode == "auto",
+            conn=conn,
         )
-        VALUES ($1, 'queued', $2, $3, $4, $5, $6)
-        RETURNING *
-        """,
-        campaign_id,
-        total_accounts or 0,
-        progress,
-        job_mode,
-        primary_account_id,
-        list(account_ids),
-    )
+        if conflicts:
+            raise ConflictError(_conflict_message(conflicts, account_ids))
+
+        row = await db.tx_fetch_one(
+            conn,
+            """
+            INSERT INTO creation_jobs (
+                campaign_id, status, total_accounts, progress_message, job_mode,
+                telegram_account_id, account_ids
+            )
+            VALUES ($1, 'queued', $2, $3, $4, $5, $6)
+            RETURNING *
+            """,
+            campaign_id,
+            total_accounts or 0,
+            progress,
+            job_mode,
+            primary_account_id,
+            list(account_ids),
+        )
 
     snapshot = (
         job_history_service.build_planned_input_snapshot(plan_list)
@@ -301,8 +341,66 @@ async def start_creation_job(
     payload: dict[str, Any] = {"job_id": row["id"], "campaign_id": campaign_id}
     if plan_list:
         payload["plans"] = plan_list
-    await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps(payload))
+    await _enqueue_creation_payload(payload)
 
+    return _job_row(row)
+
+
+async def start_single_bot_job(
+    campaign_id: int,
+    spec: dict[str, Any],
+    *,
+    avatar_path: str | None = None,
+) -> dict[str, Any]:
+    """Очередь создания одного бота (job_mode=single)."""
+    await campaign_service.get_campaign(campaign_id)
+    account_id = int(spec["telegram_account_id"])
+    account_ids = {account_id}
+
+    async with db.transaction() as conn:
+        await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
+        conflicts = await _find_account_conflicts(
+            campaign_id,
+            account_ids,
+            conn=conn,
+        )
+        if conflicts:
+            raise ConflictError(_conflict_message(conflicts, account_ids))
+
+        row = await db.tx_fetch_one(
+            conn,
+            """
+            INSERT INTO creation_jobs (
+                campaign_id, status, total_accounts, progress_message, job_mode,
+                telegram_account_id, account_ids
+            )
+            VALUES ($1, 'queued', 1, $2, 'single', $3, $4)
+            RETURNING *
+            """,
+            campaign_id,
+            f"В очереди: @{spec.get('username', '?')}",
+            account_id,
+            list(account_ids),
+        )
+
+    job_id = row["id"]
+    snapshot = {
+        "mode": "single",
+        "spec": spec,
+        "avatar_path": avatar_path,
+    }
+    await job_history_service.persist_input_snapshot(job_id, job_mode="single", snapshot=snapshot)
+    await sync_campaign_status(campaign_id)
+
+    await _enqueue_creation_payload(
+        {
+            "job_id": job_id,
+            "campaign_id": campaign_id,
+            "mode": "single",
+            "spec": spec,
+            "avatar_path": avatar_path,
+        }
+    )
     return _job_row(row)
 
 
@@ -473,9 +571,11 @@ async def start_manual_creation_job(
                 "display_name": item.display_name.strip(),
                 "username": uname,
                 "target_url": row_url,
-                "description": body.shared_texts.description,
-                "about_text": body.shared_texts.about_text or "",
-                "welcome_message": body.shared_texts.welcome_message,
+                "description": (item.description or body.shared_texts.description).strip(),
+                "about_text": (item.about_text or body.shared_texts.about_text or "").strip(),
+                "welcome_message": (
+                    item.welcome_message or body.shared_texts.welcome_message
+                ).strip(),
                 "welcome_button_enabled": body.shared_texts.welcome_button_enabled,
                 "welcome_button_text": body.shared_texts.welcome_button_text,
                 "link_mode": bot_promo_service.normalize_link_mode(body.link_mode),
@@ -483,38 +583,42 @@ async def start_manual_creation_job(
                 "use_referral_api": use_referral,
                 "link_source": link_source,
                 "avatar_path": None,
+                "generate_avatar": bool(item.generate_avatar),
             }
         )
 
-    conflicts = await _find_account_conflicts(campaign_id, account_ids)
-    if conflicts:
-        raise ConflictError(_conflict_message(conflicts, account_ids))
+    async with db.transaction() as conn:
+        await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
+        conflicts = await _find_account_conflicts(campaign_id, account_ids, conn=conn)
+        if conflicts:
+            raise ConflictError(_conflict_message(conflicts, account_ids))
 
-    total = len(manual_plans)
-    job_mode = "manual_multi" if multi_account else "manual"
-    progress_msg = (
-        f"В очереди: {total} бот(ов), мультиаккаунт"
-        if multi_account
-        else f"В очереди: {total} бот(ов), ручная партия"
-    )
-    redis_mode = "manual_multi" if multi_account else "manual"
-    row = await db.fetch_one(
-        """
-        INSERT INTO creation_jobs (
-            campaign_id, status, total_accounts, progress_message, job_mode,
-            retried_from_job_id, telegram_account_id, account_ids
+        total = len(manual_plans)
+        job_mode = "manual_multi" if multi_account else "manual"
+        progress_msg = (
+            f"В очереди: {total} бот(ов), мультиаккаунт"
+            if multi_account
+            else f"В очереди: {total} бот(ов), ручная партия"
         )
-        VALUES ($1, 'queued', $2, $3, $4, $5, $6, $7)
-        RETURNING *
-        """,
-        campaign_id,
-        total,
-        progress_msg,
-        job_mode,
-        retried_from_job_id,
-        primary_account_id,
-        list(account_ids),
-    )
+        redis_mode = "manual_multi" if multi_account else "manual"
+        row = await db.tx_fetch_one(
+            conn,
+            """
+            INSERT INTO creation_jobs (
+                campaign_id, status, total_accounts, progress_message, job_mode,
+                retried_from_job_id, telegram_account_id, account_ids
+            )
+            VALUES ($1, 'queued', $2, $3, $4, $5, $6, $7)
+            RETURNING *
+            """,
+            campaign_id,
+            total,
+            progress_msg,
+            job_mode,
+            retried_from_job_id,
+            primary_account_id,
+            list(account_ids),
+        )
     job_id = row["id"]
 
     staging = Config.STORAGE_ROOT / "job_staging" / str(job_id)
@@ -565,7 +669,7 @@ async def start_manual_creation_job(
         "mode": redis_mode,
         "manual_plans": manual_plans,
     }
-    await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps(payload))
+    await _enqueue_creation_payload(payload)
 
     if not campaign.get("resource_url"):
         await campaign_service.update_campaign(campaign_id, resource_url=default_url)
@@ -698,6 +802,74 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
 
     updated = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
     return _job_row(updated)
+
+
+async def start_batch_create_job(specs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Очередь пакетного создания ботов (POST /bots/batch-create)."""
+    if not specs:
+        raise BadRequestError("Пустой список ботов")
+
+    campaign_ids = {int(s["campaign_id"]) for s in specs}
+    if len(campaign_ids) != 1:
+        raise BadRequestError("Все боты должны принадлежать одной кампании")
+    campaign_id = campaign_ids.pop()
+    await campaign_service.get_campaign(campaign_id)
+
+    account_ids: set[int] = set()
+    for spec in specs:
+        aid = int(spec["telegram_account_id"])
+        account = await db.fetch_one(
+            "SELECT * FROM telegram_accounts WHERE id = $1 AND campaign_id = $2",
+            aid,
+            campaign_id,
+        )
+        if not account:
+            raise BadRequestError(f"Аккаунт #{aid} не найден в кампании")
+        if account.get("is_banned"):
+            raise ConflictError(f"Аккаунт #{aid} забанен")
+        if account.get("status") not in ("ready", "creating") or not account.get("tdata_path"):
+            raise ConflictError(f"Аккаунт #{aid} не готов к созданию ботов")
+        account_ids.add(aid)
+
+    total = len(specs)
+    async with db.transaction() as conn:
+        await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
+        conflicts = await _find_account_conflicts(campaign_id, account_ids, conn=conn)
+        if conflicts:
+            raise ConflictError(_conflict_message(conflicts, account_ids))
+
+        row = await db.tx_fetch_one(
+            conn,
+            """
+            INSERT INTO creation_jobs (
+                campaign_id, status, total_accounts, progress_message, job_mode,
+                telegram_account_id, account_ids
+            )
+            VALUES ($1, 'queued', $2, $3, 'batch_create', $4, $5)
+            RETURNING *
+            """,
+            campaign_id,
+            total,
+            f"В очереди: пакет из {total} бот(ов)",
+            next(iter(account_ids)) if len(account_ids) == 1 else None,
+            list(account_ids),
+        )
+
+    job_id = row["id"]
+    snapshot = {"mode": "batch_create", "specs": specs}
+    await job_history_service.persist_input_snapshot(
+        job_id, job_mode="batch_create", snapshot=snapshot
+    )
+    await sync_campaign_status(campaign_id)
+    await _enqueue_creation_payload(
+        {
+            "job_id": job_id,
+            "campaign_id": campaign_id,
+            "mode": "batch_create",
+            "specs": specs,
+        }
+    )
+    return _job_row(row)
 
 
 async def add_accounts_to_multi_job(job_id: int, account_ids: list[int]) -> dict[str, Any]:

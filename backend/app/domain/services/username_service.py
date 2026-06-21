@@ -5,6 +5,7 @@ from typing import Callable, Optional
 import httpx
 
 from app.core.logging import get_logger
+from app.infrastructure.cache.username_cache import _cache_get, _cache_set
 from app.infrastructure.database import repository as db
 from app.utils.telegram_username import (
     build_username_from_keyword,
@@ -50,20 +51,28 @@ async def check_username_on_telegram(client, username: str) -> bool:
     name = username.lstrip("@").lower()
     if not name:
         return False
+    cached = _cache_get(name)
+    if cached is not None:
+        return cached
     try:
         from telethon.errors import UsernameNotOccupiedError, UsernameOccupiedError
         from telethon.tl.functions.contacts import ResolveUsernameRequest
 
         await client(ResolveUsernameRequest(username=name))
+        _cache_set(name, False)
         return False
     except Exception as exc:
         exc_name = type(exc).__name__
         if exc_name == "UsernameNotOccupiedError":
+            _cache_set(name, True)
             return True
         if exc_name == "UsernameOccupiedError":
+            _cache_set(name, False)
             return False
         logger.debug("ResolveUsername @%s: %s — fallback HTTP", name, exc)
-        return await _check_username_http(name)
+        free = await _check_username_http(name)
+        _cache_set(name, free)
+        return free
 
 
 async def _check_username_http(username: str) -> bool:

@@ -21,6 +21,9 @@ from app.infrastructure.database.pool import close_pool, init_pool
 init_logging()
 logger = get_logger(__name__)
 
+_shutdown = asyncio.Event()
+_active_tasks: set[asyncio.Task] = set()
+
 
 async def process_prep_job(payload: dict) -> None:
     job_id = int(payload["job_id"])
@@ -50,13 +53,15 @@ async def process_prep_job(payload: dict) -> None:
 
 async def worker_loop() -> None:
     logger.info("Prep worker слушает %s", Config.REDIS_PREP_QUEUE)
-    while True:
-        item = await blocking_pop(Config.REDIS_PREP_QUEUE, timeout=5)
+    while not _shutdown.is_set():
+        item = await blocking_pop(Config.REDIS_PREP_QUEUE, timeout=2)
         if not item:
             continue
         try:
             payload = json.loads(item[1])
-            await process_prep_job(payload)
+            task = asyncio.create_task(process_prep_job(payload))
+            _active_tasks.add(task)
+            task.add_done_callback(lambda t: _active_tasks.discard(t))
         except Exception as exc:
             logger.exception("Prep queue error: %s", exc)
 
@@ -68,6 +73,9 @@ async def main() -> None:
     try:
         await worker_loop()
     finally:
+        _shutdown.set()
+        if _active_tasks:
+            await asyncio.gather(*_active_tasks, return_exceptions=True)
         await close_pool()
         await close_redis()
 

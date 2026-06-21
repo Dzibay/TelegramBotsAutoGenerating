@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from app.config import Config
 from app.domain.services import bot_service, prep_log_service, prepared_account_service
+from app.domain.services.account_session_service import prep_account_lock
 from app.infrastructure.telegram.botfather_client import delete_all_bots_via_botfather
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.security_hardening import run_security_steps
@@ -153,57 +154,58 @@ class AccountPrepPipeline:
 
         session_file = Config.PREP_TDATA_DIR / str(self.job_id) / f"{account_id}.session"
         client = None
-        try:
-            client, me = await load_client_from_tdata(Path(acc["tdata_path"]), session_file)
-            phone = getattr(me, "phone", None) or str(me.id)
-            username = getattr(me, "username", None)
-            await db.execute(
-                """
-                UPDATE account_prep_accounts
-                SET phone = $2, username = $3, updated_at = NOW()
-                WHERE id = $1
-                """,
-                account_id,
-                phone,
-                username,
-            )
-            await self.log(f"{label}: сессия OK ({phone})", account_id=account_id)
-
-            steps: list[str] = []
-            if options.get("delete_bots", True):
-                await self.log(f"{label}: удаление ботов в Telegram…", account_id=account_id)
-                deleted = await delete_all_bots_via_botfather(client)
-                steps.append(f"delete_bots_telegram:{deleted}")
-                await self.log(
-                    f"{label}: удалено ботов в Telegram: {deleted}",
-                    account_id=account_id,
+        async with prep_account_lock(account_id):
+            try:
+                client, me = await load_client_from_tdata(Path(acc["tdata_path"]), session_file)
+                phone = getattr(me, "phone", None) or str(me.id)
+                username = getattr(me, "username", None)
+                await db.execute(
+                    """
+                    UPDATE account_prep_accounts
+                    SET phone = $2, username = $3, updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    account_id,
+                    phone,
+                    username,
                 )
-                db_removed = await bot_service.cleanup_bots_for_phone(phone)
-                if db_removed:
-                    steps.append(f"delete_bots_db:{db_removed}")
+                await self.log(f"{label}: сессия OK ({phone})", account_id=account_id)
+
+                steps: list[str] = []
+                if options.get("delete_bots", True):
+                    await self.log(f"{label}: удаление ботов в Telegram…", account_id=account_id)
+                    deleted = await delete_all_bots_via_botfather(client)
+                    steps.append(f"delete_bots_telegram:{deleted}")
                     await self.log(
-                        f"{label}: удалено записей ботов в БД: {db_removed}",
+                        f"{label}: удалено ботов в Telegram: {deleted}",
                         account_id=account_id,
                     )
+                    db_removed = await bot_service.cleanup_bots_for_phone(phone)
+                    if db_removed:
+                        steps.append(f"delete_bots_db:{db_removed}")
+                        await self.log(
+                            f"{label}: удалено записей ботов в БД: {db_removed}",
+                            account_id=account_id,
+                        )
 
-            if options.get("terminate_sessions", True):
-                await self.log(f"{label}: завершение других сессий…", account_id=account_id)
+                if options.get("terminate_sessions", True):
+                    await self.log(f"{label}: завершение других сессий…", account_id=account_id)
 
-            if options.get("change_password"):
-                await self.log(f"{label}: смена облачного пароля…", account_id=account_id)
+                if options.get("change_password"):
+                    await self.log(f"{label}: смена облачного пароля…", account_id=account_id)
 
-            if options.get("privacy_restrictions", True):
-                await self.log(f"{label}: настройка приватности…", account_id=account_id)
+                if options.get("privacy_restrictions", True):
+                    await self.log(f"{label}: настройка приватности…", account_id=account_id)
 
-            security_steps = await run_security_steps(
-                client,
-                options,
-                new_password=self.new_password,
-                current_password=self.current_password,
-                password_hint=self.password_hint,
-            )
-            steps.extend(security_steps)
-            return steps
-        finally:
-            if client:
-                await client.disconnect()
+                security_steps = await run_security_steps(
+                    client,
+                    options,
+                    new_password=self.new_password,
+                    current_password=self.current_password,
+                    password_hint=self.password_hint,
+                )
+                steps.extend(security_steps)
+                return steps
+            finally:
+                if client:
+                    await client.disconnect()

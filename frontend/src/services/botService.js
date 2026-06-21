@@ -1,4 +1,5 @@
 import apiClient from '../utils/apiClient';
+import { pollCreationJob } from '../utils/serverTaskProgress';
 import { isTelegramSyncInProgress } from '../utils/telegramSyncStatus';
 
 export const botService = {
@@ -57,19 +58,26 @@ export const botService = {
     return res.data?.draft;
   },
 
-  async create(payload, avatarFile = null) {
+  async create(payload, avatarFile = null, { idempotencyKey = null } = {}) {
     const form = new FormData();
     form.append('data', JSON.stringify(payload));
     if (avatarFile) form.append('avatar', avatarFile);
+    const headers = { 'Content-Type': 'multipart/form-data' };
+    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     const res = await apiClient.post('/bots', form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers,
       timeout: 300000,
     });
-    return res.data?.bot;
+    return {
+      queued: res.data?.queued === true,
+      job: res.data?.job,
+      bot: res.data?.bot,
+    };
   },
 
-  async update(id, payload) {
-    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout: 120000 });
+  async update(id, payload, { idempotencyKey = null } = {}) {
+    const headers = idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {};
+    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout: 120000, headers });
     if (!res.data?.bot) {
       const err = new Error('Сервер не вернул данные бота после сохранения');
       err.response = {
@@ -119,7 +127,12 @@ export const botService = {
   },
 
   async batchCreate(bots) {
-    const res = await apiClient.post('/bots/batch-create', { bots }, { timeout: 600000 });
+    const res = await apiClient.post('/bots/batch-create', { bots });
+    const job = res.data?.job;
+    if (res.data?.queued && job?.id) {
+      const finished = await pollCreationJob(job.id);
+      return { job: finished, queued: true };
+    }
     return res.data;
   },
 };

@@ -54,6 +54,10 @@ class ManualBotItem(BaseModel):
     display_name: str = Field(..., min_length=1, max_length=64)
     username: str = Field(..., min_length=3, max_length=64)
     target_url: Optional[str] = Field(None, max_length=2048)
+    description: Optional[str] = Field(None, max_length=512)
+    about_text: Optional[str] = Field(None, max_length=120)
+    welcome_message: Optional[str] = Field(None, max_length=2000)
+    generate_avatar: bool = False
 
 
 class StartManualBulkRequest(BaseModel):

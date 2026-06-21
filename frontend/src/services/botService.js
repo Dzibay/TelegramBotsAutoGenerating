@@ -68,11 +68,19 @@ export const botService = {
   },
 
   async update(id, payload) {
-    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout: 60000 });
+    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout: 120000 });
+    if (!res.data?.bot) {
+      const err = new Error('Сервер не вернул данные бота после сохранения');
+      err.response = {
+        status: 502,
+        data: { error: err.message },
+      };
+      throw err;
+    }
     return {
-      bot: res.data?.bot,
-      telegramSyncPending: res.data?.telegram_sync_pending === true,
-      message: res.data?.message,
+      bot: res.data.bot,
+      telegramSyncPending: res.data.telegram_sync_pending === true,
+      message: res.data.message,
     };
   },
 

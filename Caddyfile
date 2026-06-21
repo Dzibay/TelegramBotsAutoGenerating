@@ -18,7 +18,7 @@
 # NEURO_ENABLED=true: прокси на neuro-com-admin:8443 (контейнер должен быть в той же Docker-сети).
 neuro.{$SITE_DOMAIN} {
 	log {
-		level ERROR
+		output discard
 	}
 
 	@neuro expression {env.NEURO_ENABLED} == 'true'

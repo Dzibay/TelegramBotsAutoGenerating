@@ -810,7 +810,9 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
             link_mode=link_mode,
             target_url=target or "",
             tracking_url=tracking_url,
-            display_name=row_data.get("display_name") or "",
+            display_name=fields.get("display_name")
+            if fields.get("display_name") is not None
+            else row_data.get("display_name") or "",
             keyword=row_data.get("keyword") or "",
             campaign_defaults=bot_promo_service.campaign_text_defaults(campaign),
         )

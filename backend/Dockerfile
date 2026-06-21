@@ -24,4 +24,4 @@ RUN sed -i 's/\r$//' /app/docker-entrypoint.sh && chmod +x /app/docker-entrypoin
 EXPOSE 5000
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:5000", "--workers", "2"]
+CMD ["gunicorn", "app.main:app", "-k", "uvicorn.workers.UvicornWorker", "-b", "0.0.0.0:5000", "--workers", "2", "--timeout", "300", "--graceful-timeout", "30"]

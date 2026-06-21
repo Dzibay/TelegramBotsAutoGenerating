@@ -160,12 +160,23 @@ export function formatApiError(err, fallback = 'Ошибка') {
     return String(data.message);
   }
 
-  if (err?.code === 'ECONNABORTED') {
-    return 'Превышено время ожидания ответа сервера. Попробуйте позже или упростите операцию.';
+  if (err?.code === 'ERR_CANCELED') {
+    return 'Запрос отменён.';
   }
 
-  if (err?.message === 'Network Error' || !err?.response) {
-    return 'Нет связи с сервером. Проверьте интернет или обновите страницу.';
+  if (err?.code === 'ECONNABORTED') {
+    return 'Превышено время ожидания ответа сервера. Данные могли сохраниться — обновите страницу.';
+  }
+
+  if (err?.code === 'ERR_NETWORK' || err?.message === 'Network Error') {
+    return 'Соединение с сервером прервано. Данные могли сохраниться — обновите страницу.';
+  }
+
+  if (!err?.response) {
+    if (err?.message && !String(err.message).includes('Network Error')) {
+      return String(err.message);
+    }
+    return 'Нет ответа от сервера. Проверьте интернет или обновите страницу.';
   }
 
   if (status && STATUS_FALLBACKS[status]) {

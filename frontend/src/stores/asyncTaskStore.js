@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { TASK_PRESETS } from '../constants/asyncTaskPresets';
+import { formatApiError } from '../utils/apiErrorMessage';
 import { useUiPrefsStore } from './uiPrefsStore';
 
 let logSeq = 0;
@@ -92,7 +92,7 @@ export const useAsyncTaskStore = defineStore('asyncTask', {
         logStep('✓ Готово', 'success');
         return result;
       } catch (err) {
-        const msg = err?.response?.data?.error || err?.message || 'Ошибка';
+        const msg = formatApiError(err, 'Ошибка');
         logStep(`✗ ${msg}`, 'error', err?.response?.data?.details || null);
         throw err;
       } finally {

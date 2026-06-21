@@ -330,6 +330,62 @@ async def create_bot_via_botfather(
         )
 
 
+def _is_set_field_success(text: str) -> bool:
+    low = (text or "").lower()
+    return any(
+        p in low
+        for p in (
+            "success",
+            "updated",
+            "done!",
+            "done.",
+            "new description",
+            "new about",
+            "new name",
+            "profile photo updated",
+            "photo updated",
+            "успешно",
+            "обновлен",
+        )
+    )
+
+
+def _is_unchanged_field_reply(text: str) -> bool:
+    """BotFather отклоняет повторную отправку того же текста — для sync это нормально."""
+    low = (text or "").lower()
+    return any(
+        p in low
+        for p in (
+            "unchanged",
+            "not modified",
+            "has not changed",
+            "nothing has changed",
+            "you haven't changed",
+            "choose a different",
+            "please choose",
+            "please modify",
+            "change something",
+            "already set",
+            "same description",
+            "same about",
+            "не изменил",
+            "не изменено",
+            "не изменён",
+            "не изменен",
+            "выберите другой",
+            "выберите другое",
+            "ничего не изменил",
+        )
+    )
+
+
+def _validate_set_field_reply(text: str, *, field: str, username: str = "") -> None:
+    _check_botfather_throttle(text)
+    if _is_set_field_success(text) or _is_unchanged_field_reply(text):
+        return
+    _raise_botfather_error(text, field=field, username=username)
+
+
 async def set_bot_name(client, username: str, display_name: str) -> None:
     name = (display_name or "").strip()[:64]
     if not name:
@@ -341,9 +397,13 @@ async def set_bot_name(client, username: str, display_name: str) -> None:
             await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
             await _conv_send(conv, name)
-            await _wait_reply(conv)
+            reply = await _wait_reply(conv)
+            _validate_set_field_reply(reply.raw_text or "", field="display_name", username=username)
+    except BadRequestError:
+        raise
     except Exception as exc:
         logger.warning("setname failed for @%s: %s", username, exc)
+        raise BadRequestError(f"Не удалось обновить имя бота в Telegram: {exc}") from exc
 
 
 async def set_bot_description(client, username: str, description: str) -> None:
@@ -354,9 +414,13 @@ async def set_bot_description(client, username: str, description: str) -> None:
             await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
             await _conv_send(conv, description[:512])
-            await _wait_reply(conv)
+            reply = await _wait_reply(conv)
+            _validate_set_field_reply(reply.raw_text or "", field="description", username=username)
+    except BadRequestError:
+        raise
     except Exception as exc:
         logger.warning("setdescription failed for @%s: %s", username, exc)
+        raise BadRequestError(f"Не удалось обновить описание бота в Telegram: {exc}") from exc
 
 
 async def set_bot_about(client, username: str, about: str) -> None:
@@ -370,9 +434,13 @@ async def set_bot_about(client, username: str, about: str) -> None:
             await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
             await _conv_send(conv, text)
-            await _wait_reply(conv)
+            reply = await _wait_reply(conv)
+            _validate_set_field_reply(reply.raw_text or "", field="about", username=username)
+    except BadRequestError:
+        raise
     except Exception as exc:
         logger.warning("setabouttext failed for @%s: %s", username, exc)
+        raise BadRequestError(f"Не удалось обновить «О боте» в Telegram: {exc}") from exc
 
 
 def _is_delete_success(text: str) -> bool:
@@ -624,6 +692,10 @@ async def set_bot_photo(client, username: str, image_path: Path) -> None:
             await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
             await _conv_send_file(conv, path)
-            await _wait_reply(conv)
+            reply = await _wait_reply(conv)
+            _validate_set_field_reply(reply.raw_text or "", field="photo", username=username)
+    except BadRequestError:
+        raise
     except Exception as exc:
         logger.warning("setuserpic failed for @%s: %s", username, exc)
+        raise BadRequestError(f"Не удалось обновить аватар бота в Telegram: {exc}") from exc

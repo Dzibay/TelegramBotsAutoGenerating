@@ -367,6 +367,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { Bot, Check, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
@@ -635,7 +636,7 @@ async function onStart() {
     await loadCampaign();
     await activeJobsPanelRef.value?.loadJobs?.();
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось запустить';
+    loadError.value = formatApiError(e, 'Не удалось запустить');
   } finally {
     starting.value = false;
   }
@@ -646,7 +647,7 @@ async function onBotStart(b) {
     await botService.start(b.id);
     await loadExtras();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка запуска';
+    loadError.value = formatApiError(err, 'Ошибка запуска');
   }
 }
 
@@ -655,7 +656,7 @@ async function onBotStop(b) {
     await botService.stop(b.id);
     await loadExtras();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка остановки';
+    loadError.value = formatApiError(err, 'Ошибка остановки');
   }
 }
 
@@ -668,7 +669,7 @@ async function onBotCopyExport(b) {
       if (copiedExportBotId.value === b.id) copiedExportBotId.value = null;
     }, 2000);
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Не удалось скопировать данные бота';
+    loadError.value = formatApiError(err, 'Не удалось скопировать данные бота');
   }
 }
 
@@ -683,7 +684,7 @@ async function onBotDelete(b) {
     await loadCampaign();
     await loadExtras();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка удаления';
+    loadError.value = formatApiError(err, 'Ошибка удаления');
   }
 }
 
@@ -711,7 +712,7 @@ async function onAttachPrepared(ids) {
     await loadCampaign();
     accountsPanelRef.value?.reloadPicker?.();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка добавения аккаунтов';
+    loadError.value = formatApiError(err, 'Ошибка добавения аккаунтов');
   } finally {
     attaching.value = false;
   }
@@ -739,7 +740,7 @@ async function onVerifyAccount(account) {
     const idx = accounts.value.findIndex((a) => a.id === account.id);
     if (idx >= 0) accounts.value[idx] = updated;
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка проверки';
+    loadError.value = formatApiError(err, 'Ошибка проверки');
   } finally {
     accountBusy.value = false;
     accountBusyId.value = null;
@@ -763,7 +764,7 @@ async function onVerifyAllAccounts() {
     accounts.value = result.accounts ?? accounts.value;
     attachMessage.value = `Проверка: ${result.verified_ok} OK, ${result.verified_failed} ошибок`;
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Ошибка проверки';
+    loadError.value = formatApiError(err, 'Ошибка проверки');
   } finally {
     verifyingAll.value = false;
   }
@@ -806,7 +807,7 @@ async function onLoadAccountBots(account) {
   } catch (err) {
     accountBotsErrors.value = {
       ...accountBotsErrors.value,
-      [account.id]: err.response?.data?.error || 'Не удалось загрузить список ботов',
+      [account.id]: formatApiError(err, 'Не удалось загрузить список ботов'),
     };
   } finally {
     botsBusyId.value = null;
@@ -849,7 +850,7 @@ async function onDeleteAccountBot({ account, bot }) {
     await loadCampaign();
     await loadExtras();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Не удалось удалить бота';
+    loadError.value = formatApiError(err, 'Не удалось удалить бота');
   } finally {
     deleteBotBusy.value = null;
   }
@@ -865,7 +866,7 @@ async function onRemoveAccount(account) {
     await loadExtras();
     accountsPanelRef.value?.reloadPicker?.();
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Не удалось убрать аккаунт';
+    loadError.value = formatApiError(err, 'Не удалось убрать аккаунт');
   } finally {
     accountBusy.value = false;
     accountBusyId.value = null;
@@ -879,7 +880,7 @@ async function onUpdateAccountLabel({ account, label }) {
     const updated = await campaignService.updateAccount(campaignId.value, account.id, { label });
     patchAccount(updated);
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Не удалось сохранить название';
+    loadError.value = formatApiError(err, 'Не удалось сохранить название');
   } finally {
     accountBusyId.value = null;
   }
@@ -892,7 +893,7 @@ async function onUpdateAccountBanned({ account, is_banned }) {
     const updated = await campaignService.updateAccount(campaignId.value, account.id, { is_banned });
     patchAccount(updated);
   } catch (err) {
-    loadError.value = err.response?.data?.error || 'Не удалось обновить статус бана';
+    loadError.value = formatApiError(err, 'Не удалось обновить статус бана');
   } finally {
     accountBusyId.value = null;
   }
@@ -903,7 +904,7 @@ onMounted(async () => {
     await loadCampaign();
     await loadExtras();
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Кампания не найдена';
+    loadError.value = formatApiError(e, 'Кампания не найдена');
   } finally {
     loading.value = false;
   }

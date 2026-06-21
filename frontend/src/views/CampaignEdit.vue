@@ -185,6 +185,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { campaignService } from '../services/campaignService';
@@ -233,7 +234,7 @@ async function load() {
     referralApiKey.value = campaign.referral_api_key || '';
     referralResponseField.value = campaign.referral_response_field || '';
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Кампания не найдена';
+    loadError.value = formatApiError(e, 'Кампания не найдена');
   } finally {
     loading.value = false;
   }
@@ -255,7 +256,7 @@ async function onSaveReferral() {
     await campaignService.update(id.value, referralPayload());
     referralSaved.value = true;
   } catch (e) {
-    referralSaveError.value = e.response?.data?.error || 'Ошибка сохранения';
+    referralSaveError.value = formatApiError(e, 'Ошибка сохранения');
   } finally {
     savingReferral.value = false;
   }
@@ -278,7 +279,7 @@ async function onSave() {
     });
     router.push({ name: 'campaign-workspace', params: { id: id.value } });
   } catch (e) {
-    saveError.value = e.response?.data?.error || 'Ошибка сохранения';
+    saveError.value = formatApiError(e, 'Ошибка сохранения');
   } finally {
     saving.value = false;
   }
@@ -299,7 +300,7 @@ async function onDelete() {
     if (workflow.activeCampaignId === id.value) workflow.setCampaign(null);
     router.push({ name: 'dashboard' });
   } catch (e) {
-    deleteError.value = e.response?.data?.error || 'Ошибка удаления';
+    deleteError.value = formatApiError(e, 'Ошибка удаления');
   } finally {
     deleting.value = false;
   }

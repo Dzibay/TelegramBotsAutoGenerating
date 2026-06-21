@@ -51,6 +51,7 @@
         <input v-model="generateAvatarLocal" type="checkbox" />
         Сгенерировать AI-аватар при создании, если файл не выбран
       </label>
+      <p v-if="avatarError" class="error-text">{{ avatarError }}</p>
       <p class="field-hint">JPG/PNG/WebP до 5 МБ. Показывается в карточке бота.</p>
     </div>
 
@@ -149,6 +150,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage';
 import { computed, ref } from 'vue';
 import apiClient from '../utils/apiClient';
 import BotAvatar from './BotAvatar.vue';
@@ -182,6 +184,7 @@ const fileInput = ref(null);
 const avatarFile = ref(null);
 const avatarObjectUrl = ref(null);
 const generatingAvatar = ref(false);
+const avatarError = ref(null);
 
 const generateAvatarLocal = computed({
   get: () => props.generateAvatar,
@@ -199,8 +202,9 @@ function patch(key, value) {
 function onFileChange(e) {
   const file = e.target.files?.[0];
   if (!file) return;
+  avatarError.value = null;
   if (file.size > 5 * 1024 * 1024) {
-    alert('Файл больше 5 МБ');
+    avatarError.value = 'Файл больше 5 МБ — выберите изображение меньшего размера.';
     return;
   }
   if (avatarObjectUrl.value) URL.revokeObjectURL(avatarObjectUrl.value);
@@ -212,6 +216,7 @@ function onFileChange(e) {
 
 async function onGenerateAvatar() {
   generatingAvatar.value = true;
+  avatarError.value = null;
   try {
     const res = await apiClient.post(
       '/bots/generate-avatar-preview',
@@ -229,7 +234,7 @@ async function onGenerateAvatar() {
     emit('update:avatarFile', file);
     emit('update:avatarPreview', avatarObjectUrl.value);
   } catch (e) {
-    alert(e.response?.data?.error || 'Не удалось сгенерировать аватар');
+    avatarError.value = formatApiError(e, 'Не удалось сгенерировать аватар');
   } finally {
     generatingAvatar.value = false;
   }

@@ -578,6 +578,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
@@ -1342,7 +1343,7 @@ async function cancelActiveJob() {
     activeJob.value = await jobService.cancel(activeJob.value.id);
     await pollJob();
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось остановить задачу';
+    submitError.value = formatApiError(e, 'Не удалось остановить задачу');
   } finally {
     cancellingJob.value = false;
   }
@@ -1362,7 +1363,7 @@ async function addAccountsToActiveJob() {
     await pollJob();
     await activeJobsPanelRef.value?.loadJobs?.();
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось добавить аккаунты';
+    submitError.value = formatApiError(e, 'Не удалось добавить аккаунты');
   } finally {
     addingAccountsToJob.value = false;
   }
@@ -1438,7 +1439,7 @@ async function startManualCreation() {
     await pollJob();
     await activeJobsPanelRef.value?.loadJobs?.();
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось запустить задачу';
+    submitError.value = formatApiError(e, 'Не удалось запустить задачу');
   } finally {
     startingJob.value = false;
   }
@@ -1516,7 +1517,7 @@ async function generateOne(row) {
     });
     applyDraftFromApi(row, draft);
   } catch (e) {
-    row.error = e.response?.data?.error || 'Ошибка генерации';
+    row.error = formatApiError(e, 'Ошибка генерации');
   }
 }
 
@@ -1539,7 +1540,7 @@ async function generateAll() {
       });
       applyDraftFromApi(row, draft);
     } catch (e) {
-      row.error = e.response?.data?.error || 'Ошибка генерации';
+      row.error = formatApiError(e, 'Ошибка генерации');
     }
   }
   generating.value = false;
@@ -1591,14 +1592,14 @@ async function createAllAi() {
               logStep(`@${spec.username} OK`, 'success', { id: b.id });
               return b;
             } catch (e) {
-              logStep(`@${spec.username}: ${e.response?.data?.error || e.message}`, 'error');
+              logStep(`@${spec.username}: ${formatApiError(e, 'Ошибка')}`, 'error');
               throw e;
             }
           },
           { username: spec.username }
         );
       } catch (e) {
-        row.error = e.response?.data?.error || 'Ошибка';
+        row.error = formatApiError(e, 'Ошибка');
       }
     }
     router.push({
@@ -1607,7 +1608,7 @@ async function createAllAi() {
       query: { tab: 'list' },
     });
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Ошибка создания';
+    submitError.value = formatApiError(e, 'Ошибка создания');
   } finally {
     creating.value = false;
     createProgress.value = '';
@@ -1697,7 +1698,7 @@ onMounted(async () => {
       await restoreFromHistory(job);
     }
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Кампания не найдена';
+    loadError.value = formatApiError(e, 'Кампания не найдена');
   }
 });
 

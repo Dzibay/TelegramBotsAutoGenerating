@@ -291,6 +291,15 @@ def welcome_button_label(text: str | None) -> str:
     return (label[:64] if label else WELCOME_BUTTON_TEXT_DEFAULT)
 
 
+def apply_link_placeholder(text: str | None, public_link: str) -> str:
+    """Подставляет {link} без падения на произвольных фигурных скобках в тексте."""
+    if not text:
+        return text or ""
+    if "{link}" in text:
+        return text.replace("{link}", public_link)
+    return text
+
+
 
 async def record_click(slug: str) -> dict[str, Any]:
     row = await db.fetch_one(

@@ -87,6 +87,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import CampaignActiveJobsPanel from '../components/CampaignActiveJobsPanel.vue';
@@ -210,7 +211,7 @@ async function retryJob(job) {
       query: { step: 3, jobId: newJob.id },
     });
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось перезапустить задачу';
+    loadError.value = formatApiError(e, 'Не удалось перезапустить задачу');
   } finally {
     retryBusy.value = false;
   }
@@ -229,7 +230,7 @@ onMounted(async () => {
       if (job) await openJob(job);
     }
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось загрузить историю';
+    loadError.value = formatApiError(e, 'Не удалось загрузить историю');
   } finally {
     loading.value = false;
   }

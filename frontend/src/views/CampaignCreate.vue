@@ -53,6 +53,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import InlineTaskIndicator from '../components/InlineTaskIndicator.vue';
@@ -108,7 +109,7 @@ async function onSubmit() {
       query: { tab: hasAccounts ? 'accounts' : 'guide' },
     });
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось создать кампанию';
+    submitError.value = formatApiError(e, 'Не удалось создать кампанию');
   } finally {
     submitting.value = false;
   }

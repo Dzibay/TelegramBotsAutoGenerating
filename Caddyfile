@@ -8,11 +8,13 @@
 	acme_ca https://acme-v02.api.letsencrypt.org/directory
 }
 
+# Основной сайт
 {$SITE_DOMAIN}, www.{$SITE_DOMAIN} {
 	reverse_proxy frontend:80
 }
 
-# neuro-com-admin (соседний compose-проект, сеть telegrambotsautogenerating_tgbots)
-neuro.{$SITE_DOMAIN} {
-	reverse_proxy neuro-com-admin:8443
-}
+# neuro-com-admin — только если запущен соседний compose-проект в сети telegrambotsautogenerating_tgbots.
+# Если neuro.tg-bots-generate.ru не нужен — закомментируйте блок ниже (иначе Caddy отдаёт 502).
+# neuro.{$SITE_DOMAIN} {
+# 	reverse_proxy neuro-com-admin:8443
+# }

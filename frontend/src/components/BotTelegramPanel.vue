@@ -62,6 +62,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, ref, watch } from 'vue';
 import { botService } from '../services/botService';
 import { telegramBotUrl } from '../utils/botLink';
@@ -110,7 +111,7 @@ async function onVerify() {
     verifyResult.value = data;
     emit('verified', data);
   } catch (e) {
-    verifyError.value = e.response?.data?.error || 'Ошибка проверки';
+    verifyError.value = formatApiError(e, 'Ошибка проверки');
   } finally {
     verifying.value = false;
   }

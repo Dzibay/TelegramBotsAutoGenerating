@@ -1,3 +1,4 @@
+import { formatApiError } from '../utils/apiErrorMessage';
 import { defineStore } from 'pinia';
 import { settingsService } from '../services/settingsService';
 
@@ -32,7 +33,7 @@ export const useSettingsStore = defineStore('settings', {
         this.loaded = true;
         return this.botfatherPacing;
       } catch (e) {
-        this.error = e.response?.data?.error || 'Не удалось загрузить настройки';
+        this.error = formatApiError(e, 'Не удалось загрузить настройки');
         return this.botfatherPacing;
       } finally {
         this.loading = false;

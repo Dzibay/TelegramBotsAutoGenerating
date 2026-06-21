@@ -68,7 +68,8 @@ export const botService = {
   },
 
   async update(id, payload) {
-    const res = await apiClient.patch(`/bots/${id}`, payload);
+    const timeout = payload?.sync_botfather ? 180000 : 60000;
+    const res = await apiClient.patch(`/bots/${id}`, payload, { timeout });
     return res.data?.bot;
   },
 

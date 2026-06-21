@@ -30,6 +30,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
 import StatusBadge from './StatusBadge.vue';
@@ -63,7 +64,7 @@ async function load() {
   try {
     accounts.value = await preparedAccountService.listAvailable();
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось загрузить список аккаунтов';
+    loadError.value = formatApiError(e, 'Не удалось загрузить список аккаунтов');
   } finally {
     loading.value = false;
   }

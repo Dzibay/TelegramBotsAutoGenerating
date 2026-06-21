@@ -83,6 +83,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { onMounted, ref } from 'vue';
 import { Bot, ChevronRight, Megaphone, Plus, Users } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
@@ -112,7 +113,7 @@ async function load() {
   try {
     campaigns.value = await campaignService.list();
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Не удалось загрузить кампании';
+    loadError.value = formatApiError(e, 'Не удалось загрузить кампании');
   } finally {
     loading.value = false;
   }

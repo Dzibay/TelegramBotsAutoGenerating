@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { formatApiError } from './apiErrorMessage';
 
 function getApiBaseUrl() {
   if (import.meta.env.DEV) {
@@ -24,6 +25,7 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    error.apiMessage = formatApiError(error);
     if (error.response?.status === 401) {
       const isAuth = error.config?.url?.includes('/auth/');
       if (!isAuth) {

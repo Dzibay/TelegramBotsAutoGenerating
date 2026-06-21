@@ -139,6 +139,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotLinkModeField from '../components/BotLinkModeField.vue';
@@ -332,7 +333,7 @@ async function onGenerate() {
     if (draft.keyword) keyword.value = draft.keyword;
     if (draft.ai_hint) submitError.value = draft.ai_hint;
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Ошибка генерации AI';
+    submitError.value = formatApiError(e, 'Ошибка генерации AI');
   } finally {
     generating.value = false;
   }
@@ -404,7 +405,7 @@ async function onSubmit() {
     );
     router.push({ name: 'bot-edit', params: { id: bot.id }, query: { created: '1' } });
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось создать бота';
+    submitError.value = formatApiError(e, 'Не удалось создать бота');
   } finally {
     submitting.value = false;
   }

@@ -620,9 +620,17 @@ async def create_bot(
             await pace_botfather_op()
             await _step("Описание и About в BotFather…", "botfather_texts")
             try:
-                await set_bot_description(client, final_username, description.format(link=public_link))
+                await set_bot_description(
+                    client,
+                    final_username,
+                    bot_promo_service.apply_link_placeholder(description, public_link),
+                )
                 await pace_botfather_op()
-                await set_bot_about(client, final_username, about_final.format(link=public_link))
+                await set_bot_about(
+                    client,
+                    final_username,
+                    bot_promo_service.apply_link_placeholder(about_final, public_link),
+                )
             except Exception as exc:
                 raise _wrap_creation_step_error(
                     "botfather_texts",
@@ -869,8 +877,17 @@ async def update_bot(bot_id: int, **fields: Any) -> dict[str, Any]:
                 if client:
                     await client.disconnect()
 
-    if fields.get("sync_botfather") and row.get("token_encrypted"):
-        await _sync_botfather_promo(bot_id, row, generate_avatar=generate_avatar)
+    if fields.get("sync_botfather"):
+        if not row.get("token_encrypted"):
+            raise BadRequestError(
+                "Синхронизация с Telegram недоступна: у бота нет токена BotFather"
+            )
+        await _sync_botfather_promo(
+            bot_id,
+            row,
+            generate_avatar=generate_avatar,
+            upload_avatar=bool(avatar_bytes),
+        )
 
     return _bot_row(row, include_welcome=True)
 
@@ -880,19 +897,17 @@ async def _sync_botfather_promo(
     row: dict,
     *,
     generate_avatar: bool = False,
+    upload_avatar: bool = False,
 ) -> None:
     """Обновить имя, описание, about и аватар в BotFather."""
-    from app.infrastructure.telegram.session_loader import load_client_from_tdata
-
     account = await db.fetch_one(
         "SELECT * FROM telegram_accounts WHERE id = $1",
         row.get("telegram_account_id"),
     )
     if not account or not row.get("username"):
-        return
+        raise BadRequestError("Не найден Telegram-аккаунт или username бота для синхронизации")
 
     link_mode = bot_promo_service.normalize_link_mode(row.get("link_mode"))
-    tracking_url = bot_promo_service.resolve_tracking_url(row.get("redirect_slug"))
     public_link = bot_promo_service.resolve_public_link(
         link_mode, row.get("target_url") or "", row.get("redirect_slug")
     )
@@ -902,8 +917,14 @@ async def _sync_botfather_promo(
         keyword=row.get("keyword") or "",
         link_mode=link_mode,
     )
-    description = row.get("description") or promo["description"]
-    about = (row.get("about_text") or promo["about_text"])[:120]
+    description = bot_promo_service.apply_link_placeholder(
+        row.get("description") or promo["description"],
+        public_link,
+    )
+    about = bot_promo_service.apply_link_placeholder(
+        (row.get("about_text") or promo["about_text"])[:120],
+        public_link,
+    )
     client = None
     try:
         session_file = (
@@ -912,10 +933,13 @@ async def _sync_botfather_promo(
             / str(row["campaign_id"])
             / f"{account['id']}.session"
         )
-        client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+        try:
+            client, _ = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+        except (FileNotFoundError, ValueError, RuntimeError, OSError) as exc:
+            raise BadRequestError(str(exc)) from exc
         await set_bot_name(client, row["username"], row["display_name"])
-        await set_bot_description(client, row["username"], description.format(link=public_link))
-        await set_bot_about(client, row["username"], about.format(link=public_link))
+        await set_bot_description(client, row["username"], description)
+        await set_bot_about(client, row["username"], about)
         if generate_avatar:
             path = await _apply_bot_avatar(
                 client,
@@ -930,7 +954,7 @@ async def _sync_botfather_promo(
                     bot_id,
                     str(path),
                 )
-        elif row.get("avatar_path"):
+        elif upload_avatar and row.get("avatar_path"):
             await set_bot_photo(client, row["username"], Path(row["avatar_path"]))
     finally:
         if client:

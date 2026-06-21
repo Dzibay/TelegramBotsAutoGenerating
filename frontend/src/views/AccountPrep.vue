@@ -195,6 +195,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
 import { useWorkflowStore } from '../stores/workflowStore';
@@ -294,7 +295,7 @@ async function savePoolLabel(account) {
     if (idx >= 0) poolAccounts.value[idx] = updated;
     cancelPoolEdit();
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось сохранить название';
+    submitError.value = formatApiError(e, 'Не удалось сохранить название');
   } finally {
     poolLabelSaving.value = false;
   }
@@ -308,7 +309,7 @@ async function togglePoolBanned(account, checked) {
     const idx = poolAccounts.value.findIndex((a) => a.id === account.id);
     if (idx >= 0) poolAccounts.value[idx] = updated;
   } catch (e) {
-    submitError.value = e.response?.data?.error || 'Не удалось обновить статус бана';
+    submitError.value = formatApiError(e, 'Не удалось обновить статус бана');
   } finally {
     poolBanSavingId.value = null;
   }
@@ -397,7 +398,7 @@ async function onSubmit() {
     await loadHistory();
     await loadPool();
   } catch (e) {
-    submitError.value = e.response?.data?.error || e.response?.data?.message || 'Ошибка запуска';
+    submitError.value = formatApiError(e, 'Ошибка запуска');
   } finally {
     submitting.value = false;
   }

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { authService } from '../services/authService';
+import { formatApiError } from '../utils/apiErrorMessage';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -40,7 +41,7 @@ export const useAuthStore = defineStore('auth', {
         this.user = data.user;
         return data;
       } catch (e) {
-        this.error = e.response?.data?.error || 'Неверный пароль';
+        this.error = formatApiError(e, 'Неверный пароль');
         throw e;
       } finally {
         this.loading = false;

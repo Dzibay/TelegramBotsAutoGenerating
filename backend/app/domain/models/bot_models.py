@@ -74,9 +74,25 @@ class BotUpdateRequest(BaseModel):
     link_mode: Optional[str] = Field(None, pattern="^(redirect|direct)$")
     description: Optional[str] = Field(None, max_length=512)
     about_text: Optional[str] = Field(None, max_length=120)
-    welcome_message: Optional[str] = Field(None, min_length=1, max_length=2000)
+    welcome_message: Optional[str] = Field(None, max_length=2000)
     welcome_button_enabled: Optional[bool] = None
     welcome_button_text: Optional[str] = Field(None, min_length=1, max_length=64)
     keyword: Optional[str] = Field(None, max_length=100)
     sync_botfather: bool = Field(False, description="Применить имя, описание, about и аватар в BotFather")
     generate_avatar: bool = Field(False, description="Сгенерировать новый аватар AI при sync")
+
+    @field_validator(
+        "display_name",
+        "target_url",
+        "description",
+        "about_text",
+        "welcome_message",
+        "welcome_button_text",
+        "keyword",
+        mode="before",
+    )
+    @classmethod
+    def _blank_optional_text_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v

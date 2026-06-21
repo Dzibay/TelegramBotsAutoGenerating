@@ -126,6 +126,7 @@ import StatusBadge from '../components/StatusBadge.vue';
 import { botService } from '../services/botService';
 import { useAsyncTaskStore } from '../stores/asyncTaskStore';
 import { copyBotExportToClipboard } from '../utils/botExport';
+import { formatApiError } from '../utils/apiErrorMessage';
 
 const taskStore = useAsyncTaskStore();
 
@@ -178,28 +179,33 @@ const linkPreview = computed(() => {
   return bot.value.public_link || bot.value.tracking_url || '';
 });
 
+function applyBotToForm(source) {
+  if (!source?.id) return;
+  form.value = {
+    target_url: source.target_url || '',
+    link_mode: source.link_mode || 'redirect',
+    keyword: source.keyword || '',
+    sync_botfather: false,
+    generate_avatar: false,
+  };
+  profile.value = {
+    display_name: source.display_name,
+    username: source.username || '',
+    description: source.description || '',
+    about_text: source.about_text || '',
+    welcome_message: source.welcome_message || '',
+    welcome_button_enabled: source.welcome_button_enabled !== false,
+    welcome_button_text: source.welcome_button_text || 'Перейти по ссылке',
+  };
+}
+
 async function load() {
   loading.value = true;
   try {
     bot.value = await botService.get(Number(route.params.id));
-    form.value = {
-      target_url: bot.value.target_url || '',
-      link_mode: bot.value.link_mode || 'redirect',
-      keyword: bot.value.keyword || '',
-      sync_botfather: false,
-      generate_avatar: false,
-    };
-    profile.value = {
-      display_name: bot.value.display_name,
-      username: bot.value.username || '',
-      description: bot.value.description || '',
-      about_text: bot.value.about_text || '',
-      welcome_message: bot.value.welcome_message || '',
-      welcome_button_enabled: bot.value.welcome_button_enabled !== false,
-      welcome_button_text: bot.value.welcome_button_text || 'Перейти по ссылке',
-    };
+    applyBotToForm(bot.value);
   } catch (e) {
-    loadError.value = e.response?.data?.error || 'Бот не найден';
+    loadError.value = formatApiError(e, 'Бот не найден');
   } finally {
     loading.value = false;
   }
@@ -228,6 +234,9 @@ async function onSave() {
         sync_botfather: syncBf,
         generate_avatar: form.value.generate_avatar,
       });
+      applyBotToForm(bot.value);
+      form.value.sync_botfather = false;
+      form.value.generate_avatar = false;
     };
     if (syncBf) {
       await taskStore.run('SYNC_BOTFATHER', runUpdate, {
@@ -237,7 +246,7 @@ async function onSave() {
       await runUpdate();
     }
   } catch (e) {
-    saveError.value = e.response?.data?.error || 'Ошибка сохранения';
+    saveError.value = formatApiError(e, 'Ошибка сохранения');
   } finally {
     saving.value = false;
   }
@@ -248,7 +257,7 @@ async function onStart() {
   try {
     bot.value = await botService.start(bot.value.id);
   } catch (e) {
-    saveError.value = e.response?.data?.error || 'Ошибка запуска';
+    saveError.value = formatApiError(e, 'Ошибка запуска');
   } finally {
     acting.value = false;
   }
@@ -259,7 +268,7 @@ async function onStop() {
   try {
     bot.value = await botService.stop(bot.value.id);
   } catch (e) {
-    saveError.value = e.response?.data?.error || 'Ошибка остановки';
+    saveError.value = formatApiError(e, 'Ошибка остановки');
   } finally {
     acting.value = false;
   }
@@ -294,7 +303,7 @@ async function onDelete() {
     );
     router.push(backRoute.value);
   } catch (e) {
-    saveError.value = e.response?.data?.error || 'Ошибка удаления';
+    saveError.value = formatApiError(e, 'Ошибка удаления');
   } finally {
     acting.value = false;
   }

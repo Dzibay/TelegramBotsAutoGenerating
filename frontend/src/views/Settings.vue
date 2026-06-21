@@ -134,6 +134,7 @@
 </template>
 
 <script setup>
+import { formatApiError } from '../utils/apiErrorMessage.js';
 import { computed, onMounted, ref } from 'vue';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
@@ -181,7 +182,7 @@ async function onSave() {
     applyFromStore();
     saved.value = true;
   } catch (e) {
-    saveError.value = e.response?.data?.error || 'Не удалось сохранить';
+    saveError.value = formatApiError(e, 'Не удалось сохранить');
   } finally {
     saving.value = false;
   }

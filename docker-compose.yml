@@ -190,6 +190,7 @@ services:
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN:-tg-bots-generate.ru}
       ACME_EMAIL: ${ACME_EMAIL:-admin@tg-bots-generate.ru}
+      NEURO_ENABLED: ${NEURO_ENABLED:-false}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

@@ -1,5 +1,5 @@
 # HTTPS + reverse proxy → frontend (nginx внутри Docker)
-# SITE_DOMAIN и ACME_EMAIL задаются в docker-compose / .env
+# SITE_DOMAIN, ACME_EMAIL, NEURO_ENABLED — docker-compose / .env
 # Не используйте {$VAR:default@email} — символ @ ломает разбор Caddyfile
 
 {
@@ -13,8 +13,25 @@
 	reverse_proxy frontend:80
 }
 
-# neuro-com-admin — только если запущен соседний compose-проект в сети telegrambotsautogenerating_tgbots.
-# Если neuro.tg-bots-generate.ru не нужен — закомментируйте блок ниже (иначе Caddy отдаёт 502).
-# neuro.{$SITE_DOMAIN} {
-# 	reverse_proxy neuro-com-admin:8443
-# }
+# neuro-com-admin — опционально (отдельный compose в сети telegrambotsautogenerating_tgbots).
+# NEURO_ENABLED=false (по умолчанию): 503 без reverse_proxy — нет 502 и spam в логах от ботов.
+# NEURO_ENABLED=true: прокси на neuro-com-admin:8443 (контейнер должен быть в той же Docker-сети).
+neuro.{$SITE_DOMAIN} {
+	log {
+		level ERROR
+	}
+
+	@neuro expression {env.NEURO_ENABLED} == 'true'
+	handle @neuro {
+		reverse_proxy neuro-com-admin:8443 {
+			transport http {
+				dial_timeout 3s
+			}
+			fail_duration 5m
+		}
+	}
+
+	handle {
+		respond "" 503
+	}
+}

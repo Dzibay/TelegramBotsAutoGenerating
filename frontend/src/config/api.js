@@ -36,6 +36,13 @@ export const API_ENDPOINTS = {
     RETRY: (id) => `/jobs/${id}/retry`,
     SNAPSHOT_AVATAR: (jobId, rowId) => `/jobs/${jobId}/snapshot-avatar/${rowId}`,
   },
+  TASKS: {
+    LIST: '/tasks',
+    GET: (id) => `/tasks/${id}`,
+    LOGS: (id) => `/tasks/${id}/logs`,
+    CANCEL: (id) => `/tasks/${id}/cancel`,
+    RETRY: (id) => `/tasks/${id}/retry`,
+  },
   ACCOUNT_PREP: {
     JOBS: '/account-prep/jobs',
     JOB: (id) => `/account-prep/jobs/${id}`,

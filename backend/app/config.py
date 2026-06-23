@@ -34,6 +34,7 @@ class Config:
     DB_POOL_MAX = max(1, int(os.getenv("DB_POOL_MAX", "10")))
 
     REDIS_URL = os.getenv("REDIS_URL", "")
+    REDIS_TASK_QUEUE = os.getenv("REDIS_TASK_QUEUE", "tg_bots:async_tasks")
     REDIS_JOB_QUEUE = os.getenv("REDIS_JOB_QUEUE", "tg_bots:creation_jobs")
     REDIS_PREP_QUEUE = os.getenv("REDIS_PREP_QUEUE", "tg_bots:account_prep_jobs")
     REDIS_BOT_SYNC_QUEUE = os.getenv("REDIS_BOT_SYNC_QUEUE", "tg_bots:bot_sync_jobs")

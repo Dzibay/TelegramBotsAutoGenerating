@@ -74,10 +74,60 @@ CREATE TABLE IF NOT EXISTS bots (
 
 -- Индекс idx_bots_redirect_slug — в migrate_bot_promo.sql (для уже существующих БД)
 
+-- Единый реестр фоновых задач (создание, массовое создание, BotFather sync)
+CREATE TABLE IF NOT EXISTS async_tasks (
+    id BIGSERIAL PRIMARY KEY,
+    task_type TEXT NOT NULL
+        CHECK (task_type IN ('creation', 'bot_telegram_sync', 'account_prep')),
+    status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+    priority INT NOT NULL DEFAULT 100,
+    campaign_id BIGINT REFERENCES campaigns (id) ON DELETE CASCADE,
+    bot_id BIGINT REFERENCES bots (id) ON DELETE CASCADE,
+    creation_job_id BIGINT,
+    account_ids BIGINT[] NOT NULL DEFAULT '{}',
+    dedupe_key TEXT,
+    payload JSONB NOT NULL DEFAULT '{}',
+    result JSONB,
+    progress_message TEXT,
+    error_message TEXT,
+    claimed_by TEXT,
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ,
+    heartbeat_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_async_tasks_status_priority
+    ON async_tasks (status, priority, id);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_campaign
+    ON async_tasks (campaign_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_bot
+    ON async_tasks (bot_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_async_tasks_account_ids
+    ON async_tasks USING GIN (account_ids);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_async_tasks_active_dedupe
+    ON async_tasks (dedupe_key)
+    WHERE dedupe_key IS NOT NULL AND status IN ('queued', 'running');
+
+CREATE TABLE IF NOT EXISTS task_logs (
+    id BIGSERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL REFERENCES async_tasks (id) ON DELETE CASCADE,
+    level TEXT NOT NULL DEFAULT 'info'
+        CHECK (level IN ('debug', 'info', 'warn', 'error')),
+    message TEXT NOT NULL,
+    context JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_task_logs_task_id ON task_logs (task_id, id);
+
 -- Фоновая задача создания ботов по кампании
 CREATE TABLE IF NOT EXISTS creation_jobs (
     id BIGSERIAL PRIMARY KEY,
     campaign_id BIGINT NOT NULL REFERENCES campaigns (id) ON DELETE CASCADE,
+    task_id BIGINT REFERENCES async_tasks (id) ON DELETE SET NULL,
     status TEXT NOT NULL DEFAULT 'queued'
         CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
     job_mode TEXT
@@ -90,6 +140,8 @@ CREATE TABLE IF NOT EXISTS creation_jobs (
     input_snapshot JSONB,
     result_snapshot JSONB,
     retried_from_job_id BIGINT REFERENCES creation_jobs (id) ON DELETE SET NULL,
+    telegram_account_id BIGINT REFERENCES telegram_accounts (id) ON DELETE SET NULL,
+    account_ids BIGINT[] NOT NULL DEFAULT '{}',
     started_at TIMESTAMPTZ,
     finished_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -116,6 +168,12 @@ CREATE INDEX IF NOT EXISTS idx_bots_campaign ON bots (campaign_id);
 CREATE INDEX IF NOT EXISTS idx_bots_status ON bots (status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_creation_jobs_campaign ON creation_jobs (campaign_id);
 CREATE INDEX IF NOT EXISTS idx_creation_jobs_status ON creation_jobs (status);
+CREATE INDEX IF NOT EXISTS idx_creation_jobs_task_id ON creation_jobs (task_id);
+CREATE INDEX IF NOT EXISTS idx_creation_jobs_active_campaign
+    ON creation_jobs (campaign_id, status)
+    WHERE status IN ('queued', 'running');
+CREATE INDEX IF NOT EXISTS idx_creation_jobs_account_ids
+    ON creation_jobs USING GIN (account_ids);
 
 -- Пошаговые логи выполнения задачи (для UI в реальном времени)
 CREATE TABLE IF NOT EXISTS job_logs (

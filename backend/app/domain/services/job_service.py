@@ -7,7 +7,7 @@ from app.constants import ErrorMessages
 from app.core.exceptions import BadRequestError, ConflictError, NotFoundError
 from app.domain.models.campaign_models import StartManualBulkRequest
 from app.domain.services import bot_promo_service, campaign_service, referral_link_service
-from app.domain.services import job_history_service
+from app.domain.services import job_history_service, task_service
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database import repository as db
 from app.utils.telegram_username import normalize_bot_username
@@ -45,6 +45,7 @@ def _job_row(row: dict[str, Any], *, include_snapshots: bool = False) -> dict[st
     account_ids = sorted(_job_account_ids(row))
     out = {
         "id": row["id"],
+        "task_id": row.get("task_id"),
         "campaign_id": row["campaign_id"],
         "status": row["status"],
         "job_mode": row.get("job_mode"),
@@ -146,6 +147,9 @@ async def _find_account_conflicts(
 
 
 async def _enqueue_creation_payload(payload: dict[str, Any]) -> None:
+    if payload.get("task_id"):
+        await task_service.signal_task(int(payload["task_id"]))
+        return
     redis = get_redis()
     if not redis:
         job_id = payload.get("job_id")
@@ -160,6 +164,40 @@ async def _enqueue_creation_payload(payload: dict[str, Any]) -> None:
             )
         raise ConflictError("Redis недоступен. Запустите redis или docker compose up redis")
     await redis.lpush(Config.REDIS_JOB_QUEUE, json.dumps(payload))
+
+
+async def _create_creation_task(
+    row: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    account_ids: set[int],
+    exclusive_campaign: bool = False,
+    progress_message: str | None = None,
+) -> dict[str, Any]:
+    task_payload = {
+        **payload,
+        "exclusive_campaign": exclusive_campaign,
+    }
+    task = await task_service.enqueue_task(
+        task_type=task_service.TASK_TYPE_CREATION,
+        payload=task_payload,
+        campaign_id=int(row["campaign_id"]),
+        creation_job_id=int(row["id"]),
+        account_ids=account_ids,
+        progress_message=progress_message or row.get("progress_message"),
+        signal=False,
+    )
+    await db.execute(
+        """
+        UPDATE creation_jobs
+        SET task_id = $2, updated_at = NOW()
+        WHERE id = $1
+        """,
+        row["id"],
+        task["id"],
+    )
+    await _enqueue_creation_payload({"task_id": task["id"]})
+    return task
 
 
 async def verify_job_accounts_available(
@@ -283,15 +321,6 @@ async def start_creation_job(
 
     async with db.transaction() as conn:
         await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
-        conflicts = await _find_account_conflicts(
-            campaign_id,
-            account_ids,
-            is_auto=job_mode == "auto",
-            conn=conn,
-        )
-        if conflicts:
-            raise ConflictError(_conflict_message(conflicts, account_ids))
-
         row = await db.tx_fetch_one(
             conn,
             """
@@ -327,21 +356,16 @@ async def start_creation_job(
     )
     await sync_campaign_status(campaign_id)
 
-    redis = get_redis()
-    if not redis:
-        await db.execute(
-            """
-            UPDATE creation_jobs SET status = 'failed', error_message = $2, updated_at = NOW()
-            WHERE id = $1
-            """,
-            row["id"],
-            "Redis недоступен — worker не получит задачу",
-        )
-        raise ConflictError("Redis недоступен. Запустите redis или docker compose up redis")
     payload: dict[str, Any] = {"job_id": row["id"], "campaign_id": campaign_id}
     if plan_list:
         payload["plans"] = plan_list
-    await _enqueue_creation_payload(payload)
+    await _create_creation_task(
+        row,
+        payload,
+        account_ids=account_ids,
+        exclusive_campaign=job_mode == "auto",
+        progress_message=progress,
+    )
 
     return _job_row(row)
 
@@ -359,14 +383,6 @@ async def start_single_bot_job(
 
     async with db.transaction() as conn:
         await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
-        conflicts = await _find_account_conflicts(
-            campaign_id,
-            account_ids,
-            conn=conn,
-        )
-        if conflicts:
-            raise ConflictError(_conflict_message(conflicts, account_ids))
-
         row = await db.tx_fetch_one(
             conn,
             """
@@ -392,14 +408,17 @@ async def start_single_bot_job(
     await job_history_service.persist_input_snapshot(job_id, job_mode="single", snapshot=snapshot)
     await sync_campaign_status(campaign_id)
 
-    await _enqueue_creation_payload(
+    await _create_creation_task(
+        row,
         {
             "job_id": job_id,
             "campaign_id": campaign_id,
             "mode": "single",
             "spec": spec,
             "avatar_path": avatar_path,
-        }
+        },
+        account_ids=account_ids,
+        progress_message=f"В очереди: @{spec.get('username', '?')}",
     )
     return _job_row(row)
 
@@ -589,10 +608,6 @@ async def start_manual_creation_job(
 
     async with db.transaction() as conn:
         await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
-        conflicts = await _find_account_conflicts(campaign_id, account_ids, conn=conn)
-        if conflicts:
-            raise ConflictError(_conflict_message(conflicts, account_ids))
-
         total = len(manual_plans)
         job_mode = "manual_multi" if multi_account else "manual"
         progress_msg = (
@@ -651,25 +666,18 @@ async def start_manual_creation_job(
     )
     await sync_campaign_status(campaign_id)
 
-    redis = get_redis()
-    if not redis:
-        await db.execute(
-            """
-            UPDATE creation_jobs SET status = 'failed', error_message = $2, updated_at = NOW()
-            WHERE id = $1
-            """,
-            job_id,
-            "Redis недоступен — worker не получит задачу",
-        )
-        raise ConflictError("Redis недоступен. Запустите redis или docker compose up redis")
-
     payload: dict[str, Any] = {
         "job_id": job_id,
         "campaign_id": campaign_id,
         "mode": redis_mode,
         "manual_plans": manual_plans,
     }
-    await _enqueue_creation_payload(payload)
+    await _create_creation_task(
+        row,
+        payload,
+        account_ids=account_ids,
+        progress_message=progress_msg,
+    )
 
     if not campaign.get("resource_url"):
         await campaign_service.update_campaign(campaign_id, resource_url=default_url)
@@ -782,6 +790,19 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
         """,
         job_id,
     )
+    if row.get("task_id"):
+        await db.execute(
+            """
+            UPDATE async_tasks
+            SET status = 'cancelled',
+                progress_message = 'Отменено пользователем',
+                finished_at = NOW(),
+                heartbeat_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $1 AND status IN ('queued', 'running')
+            """,
+            row["task_id"],
+        )
     await job_history_service.save_result_snapshot(
         job_id,
         row_results=[],
@@ -834,10 +855,6 @@ async def start_batch_create_job(specs: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(specs)
     async with db.transaction() as conn:
         await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
-        conflicts = await _find_account_conflicts(campaign_id, account_ids, conn=conn)
-        if conflicts:
-            raise ConflictError(_conflict_message(conflicts, account_ids))
-
         row = await db.tx_fetch_one(
             conn,
             """
@@ -861,13 +878,16 @@ async def start_batch_create_job(specs: list[dict[str, Any]]) -> dict[str, Any]:
         job_id, job_mode="batch_create", snapshot=snapshot
     )
     await sync_campaign_status(campaign_id)
-    await _enqueue_creation_payload(
+    await _create_creation_task(
+        row,
         {
             "job_id": job_id,
             "campaign_id": campaign_id,
             "mode": "batch_create",
             "specs": specs,
-        }
+        },
+        account_ids=account_ids,
+        progress_message=f"В очереди: пакет из {total} бот(ов)",
     )
     return _job_row(row)
 

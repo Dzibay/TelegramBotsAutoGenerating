@@ -36,6 +36,21 @@ async def append_log(
             progress_message,
         )
 
+    task_id = await db.fetch_val(
+        "SELECT task_id FROM creation_jobs WHERE id = $1",
+        job_id,
+    )
+    if task_id:
+        from app.domain.services import task_service
+
+        await task_service.append_log(
+            int(task_id),
+            message,
+            level=level,
+            context=context,
+            progress_message=progress_message,
+        )
+
     return _log_row(row)
 
 

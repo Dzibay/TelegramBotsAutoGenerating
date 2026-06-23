@@ -46,6 +46,12 @@ const routes = [
       { path: 'bots/:id/edit', name: 'bot-edit', component: BotEdit, meta: { hideWorkflowNav: true, title: 'Редактирование бота' } },
       { path: 'accounts/prepare', name: 'account-prep', component: AccountPrep, meta: { title: 'Подготовка аккаунтов' } },
       {
+        path: 'tasks',
+        name: 'task-queue',
+        component: () => import('../views/TaskQueue.vue'),
+        meta: { hideWorkflowNav: true, title: 'Очередь задач' },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('../views/Settings.vue'),

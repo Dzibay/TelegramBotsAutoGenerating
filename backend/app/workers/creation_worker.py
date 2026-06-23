@@ -14,7 +14,7 @@ load_dotenv()
 from app.config import Config
 from app.core.logging import get_logger, init_logging
 from app.domain.services.creation_pipeline import CreationPipeline
-from app.domain.services import bot_service, job_log_service, job_service, maintenance_service
+from app.domain.services import bot_service, job_log_service, job_service, maintenance_service, task_service
 from app.infrastructure.cache.redis_client import blocking_pop_any, close_redis, get_redis, init_redis
 from app.infrastructure.database.pool import close_pool, init_pool
 
@@ -75,6 +75,13 @@ async def process_botfather_sync(payload: dict) -> None:
         generate_avatar=bool(payload.get("generate_avatar")),
         upload_avatar=bool(payload.get("upload_avatar")),
     )
+
+
+async def _creation_status(job_id: int) -> str | None:
+    from app.infrastructure.database import repository as db
+
+    row = await db.fetch_one("SELECT status FROM creation_jobs WHERE id = $1", job_id)
+    return row.get("status") if row else None
 
 
 async def process_job(
@@ -212,8 +219,60 @@ async def _dispatch_creation_job(data: dict) -> None:
     task.add_done_callback(_on_done)
 
 
+async def _run_unified_task(task: dict) -> None:
+    async with _semaphore:
+        task_id = int(task["id"])
+        payload = task.get("payload") or {}
+        try:
+            await task_service.append_log(task_id, "Задача запущена", progress_message="Старт")
+            if task["task_type"] == task_service.TASK_TYPE_CREATION:
+                await _run_job_payload(payload)
+                job_id = int(payload["job_id"])
+                status = await _creation_status(job_id)
+                if status == "completed":
+                    await task_service.complete_task(task_id, progress_message="Готово")
+                elif status == "cancelled":
+                    await task_service.cancel_task(task_id)
+                elif status == "failed":
+                    await task_service.fail_task(task_id, "Задача создания завершилась с ошибкой")
+                else:
+                    await task_service.complete_task(task_id, progress_message="Готово")
+                return
+
+            if task["task_type"] == task_service.TASK_TYPE_BOT_SYNC:
+                await process_botfather_sync(payload)
+                await task_service.complete_task(task_id, progress_message="Синхронизация завершена")
+                return
+
+            await task_service.fail_task(task_id, f"Неизвестный тип задачи: {task['task_type']}")
+        except Exception as exc:
+            logger.exception("Unified task %s failed: %s", task_id, exc)
+            await task_service.fail_task(task_id, str(exc)[:1000])
+
+
+async def _dispatch_unified_task(task_id: int | None = None) -> bool:
+    task = await task_service.claim_task(task_id)
+    if not task:
+        return False
+
+    coro = _run_unified_task(task)
+    running = asyncio.create_task(coro)
+    _active_tasks.add(running)
+
+    def _on_done(t: asyncio.Task, tid=int(task["id"])) -> None:
+        _active_tasks.discard(t)
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc:
+            logger.exception("Ошибка обработки unified task %s: %s", tid, exc)
+
+    running.add_done_callback(_on_done)
+    return True
+
+
 async def worker_loop() -> None:
-    queues = [Config.REDIS_JOB_QUEUE, Config.REDIS_BOT_SYNC_QUEUE]
+    queues = [Config.REDIS_TASK_QUEUE, Config.REDIS_JOB_QUEUE, Config.REDIS_BOT_SYNC_QUEUE]
     logger.info(
         "Worker слушает очереди %s (concurrency=%s)",
         ", ".join(queues),
@@ -221,14 +280,22 @@ async def worker_loop() -> None:
     )
     while not _shutdown.is_set():
         _active_tasks.difference_update({t for t in _active_tasks if t.done()})
+        if len(_active_tasks) >= Config.WORKER_CONCURRENCY:
+            await asyncio.sleep(0.5)
+            continue
 
         item = await blocking_pop_any(queues, timeout=2)
         if not item:
+            await _dispatch_unified_task()
             continue
         queue_name, payload = item
         job_id = campaign_id = None
         try:
             data = json.loads(payload)
+            if queue_name == Config.REDIS_TASK_QUEUE or data.get("task_id"):
+                await _dispatch_unified_task(int(data["task_id"]) if data.get("task_id") else None)
+                continue
+
             if queue_name == Config.REDIS_BOT_SYNC_QUEUE or data.get("type") == "botfather_sync":
                 await process_botfather_sync(data)
                 continue

@@ -8,6 +8,7 @@ logger = get_logger(__name__)
 
 SYNC_STALE_MINUTES = 10
 JOB_STALE_MINUTES = 30
+TASK_STALE_MINUTES = 30
 
 
 async def reap_stale_telegram_sync() -> int:
@@ -38,6 +39,7 @@ async def reap_stale_creation_jobs() -> int:
         """
         SELECT id, campaign_id FROM creation_jobs
         WHERE status = 'running'
+          AND task_id IS NULL
           AND updated_at < NOW() - ($1 * INTERVAL '1 minute')
         """,
         JOB_STALE_MINUTES,
@@ -79,9 +81,47 @@ async def reap_stale_creation_jobs() -> int:
     return len(rows)
 
 
+async def reap_stale_async_tasks() -> int:
+    """Вернуть зависшие running-задачи в очередь после перезапуска worker."""
+    rows = await db.fetch_all(
+        """
+        UPDATE async_tasks
+        SET status = 'queued',
+            claimed_by = NULL,
+            progress_message = 'Возвращено в очередь после перезапуска worker',
+            heartbeat_at = NULL,
+            updated_at = NOW()
+        WHERE status = 'running'
+          AND COALESCE(heartbeat_at, updated_at) < NOW() - ($1 * INTERVAL '1 minute')
+        RETURNING id
+        """,
+        TASK_STALE_MINUTES,
+    )
+    if rows:
+        from app.domain.services import task_service
+
+        for row in rows:
+            await db.execute(
+                """
+                UPDATE creation_jobs
+                SET status = 'queued',
+                    progress_message = 'Возвращено в очередь после перезапуска worker',
+                    started_at = NULL,
+                    finished_at = NULL,
+                    updated_at = NOW()
+                WHERE task_id = $1 AND status = 'running'
+                """,
+                row["id"],
+            )
+            await task_service.signal_task(int(row["id"]))
+        logger.warning("Requeued %s stale async task(s)", len(rows))
+    return len(rows)
+
+
 async def run_maintenance_cycle() -> None:
     await reap_stale_telegram_sync()
     await reap_stale_creation_jobs()
+    await reap_stale_async_tasks()
     from app.domain.services.account_session_service import reap_stale_cached_sessions
 
     await reap_stale_cached_sessions()

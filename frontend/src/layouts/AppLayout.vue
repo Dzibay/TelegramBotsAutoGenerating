@@ -34,6 +34,7 @@
     <div class="layout-main">
       <main class="main">
         <TaskProgressBanner />
+        <TaskQueueIndicator />
         <PageBreadcrumb v-if="showBreadcrumb" />
         <RouterView />
       </main>
@@ -48,6 +49,7 @@ import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router';
 import AppMainNav from '../components/AppMainNav.vue';
 import PageBreadcrumb from '../components/PageBreadcrumb.vue';
 import TaskProgressBanner from '../components/TaskProgressBanner.vue';
+import TaskQueueIndicator from '../components/TaskQueueIndicator.vue';
 import VerboseLogToggle from '../components/VerboseLogToggle.vue';
 import { SITE_NAME } from '../constants/site';
 import { useAuthStore } from '../stores/authStore';

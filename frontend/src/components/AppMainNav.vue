@@ -22,7 +22,7 @@
 
 <script setup>
 import { computed } from 'vue';
-import { Bot, Megaphone, Settings, Users } from 'lucide-vue-next';
+import { Bot, ListChecks, Megaphone, Settings, Users } from 'lucide-vue-next';
 import { RouterLink, useRoute } from 'vue-router';
 import { useWorkflowStore } from '../stores/workflowStore';
 
@@ -59,6 +59,13 @@ const items = computed(() => {
       disabledTitle: 'Сначала откройте кампанию в разделе «Кампании»',
     },
     {
+      key: 'tasks',
+      label: 'Очередь',
+      icon: ListChecks,
+      to: { name: 'task-queue' },
+      disabled: false,
+    },
+    {
       key: 'settings',
       label: 'Настройки',
       icon: Settings,
@@ -82,6 +89,9 @@ function isActive(item) {
   }
   if (item.key === 'settings') {
     return name === 'settings';
+  }
+  if (item.key === 'tasks') {
+    return name === 'task-queue';
   }
   return false;
 }

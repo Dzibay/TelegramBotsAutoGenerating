@@ -18,11 +18,11 @@ from app.domain.services import (
     bot_promo_service,
     campaign_service,
     referral_link_service,
+    task_service,
     username_service,
 )
 from app.domain.services.account_session_service import account_lock, acquire_cached_client, locked_account_session
 from app.infrastructure.cache.bot_runner_signals import signal_bot_runner_reload
-from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.bot_api import telegram_bot_url, verify_bot_token
 from app.infrastructure.telegram.botfather_client import (
@@ -986,20 +986,19 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
         updated = await db.fetch_one(
             """
             UPDATE bots
-            SET telegram_sync_status = $2, botfather_error = NULL, updated_at = NOW()
+            SET telegram_sync_status = CASE
+                    WHEN telegram_sync_status = $3 THEN $3
+                    ELSE $2
+                END,
+                botfather_error = NULL,
+                updated_at = NOW()
             WHERE id = $1
-              AND telegram_sync_status NOT IN ($3, $4)
             RETURNING *
             """,
             bot_id,
             TELEGRAM_SYNC_PENDING,
-            TELEGRAM_SYNC_PENDING,
             TELEGRAM_SYNC_SYNCING,
         )
-        if not updated:
-            raise ConflictError(
-                "Синхронизация с Telegram уже выполняется — дождитесь завершения"
-            )
         row = updated
 
     return _bot_row(row, include_welcome=True), sync_job
@@ -1010,21 +1009,43 @@ async def enqueue_botfather_sync(
     *,
     generate_avatar: bool = False,
     upload_avatar: bool = False,
-) -> None:
-    """Поставить синхронизацию BotFather в Redis-очередь (не BackgroundTasks)."""
-    redis = get_redis()
-    if not redis:
-        raise ConflictError("Redis недоступен — синхронизация не может быть поставлена в очередь")
-    payload = json.dumps(
-        {
+) -> dict[str, Any]:
+    """Поставить синхронизацию BotFather в единую durable-очередь."""
+    row = await db.fetch_one(
+        """
+        SELECT b.id, b.campaign_id, b.telegram_account_id, b.username, b.display_name
+        FROM bots b
+        WHERE b.id = $1
+        """,
+        bot_id,
+    )
+    if not row:
+        raise NotFoundError("Бот не найден")
+    account_id = row.get("telegram_account_id")
+    dedupe_key = f"bot-sync:{bot_id}"
+    running_sync = await db.fetch_one(
+        """
+        SELECT id FROM async_tasks
+        WHERE dedupe_key = $1 AND status = 'running'
+        LIMIT 1
+        """,
+        dedupe_key,
+    )
+    task = await task_service.enqueue_task(
+        task_type=task_service.TASK_TYPE_BOT_SYNC,
+        campaign_id=int(row["campaign_id"]) if row.get("campaign_id") else None,
+        bot_id=bot_id,
+        account_ids={int(account_id)} if account_id else set(),
+        dedupe_key=None if running_sync else dedupe_key,
+        payload={
             "type": "botfather_sync",
             "bot_id": bot_id,
-            "generate_avatar": generate_avatar,
-            "upload_avatar": upload_avatar,
+            "generate_avatar": bool(generate_avatar),
+            "upload_avatar": bool(upload_avatar),
         },
-        ensure_ascii=False,
+        progress_message=f"В очереди: синхронизация @{row.get('username') or bot_id}",
     )
-    await redis.lpush(Config.REDIS_BOT_SYNC_QUEUE, payload)
+    return task
 
 
 def save_queued_avatar_bytes(avatar_bytes: bytes) -> str:

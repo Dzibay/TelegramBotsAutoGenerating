@@ -1,5 +1,4 @@
 import apiClient from '../utils/apiClient';
-import { pollCreationJob } from '../utils/serverTaskProgress';
 import { isTelegramSyncInProgress } from '../utils/telegramSyncStatus';
 
 export const botService = {
@@ -71,6 +70,7 @@ export const botService = {
     return {
       queued: res.data?.queued === true,
       job: res.data?.job,
+      task: res.data?.task || res.data?.job?.task || null,
       bot: res.data?.bot,
     };
   },
@@ -88,6 +88,7 @@ export const botService = {
     }
     return {
       bot: res.data.bot,
+      task: res.data.task || null,
       telegramSyncPending: isTelegramSyncInProgress(res.data.bot?.telegram_sync_status)
         || res.data.telegram_sync_pending === true,
       message: res.data.message,
@@ -128,11 +129,6 @@ export const botService = {
 
   async batchCreate(bots) {
     const res = await apiClient.post('/bots/batch-create', { bots });
-    const job = res.data?.job;
-    if (res.data?.queued && job?.id) {
-      const finished = await pollCreationJob(job.id);
-      return { job: finished, queued: true };
-    }
     return res.data;
   },
 };

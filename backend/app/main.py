@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import redirect as redirect_routes
-from app.api.v1 import account_prep, auth, bots, campaigns, health, jobs, prepared_accounts, settings
+from app.api.v1 import account_prep, auth, bots, campaigns, health, jobs, prepared_accounts, settings, tasks
 from app.config import Config
 from app.core import (
     LoggingMiddleware,
@@ -49,6 +49,7 @@ app.include_router(auth.router, prefix="/api/v1", tags=["auth"])
 app.include_router(campaigns.router, prefix="/api/v1", tags=["campaigns"])
 app.include_router(bots.router, prefix="/api/v1", tags=["bots"])
 app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
+app.include_router(tasks.router, prefix="/api/v1", tags=["tasks"])
 app.include_router(account_prep.router, prefix="/api/v1", tags=["account-prep"])
 app.include_router(prepared_accounts.router, prefix="/api/v1", tags=["prepared-accounts"])
 app.include_router(settings.router, prefix="/api/v1", tags=["settings"])

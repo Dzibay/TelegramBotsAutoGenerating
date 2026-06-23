@@ -194,13 +194,13 @@ async def update_bot(
     try:
         bot, sync_job = await bot_service.update_bot(bot_id, **body.model_dump(exclude_unset=True))
         if sync_job:
-            await bot_service.enqueue_botfather_sync(
+            task = await bot_service.enqueue_botfather_sync(
                 bot_id,
                 generate_avatar=sync_job.get("generate_avatar", False),
                 upload_avatar=sync_job.get("upload_avatar", False),
             )
             payload = success_response(
-                data={"bot": bot, "telegram_sync_pending": True},
+                data={"bot": bot, "task": task, "telegram_sync_pending": True},
                 message=SuccessMessages.BOT_UPDATED_SYNC_PENDING,
             )
             await complete_idempotent(idem, {"status_code": 200, "body": payload})

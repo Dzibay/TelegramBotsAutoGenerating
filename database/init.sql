@@ -168,6 +168,16 @@ CREATE INDEX IF NOT EXISTS idx_bots_campaign ON bots (campaign_id);
 CREATE INDEX IF NOT EXISTS idx_bots_status ON bots (status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_creation_jobs_campaign ON creation_jobs (campaign_id);
 CREATE INDEX IF NOT EXISTS idx_creation_jobs_status ON creation_jobs (status);
+
+-- Колонки могли отсутствовать в creation_jobs до migrate_async_tasks / migrate_job_account_ids
+ALTER TABLE creation_jobs
+    ADD COLUMN IF NOT EXISTS task_id BIGINT REFERENCES async_tasks (id) ON DELETE SET NULL;
+ALTER TABLE creation_jobs
+    ADD COLUMN IF NOT EXISTS telegram_account_id BIGINT
+        REFERENCES telegram_accounts (id) ON DELETE SET NULL;
+ALTER TABLE creation_jobs
+    ADD COLUMN IF NOT EXISTS account_ids BIGINT[] NOT NULL DEFAULT '{}';
+
 CREATE INDEX IF NOT EXISTS idx_creation_jobs_task_id ON creation_jobs (task_id);
 CREATE INDEX IF NOT EXISTS idx_creation_jobs_active_campaign
     ON creation_jobs (campaign_id, status)

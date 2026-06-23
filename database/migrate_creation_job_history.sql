@@ -8,7 +8,7 @@ ALTER TABLE creation_jobs
 
 ALTER TABLE creation_jobs
     ADD CONSTRAINT creation_jobs_job_mode_check
-        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'manual_multi', 'planned', 'auto'));
+        CHECK (job_mode IS NULL OR job_mode IN ('manual', 'manual_multi', 'planned', 'auto', 'single', 'batch_create'));
 
 ALTER TABLE creation_jobs
     ADD COLUMN IF NOT EXISTS input_snapshot JSONB;

@@ -58,6 +58,18 @@ async def _disconnect_cached(entry: _CachedSession) -> None:
         pass
 
 
+async def ensure_client_connected(client) -> None:
+    """Переподключить Telethon, если сессию отключили (maintenance TTL или сеть)."""
+    try:
+        if client.is_connected():
+            return
+    except Exception:
+        pass
+    await client.connect()
+    if not await client.is_user_authorized():
+        raise ValueError("Сессия Telegram не авторизована")
+
+
 async def acquire_cached_client(
     campaign_id: int,
     account_id: int,
@@ -73,9 +85,9 @@ async def acquire_cached_client(
         if entry is not None:
             if now - entry.last_used <= ttl:
                 try:
-                    if entry.client.is_connected():
-                        entry.last_used = now
-                        return entry.client, entry.me
+                    await ensure_client_connected(entry.client)
+                    entry.last_used = now
+                    return entry.client, entry.me
                 except Exception:
                     pass
             await _disconnect_cached(entry)
@@ -114,7 +126,7 @@ async def reap_stale_cached_sessions() -> int:
     stale_keys = [
         key
         for key, entry in _cache.items()
-        if now - entry.last_used > ttl
+        if now - entry.last_used > ttl and not account_lock(key[1]).locked()
     ]
     for key in stale_keys:
         entry = _cache.pop(key, None)

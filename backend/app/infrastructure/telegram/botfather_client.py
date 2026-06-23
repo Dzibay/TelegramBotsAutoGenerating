@@ -78,6 +78,14 @@ async def _conv_send_file(conv, path: Path) -> None:
 
 
 async def _prepare_botfather_chat(client) -> None:
+    from app.domain.services.account_session_service import ensure_client_connected
+
+    try:
+        await ensure_client_connected(client)
+    except Exception as exc:
+        raise BadRequestError(
+            f"Сессия Telegram отключена: {exc}. Повторите задачу или проверьте аккаунт."
+        ) from exc
     try:
         await client.send_read_acknowledge("BotFather")
     except Exception as exc:

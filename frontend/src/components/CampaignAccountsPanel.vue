@@ -159,7 +159,7 @@
                 >@{{ b.username }}</a>
                 <span v-if="b.in_app" class="tag tag-app">в кампании</span>
                 <span v-else class="tag tag-ext">только в Telegram</span>
-                <span v-if="!b.in_telegram" class="tag tag-warn">удалён в Telegram</span>
+                <span v-if="!b.in_telegram" class="tag tag-warn">нет в /mybots</span>
               </div>
               <div class="bot-delete-cell">
                 <button

@@ -49,6 +49,9 @@ def _account_ids_from_payload(data: dict) -> tuple[set[int], bool]:
         specs = data.get("specs") or []
         return {int(s["telegram_account_id"]) for s in specs}, False
     if mode in ("manual", "manual_multi"):
+        raw_ids = data.get("account_ids") or []
+        if raw_ids:
+            return {int(x) for x in raw_ids if x is not None}, False
         plans = data.get("manual_plans") or []
         return {int(p["telegram_account_id"]) for p in plans if p.get("telegram_account_id")}, False
     return set(), True
@@ -105,22 +108,25 @@ async def process_job(
         if not existing:
             logger.warning("Job %s not found in DB", job_id)
             return
-        if existing["status"] == "cancelled":
-            await job_log_service.append_log(
-                job_id,
-                "Задача была отменена до старта worker",
-                level="warn",
-            )
+        if existing["status"] in ("completed", "failed", "cancelled"):
+            logger.info("Job %s already terminal (%s), skip", job_id, existing["status"])
+            return
+        if existing["status"] == "running":
+            logger.warning("Job %s already running, skip duplicate execution", job_id)
             return
 
-        await db.execute(
+        started = await db.fetch_one(
             """
             UPDATE creation_jobs
             SET status = 'running', started_at = NOW(), progress_message = 'Старт', updated_at = NOW()
-            WHERE id = $1
+            WHERE id = $1 AND status = 'queued'
+            RETURNING id
             """,
             job_id,
         )
+        if not started:
+            logger.warning("Job %s was not queued, skip start", job_id)
+            return
         await db.execute(
             "UPDATE campaigns SET status = 'running', updated_at = NOW() WHERE id = $1",
             campaign_id,
@@ -231,12 +237,15 @@ async def _run_unified_task(task: dict) -> None:
                 status = await _creation_status(job_id)
                 if status == "completed":
                     await task_service.complete_task(task_id, progress_message="Готово")
-                elif status == "cancelled":
-                    await task_service.cancel_task(task_id)
                 elif status == "failed":
                     await task_service.fail_task(task_id, "Задача создания завершилась с ошибкой")
+                elif status == "cancelled":
+                    pass
                 else:
-                    await task_service.complete_task(task_id, progress_message="Готово")
+                    await task_service.fail_task(
+                        task_id,
+                        f"Задача создания в неожиданном статусе: {status}",
+                    )
                 return
 
             if task["task_type"] == task_service.TASK_TYPE_BOT_SYNC:

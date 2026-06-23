@@ -82,40 +82,73 @@ async def reap_stale_creation_jobs() -> int:
 
 
 async def reap_stale_async_tasks() -> int:
-    """Вернуть зависшие running-задачи в очередь после перезапуска worker."""
+    """Вернуть зависшие running-задачи в очередь (не трогать уже завершённые jobs)."""
+    from app.domain.services import task_service
+
     rows = await db.fetch_all(
         """
-        UPDATE async_tasks
-        SET status = 'queued',
-            claimed_by = NULL,
-            progress_message = 'Возвращено в очередь после перезапуска worker',
-            heartbeat_at = NULL,
-            updated_at = NOW()
+        SELECT id FROM async_tasks
         WHERE status = 'running'
           AND COALESCE(heartbeat_at, updated_at) < NOW() - ($1 * INTERVAL '1 minute')
-        RETURNING id
         """,
         TASK_STALE_MINUTES,
     )
-    if rows:
-        from app.domain.services import task_service
+    if not rows:
+        return 0
 
-        for row in rows:
+    requeued = 0
+    for row in rows:
+        task_id = int(row["id"])
+        job = await db.fetch_one(
+            "SELECT status FROM creation_jobs WHERE task_id = $1",
+            task_id,
+        )
+        if job and job["status"] in ("completed", "failed", "cancelled"):
             await db.execute(
                 """
-                UPDATE creation_jobs
-                SET status = 'queued',
-                    progress_message = 'Возвращено в очередь после перезапуска worker',
-                    started_at = NULL,
-                    finished_at = NULL,
+                UPDATE async_tasks
+                SET status = $2,
+                    progress_message = 'Синхронизировано с задачей создания',
+                    finished_at = COALESCE(finished_at, NOW()),
+                    claimed_by = NULL,
                     updated_at = NOW()
-                WHERE task_id = $1 AND status = 'running'
+                WHERE id = $1
                 """,
-                row["id"],
+                task_id,
+                job["status"],
             )
-            await task_service.signal_task(int(row["id"]))
-        logger.warning("Requeued %s stale async task(s)", len(rows))
-    return len(rows)
+            continue
+
+        await db.execute(
+            """
+            UPDATE async_tasks
+            SET status = 'queued',
+                claimed_by = NULL,
+                progress_message = 'Возвращено в очередь после перезапуска worker',
+                heartbeat_at = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+            """,
+            task_id,
+        )
+        await db.execute(
+            """
+            UPDATE creation_jobs
+            SET status = 'queued',
+                progress_message = 'Возвращено в очередь после перезапуска worker',
+                started_at = NULL,
+                finished_at = NULL,
+                updated_at = NOW()
+            WHERE task_id = $1 AND status = 'running'
+            """,
+            task_id,
+        )
+        await task_service.signal_task(task_id)
+        requeued += 1
+
+    if requeued:
+        logger.warning("Requeued %s stale async task(s)", requeued)
+    return requeued
 
 
 async def run_maintenance_cycle() -> None:

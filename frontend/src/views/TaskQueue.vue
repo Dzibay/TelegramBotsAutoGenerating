@@ -5,7 +5,7 @@
         <p class="eyebrow">Фоновые задачи</p>
         <h1>Единая очередь</h1>
         <p class="muted">
-          Создание ботов, массовые партии и синхронизация BotFather выполняются здесь.
+          Синхронизация BotFather и подготовка аккаунтов. Создание ботов — в истории задач кампании.
         </p>
       </div>
       <button class="btn btn-ghost" type="button" :disabled="store.loading" @click="store.refresh()">

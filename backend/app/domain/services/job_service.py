@@ -671,6 +671,7 @@ async def start_manual_creation_job(
         "campaign_id": campaign_id,
         "mode": redis_mode,
         "manual_plans": manual_plans,
+        "account_ids": list(account_ids),
     }
     await _create_creation_task(
         row,
@@ -822,6 +823,7 @@ async def cancel_job(job_id: int) -> dict[str, Any]:
     )
 
     updated = await db.fetch_one("SELECT * FROM creation_jobs WHERE id = $1", job_id)
+    await task_service.signal_queued_tasks()
     return _job_row(updated)
 
 
@@ -929,7 +931,7 @@ async def add_accounts_to_multi_job(job_id: int, account_ids: list[int]) -> dict
             raise ConflictError(f"Аккаунт #{acc_id} забанен")
         if not account.get("tdata_path"):
             raise ConflictError(f"Аккаунт #{acc_id} не готов — нет tdata")
-        if account.get("status") not in ("ready", "creating", "exhausted"):
+        if account.get("status") not in ("ready", "creating"):
             raise ConflictError(
                 f"Аккаунт #{acc_id} не готов к созданию (статус: {account.get('status')})"
             )
@@ -966,6 +968,17 @@ async def add_accounts_to_multi_job(job_id: int, account_ids: list[int]) -> dict
         job_id,
         merged,
     )
+
+    if updated.get("task_id"):
+        await db.execute(
+            """
+            UPDATE async_tasks
+            SET account_ids = $2, updated_at = NOW()
+            WHERE id = $1
+            """,
+            updated["task_id"],
+            merged,
+        )
 
     await job_log_service.append_log(
         job_id,

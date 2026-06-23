@@ -1,8 +1,15 @@
-"""Логи выполнения creation_jobs."""
+"""Логи выполнения creation_jobs (единый журнал для создания ботов)."""
 import json
 from typing import Any, Optional
 
 from app.infrastructure.database import repository as db
+
+_LOG_LEVELS = frozenset({"debug", "info", "warn", "error", "success"})
+
+
+def _normalize_level(level: str) -> str:
+    lvl = (level or "info").lower().strip()
+    return lvl if lvl in _LOG_LEVELS else "info"
 
 
 async def append_log(
@@ -13,6 +20,7 @@ async def append_log(
     context: Optional[dict[str, Any]] = None,
     progress_message: Optional[str] = None,
 ) -> dict[str, Any]:
+    level = _normalize_level(level)
     row = await db.fetch_one(
         """
         INSERT INTO job_logs (job_id, level, message, context)
@@ -40,16 +48,10 @@ async def append_log(
         "SELECT task_id FROM creation_jobs WHERE id = $1",
         job_id,
     )
-    if task_id:
+    if task_id and progress_message:
         from app.domain.services import task_service
 
-        await task_service.append_log(
-            int(task_id),
-            message,
-            level=level,
-            context=context,
-            progress_message=progress_message,
-        )
+        await task_service.heartbeat(int(task_id), progress_message=progress_message)
 
     return _log_row(row)
 

@@ -9,7 +9,7 @@
     </header>
 
     <CampaignActiveJobsPanel
-      v-if="campaignId"
+      v-if="campaignId && !(wizardStep === 3 && isJobActive)"
       ref="activeJobsPanelRef"
       :campaign-id="campaignId"
       :history-link="{ name: 'campaign-job-history', params: { id: campaignId } }"

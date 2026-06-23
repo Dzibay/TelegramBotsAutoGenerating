@@ -568,21 +568,57 @@ def _is_no_bots_reply(text: str) -> bool:
     )
 
 
+def _is_next_page_button(label: str) -> bool:
+    s = (label or "").strip()
+    if not s:
+        return False
+    if s in (">", "»", ">>", "›", "Next", "Далее", "Вперёд", "Вперед", "▶", "➡", "➡️", "→"):
+        return True
+    low = s.lower()
+    if low in ("next", "далее", "вперёд", "вперед") or low.startswith("next"):
+        return True
+    if len(s) <= 3 and any(ch in s for ch in "»›>▶➡→"):
+        return True
+    return False
+
+
 def _has_next_page(reply) -> bool:
     if not reply.buttons:
         return False
     for row in reply.buttons:
         for btn in row:
             label = (getattr(btn, "text", None) or str(btn)).strip()
-            if label in (">", "»", ">>", "Next", "Далее"):
+            if _is_next_page_button(label):
                 return True
     return False
 
 
+async def _click_next_mybots_page(reply) -> bool:
+    if not reply.buttons:
+        return False
+    for row in reply.buttons:
+        for btn in row:
+            label = (getattr(btn, "text", None) or str(btn)).strip()
+            if _is_next_page_button(label):
+                try:
+                    await btn.click()
+                    return True
+                except Exception as exc:
+                    logger.debug("mybots next click %r: %s", label, exc)
+    try:
+        bottom = reply.buttons[-1]
+        if len(bottom) >= 2:
+            await bottom[-1].click()
+            return True
+    except Exception as exc:
+        logger.debug("mybots last-button click: %s", exc)
+    return False
+
+
 async def list_bots_via_botfather(client) -> list[str]:
-    """Список username ботов аккаунта через /mybots."""
+    """Список username ботов аккаунта через /mybots (с пагинацией)."""
     found: list[str] = []
-    seen_pages: set[int] = set()
+    max_pages = 50
 
     async with _botfather_conv(client, timeout=30) as conv:
         await _conv_send(conv, "/mybots")
@@ -591,28 +627,46 @@ async def list_bots_via_botfather(client) -> list[str]:
         if _is_no_bots_reply(reply.raw_text or ""):
             return []
 
-        while True:
+        for page in range(max_pages):
+            before = len(found)
             found.extend(_extract_bot_usernames_from_reply(reply))
             found = list(dict.fromkeys(found))
 
-            if not _has_next_page(reply) or reply.id in seen_pages:
-                break
-            seen_pages.add(reply.id)
-            try:
-                for label in (">", "»", ">>", "Next", "Далее"):
-                    try:
-                        await reply.click(text=label)
-                        break
-                    except Exception:
-                        continue
-                else:
-                    break
-                reply = await _wait_reply(conv)
-            except Exception as exc:
-                logger.debug("mybots pagination failed: %s", exc)
+            if not _has_next_page(reply):
                 break
 
+            if not await _click_next_mybots_page(reply):
+                logger.warning("mybots: next page button not found (page %s, bots %s)", page + 1, len(found))
+                break
+
+            try:
+                reply = await _wait_reply(conv, timeout=25)
+            except Exception as exc:
+                logger.warning("mybots pagination failed on page %s: %s", page + 2, exc)
+                break
+
+            # BotFather иногда редактирует то же сообщение — выходим, если страница не изменилась
+            page_users = _extract_bot_usernames_from_reply(reply)
+            if page > 0 and not page_users:
+                break
+            if page > 0 and len(found) == before and not any(u not in found for u in page_users):
+                break
+
+        logger.info("mybots: listed %s bot(s)", len(found))
+
     return found
+
+
+async def bot_username_exists(client, username: str) -> bool:
+    """Проверка, что @username доступен в Telegram (fallback если /mybots не показал бота)."""
+    uname = normalize_bot_username(username)
+    if not uname:
+        return False
+    try:
+        entity = await client.get_entity(f"@{uname}")
+        return bool(getattr(entity, "bot", False))
+    except Exception:
+        return False
 
 
 async def delete_all_bots_via_botfather(client, *, max_rounds: int = 25) -> int:

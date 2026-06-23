@@ -88,9 +88,11 @@ def _format_flood_wait_human(seconds: int) -> str:
 
 
 def _should_stop_batch_on_error(exc: Exception) -> bool:
-    """Остановить партию: блокировка BotFather или требование паузы от Telegram."""
+    """Остановить партию: блокировка BotFather, лимит ботов или пауза Telegram."""
     details = getattr(exc, "details", None) or {}
     if details.get("botfather_blocked"):
+        return True
+    if details.get("bots_limit_reached"):
         return True
     if details.get("flood_wait"):
         return True
@@ -743,7 +745,10 @@ class CreationPipeline:
                             error=_format_creation_error(exc),
                         )
                         if _should_stop_batch_on_error(exc):
-                            if details.get("botfather_blocked"):
+                            if details.get("bots_limit_reached"):
+                                await self._mark_account_exhausted(account_id, label)
+                                reason = "лимит ботов на аккаунте"
+                            elif details.get("botfather_blocked"):
                                 reason = "аккаунт ограничен BotFather"
                             else:
                                 reason = "Telegram требует паузу"
@@ -819,16 +824,24 @@ class CreationPipeline:
         )
 
     async def _mark_account_exhausted(self, account_id: int, label: str) -> None:
+        acc = await db.fetch_one(
+            "SELECT max_bots_limit, bots_created FROM telegram_accounts WHERE id = $1",
+            account_id,
+        )
+        limit = int(acc["max_bots_limit"]) if acc else 20
         await db.execute(
             """
             UPDATE telegram_accounts
-            SET status = 'exhausted', updated_at = NOW()
+            SET status = 'exhausted',
+                bots_created = GREATEST(bots_created, $2),
+                updated_at = NOW()
             WHERE id = $1
             """,
             account_id,
+            limit,
         )
         await self.log(
-            f"{label}: лимит 20 ботов — аккаунт исключён из ротации",
+            f"{label}: лимит {limit} ботов — аккаунт исключён из ротации",
             level="warn",
             context={"account_id": account_id, "status": "exhausted"},
         )
@@ -898,9 +911,11 @@ class CreationPipeline:
             if account.get("is_banned"):
                 tried.add(aid)
                 continue
-            if account.get("status") not in ("ready", "creating", "exhausted"):
-                if account.get("status") == "exhausted":
-                    tried.add(aid)
+            if account.get("status") == "exhausted":
+                tried.add(aid)
+                continue
+            if account.get("status") not in ("ready", "creating"):
+                tried.add(aid)
                 continue
             slots = max(0, int(account["max_bots_limit"]) - int(account["bots_created"]))
             if slots <= 0:
@@ -1419,7 +1434,7 @@ class CreationPipeline:
                 )
             except BadRequestError as exc:
                 details = exc.details or {}
-                if details.get("botfather_blocked"):
+                if details.get("botfather_blocked") or details.get("bots_limit_reached"):
                     raise
                 wait = int(details.get("wait_seconds") or 0)
                 if wait > 0 and details.get("flood_wait"):
@@ -1789,7 +1804,7 @@ class CreationPipeline:
                             break
 
                 acc_status = "ready"
-                if created_count >= account["max_bots_limit"]:
+                if created_count + int(account["bots_created"]) >= int(account["max_bots_limit"]):
                     acc_status = "exhausted"
                 elif created_count == 0:
                     await db.execute(

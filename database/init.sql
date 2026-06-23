@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS task_logs (
     id BIGSERIAL PRIMARY KEY,
     task_id BIGINT NOT NULL REFERENCES async_tasks (id) ON DELETE CASCADE,
     level TEXT NOT NULL DEFAULT 'info'
-        CHECK (level IN ('debug', 'info', 'warn', 'error')),
+        CHECK (level IN ('debug', 'info', 'warn', 'error', 'success')),
     message TEXT NOT NULL,
     context JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS job_logs (
     id BIGSERIAL PRIMARY KEY,
     job_id BIGINT NOT NULL REFERENCES creation_jobs (id) ON DELETE CASCADE,
     level TEXT NOT NULL DEFAULT 'info'
-        CHECK (level IN ('debug', 'info', 'warn', 'error')),
+        CHECK (level IN ('debug', 'info', 'warn', 'error', 'success')),
     message TEXT NOT NULL,
     context JSONB,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -235,7 +235,7 @@ CREATE TABLE IF NOT EXISTS account_prep_logs (
     job_id BIGINT NOT NULL REFERENCES account_prep_jobs (id) ON DELETE CASCADE,
     account_id BIGINT REFERENCES account_prep_accounts (id) ON DELETE SET NULL,
     level TEXT NOT NULL DEFAULT 'info'
-        CHECK (level IN ('debug', 'info', 'warn', 'error')),
+        CHECK (level IN ('debug', 'info', 'warn', 'error', 'success')),
     message TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

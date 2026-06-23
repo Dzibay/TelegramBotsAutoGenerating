@@ -44,6 +44,11 @@ async def ensure_ready_for_bot_creation(account: dict[str, Any]) -> dict[str, An
             f"На аккаунте достигнут лимит ботов ({bots_created}/{max_limit})"
         )
 
+    if status == "exhausted":
+        raise ConflictError(
+            f"На аккаунте достигнут лимит ботов ({bots_created}/{max_limit})"
+        )
+
     if status in ("ready", "creating"):
         if not tdata_ok:
             raise BadRequestError(
@@ -51,19 +56,6 @@ async def ensure_ready_for_bot_creation(account: dict[str, Any]) -> dict[str, An
                 "Удалите аккаунт из кампании и добавьте снова из пула подготовленных."
             )
         return account
-
-    if status == "exhausted" and bots_created < max_limit:
-        row = await db.fetch_one(
-            """
-            UPDATE telegram_accounts
-            SET status = 'ready', updated_at = NOW()
-            WHERE id = $1
-            RETURNING *
-            """,
-            account_id,
-        )
-        logger.info("Account id=%s: exhausted -> ready (есть слоты для ботов)", account_id)
-        return row
 
     if status in ("pending", "error") and tdata_ok:
         row = await db.fetch_one(
@@ -165,62 +157,74 @@ async def list_account_bots(campaign_id: int, account_id: int) -> dict[str, Any]
     Список ботов аккаунта из BotFather (/mybots) с пометкой, есть ли бот в приложении.
     Обновляет bots_created по фактическому числу в Telegram.
     """
-    from app.infrastructure.telegram.botfather_client import list_bots_via_botfather
+    from app.infrastructure.telegram.botfather_client import (
+        bot_username_exists,
+        list_bots_via_botfather,
+    )
     from app.utils.telegram_username import normalize_bot_username
 
     await campaign_service.get_campaign(campaign_id)
     account = await _get_campaign_account(campaign_id, account_id)
 
-    client = None
     async with account_lock(account_id):
-        try:
-            client, _ = await _use_account_client(campaign_id, account_id, account)
-            telegram_usernames = await list_bots_via_botfather(client)
-        finally:
-            pass
+        client, _ = await _use_account_client(campaign_id, account_id, account)
+        telegram_usernames = await list_bots_via_botfather(client)
 
-    db_rows = await db.fetch_all(
-        """
-        SELECT id, username, display_name, status
-        FROM bots
-        WHERE telegram_account_id = $1
-        """,
-        account_id,
-    )
-    db_by_username: dict[str, dict[str, Any]] = {}
-    for row in db_rows:
-        uname = normalize_bot_username(row.get("username") or "")
-        if uname:
-            db_by_username[uname] = row
-
-    telegram_set = set(telegram_usernames)
-    bots: list[dict[str, Any]] = []
-
-    for username in telegram_usernames:
-        db_row = db_by_username.get(username)
-        bots.append(
-            {
-                "username": username,
-                "in_telegram": True,
-                "in_app": db_row is not None,
-                "bot_id": db_row["id"] if db_row else None,
-                "display_name": db_row.get("display_name") if db_row else None,
-                "status": db_row.get("status") if db_row else None,
-            }
+        db_rows = await db.fetch_all(
+            """
+            SELECT id, username, display_name, status
+            FROM bots
+            WHERE telegram_account_id = $1
+            """,
+            account_id,
         )
+        db_by_username: dict[str, dict[str, Any]] = {}
+        for row in db_rows:
+            uname = normalize_bot_username(row.get("username") or "")
+            if uname:
+                db_by_username[uname] = row
 
-    for username, db_row in db_by_username.items():
-        if username not in telegram_set:
+        telegram_set = set(telegram_usernames)
+
+        # /mybots может не показать всех ботов (пагинация) — проверяем записи из БД
+        for username in list(db_by_username.keys()):
+            if username in telegram_set:
+                continue
+            if await bot_username_exists(client, username):
+                telegram_set.add(username)
+                telegram_usernames.append(username)
+
+        telegram_usernames = list(dict.fromkeys(telegram_usernames))
+
+        bots: list[dict[str, Any]] = []
+
+        for username in telegram_usernames:
+            db_row = db_by_username.get(username)
             bots.append(
                 {
                     "username": username,
-                    "in_telegram": False,
-                    "in_app": True,
-                    "bot_id": db_row["id"],
-                    "display_name": db_row.get("display_name"),
-                    "status": db_row.get("status"),
+                    "in_telegram": True,
+                    "in_app": db_row is not None,
+                    "bot_id": db_row["id"] if db_row else None,
+                    "display_name": db_row.get("display_name") if db_row else None,
+                    "status": db_row.get("status") if db_row else None,
                 }
             )
+
+        for username, db_row in db_by_username.items():
+            if username not in telegram_set:
+                bots.append(
+                    {
+                        "username": username,
+                        "in_telegram": False,
+                        "in_app": True,
+                        "bot_id": db_row["id"],
+                        "display_name": db_row.get("display_name"),
+                        "status": db_row.get("status"),
+                    }
+                )
+
+        bots_in_app = len(db_rows)
 
     await sync_bots_created_count(account_id, len(telegram_usernames))
 
@@ -228,7 +232,7 @@ async def list_account_bots(campaign_id: int, account_id: int) -> dict[str, Any]
     return {
         "account_id": account_id,
         "telegram_bots_count": len(telegram_usernames),
-        "bots_in_app": len(db_rows),
+        "bots_in_app": bots_in_app,
         "bots_created": account["bots_created"],
         "max_bots_limit": account["max_bots_limit"],
         "bots": bots,

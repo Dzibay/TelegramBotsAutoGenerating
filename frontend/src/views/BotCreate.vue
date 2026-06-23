@@ -248,7 +248,8 @@ const usableAccounts = computed(() =>
     if (a.is_banned) return false;
     if (a.status === 'disabled') return false;
     if (a.bots_created >= a.max_bots_limit) return false;
-    return ['ready', 'creating', 'pending', 'error', 'exhausted'].includes(a.status);
+    if (a.status === 'exhausted') return false;
+    return ['ready', 'creating', 'pending', 'error'].includes(a.status);
   })
 );
 

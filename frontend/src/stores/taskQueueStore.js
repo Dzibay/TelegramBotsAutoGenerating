@@ -3,6 +3,8 @@ import { taskService } from '../services/taskService';
 import { formatApiError } from '../utils/apiErrorMessage';
 
 const ACTIVE = new Set(['queued', 'running']);
+/** Создание ботов — в журнале кампании (creation_jobs), не дублируем здесь */
+const HIDDEN_TASK_TYPES = new Set(['creation']);
 
 export const useTaskQueueStore = defineStore('taskQueue', {
   state: () => ({
@@ -26,9 +28,10 @@ export const useTaskQueueStore = defineStore('taskQueue', {
       this.error = null;
       try {
         const data = await taskService.list({ activeOnly, limit: 100 });
-        this.tasks = data.tasks;
-        this.activeCount = data.activeCount;
-        return data.tasks;
+        const tasks = (data.tasks || []).filter((t) => !HIDDEN_TASK_TYPES.has(t.task_type));
+        this.tasks = tasks;
+        this.activeCount = tasks.filter((t) => ACTIVE.has(t.status)).length;
+        return tasks;
       } catch (e) {
         this.error = formatApiError(e, 'Не удалось загрузить очередь задач');
         return this.tasks;

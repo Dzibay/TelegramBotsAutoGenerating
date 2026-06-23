@@ -38,11 +38,9 @@ def account_capabilities(row: dict[str, Any]) -> dict[str, Any]:
     can_create = (
         has_tdata
         and bots < limit
-        and status in ("ready", "creating", "pending", "error", "exhausted")
+        and status in ("ready", "creating", "pending", "error")
         and status != "disabled"
     )
-    if status == "exhausted" and bots >= limit:
-        can_create = False
 
     if row.get("is_banned"):
         can_create = False

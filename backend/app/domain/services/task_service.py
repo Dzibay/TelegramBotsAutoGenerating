@@ -22,6 +22,13 @@ TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 TASK_TYPE_CREATION = "creation"
 TASK_TYPE_BOT_SYNC = "bot_telegram_sync"
 
+_LOG_LEVELS = frozenset({"debug", "info", "warn", "error", "success"})
+
+
+def _normalize_log_level(level: str) -> str:
+    lvl = (level or "info").lower().strip()
+    return lvl if lvl in _LOG_LEVELS else "info"
+
 
 def _iso(dt) -> str | None:
     return dt.isoformat() if dt else None
@@ -164,6 +171,7 @@ async def append_log(
     context: dict[str, Any] | None = None,
     progress_message: str | None = None,
 ) -> dict[str, Any]:
+    level = _normalize_log_level(level)
     row = await db.fetch_one(
         """
         INSERT INTO task_logs (task_id, level, message, context)
@@ -276,35 +284,102 @@ async def active_count() -> int:
     )
 
 
+async def signal_queued_tasks(*, limit: int = 15) -> None:
+    """Разбудить worker для задач в очереди (после завершения блокирующей задачи)."""
+    rows = await db.fetch_all(
+        """
+        SELECT id FROM async_tasks
+        WHERE status = 'queued'
+        ORDER BY priority ASC, id ASC
+        LIMIT $1
+        """,
+        max(1, min(limit, 50)),
+    )
+    for row in rows:
+        await signal_task(int(row["id"]))
+
+
+async def _effective_account_ids(conn, task: dict[str, Any]) -> list[int]:
+    """account_ids из async_tasks или, если пусто, из связанного creation_jobs."""
+    ids = {int(x) for x in (task.get("account_ids") or []) if x is not None}
+    if ids:
+        return sorted(ids)
+    job_id = task.get("creation_job_id")
+    if not job_id:
+        return []
+    row = await conn.fetchrow(
+        """
+        SELECT account_ids, telegram_account_id
+        FROM creation_jobs
+        WHERE id = $1
+        """,
+        int(job_id),
+    )
+    if not row:
+        return []
+    for x in row["account_ids"] or []:
+        if x is not None:
+            ids.add(int(x))
+    if row.get("telegram_account_id"):
+        ids.add(int(row["telegram_account_id"]))
+    return sorted(ids)
+
+
+async def _other_task_account_ids(conn, other: dict[str, Any]) -> list[int]:
+    ids = {int(x) for x in (other.get("account_ids") or []) if x is not None}
+    if ids:
+        return sorted(ids)
+    job_id = other.get("creation_job_id")
+    if not job_id:
+        return []
+    row = await conn.fetchrow(
+        """
+        SELECT account_ids, telegram_account_id
+        FROM creation_jobs
+        WHERE id = $1
+        """,
+        int(job_id),
+    )
+    if not row:
+        return []
+    for x in row["account_ids"] or []:
+        if x is not None:
+            ids.add(int(x))
+    if row.get("telegram_account_id"):
+        ids.add(int(row["telegram_account_id"]))
+    return sorted(ids)
+
+
 async def _has_running_conflict(conn, task: dict[str, Any]) -> bool:
-    account_ids = [int(x) for x in (task.get("account_ids") or []) if x is not None]
+    account_ids = await _effective_account_ids(conn, task)
     payload = _json(task.get("payload")) or {}
     exclusive = bool(payload.get("exclusive_campaign"))
     campaign_id = task.get("campaign_id")
-    conflict = await conn.fetchval(
+
+    others = await conn.fetch(
         """
-        SELECT EXISTS (
-            SELECT 1
-            FROM async_tasks other
-            WHERE other.status = 'running'
-              AND other.id != $1
-              AND (
-                    (cardinality($2::bigint[]) > 0 AND other.account_ids && $2::bigint[])
-                 OR ($3::bigint IS NOT NULL AND other.campaign_id = $3::bigint
-                     AND ((other.payload->>'exclusive_campaign')::boolean IS TRUE OR $4::boolean IS TRUE))
-              )
-        )
+        SELECT * FROM async_tasks
+        WHERE status = 'running' AND id != $1
         """,
         int(task["id"]),
-        account_ids,
-        campaign_id,
-        exclusive,
     )
-    return bool(conflict)
+    for other in others:
+        other_payload = _json(other.get("payload")) or {}
+        other_exclusive = bool(other_payload.get("exclusive_campaign"))
+        if (
+            campaign_id is not None
+            and other.get("campaign_id") == campaign_id
+            and (other_exclusive or exclusive)
+        ):
+            return True
+        other_accounts = await _other_task_account_ids(conn, other)
+        if account_ids and other_accounts and set(account_ids) & set(other_accounts):
+            return True
+    return False
 
 
 async def _lock_task_scope(conn, task: dict[str, Any]) -> None:
-    account_ids = sorted({int(x) for x in (task.get("account_ids") or []) if x is not None})
+    account_ids = await _effective_account_ids(conn, task)
     for account_id in account_ids:
         await conn.execute("SELECT pg_advisory_xact_lock($1)", 1_900_000_000 + account_id)
     payload = _json(task.get("payload")) or {}
@@ -339,6 +414,18 @@ async def claim_task(task_id: int | None = None, *, worker_id: str | None = None
             )
 
         for row in rows:
+            resolved_accounts = await _effective_account_ids(conn, row)
+            if resolved_accounts and not row.get("account_ids"):
+                await conn.execute(
+                    """
+                    UPDATE async_tasks
+                    SET account_ids = $2, updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    row["id"],
+                    resolved_accounts,
+                )
+                row = {**row, "account_ids": resolved_accounts}
             await _lock_task_scope(conn, row)
             if await _has_running_conflict(conn, row):
                 await db.tx_execute(
@@ -411,6 +498,7 @@ async def complete_task(
         json.dumps(result, ensure_ascii=False) if result is not None else None,
         progress_message,
     )
+    await signal_queued_tasks()
     return _task_row(row)
 
 
@@ -433,6 +521,7 @@ async def fail_task(task_id: int, error: str, *, context: dict[str, Any] | None 
         json.dumps(context, ensure_ascii=False) if context else None,
     )
     await append_log(task_id, f"Ошибка: {error}", level="error")
+    await signal_queued_tasks()
     return _task_row(row)
 
 
@@ -476,6 +565,7 @@ async def cancel_task(task_id: int) -> dict[str, Any]:
             row["bot_id"],
         )
     await append_log(task_id, "Задача отменена пользователем", level="warn")
+    await signal_queued_tasks()
     return _task_row(updated)
 
 

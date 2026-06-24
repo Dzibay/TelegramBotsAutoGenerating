@@ -559,7 +559,12 @@ async def create_bot(
     )
 
     flood_ctx = None
-    lock_ctx = account_lock(telegram_account_id) if create_via_botfather else nullcontext()
+    # Caller may already hold account_lock when reusing telethon_client (manual batch).
+    lock_ctx = (
+        account_lock(telegram_account_id)
+        if create_via_botfather and owns_client
+        else nullcontext()
+    )
     async with lock_ctx:
         try:
             if create_via_botfather:

@@ -1,10 +1,29 @@
 """Загрузка Telethon-клиента из папки tdata (opentele)."""
 from pathlib import Path
+from sqlite3 import OperationalError
 
 from app.config import Config
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def cleanup_stale_session_journal(session_path: Path) -> bool:
+    """Удалить осиротевший .session-journal рядом с session-файлом.
+
+    SQLite оставляет такой rollback-journal после прерванного входа/краша.
+    Если он есть при следующем открытии — получаем "database is locked"
+    вместо нормального recovery. Вызывать ДО открытия клиента.
+    """
+    journal = session_path.with_name(session_path.name + "-journal")
+    try:
+        if journal.exists():
+            journal.unlink()
+            logger.warning("Удалён осиротевший %s (прерванный прошлый вход)", journal.name)
+            return True
+    except OSError as exc:
+        logger.warning("Не удалось удалить %s: %s", journal.name, exc)
+    return False
 
 
 def find_tdata_folder(extracted_root: Path) -> Path:
@@ -47,11 +66,19 @@ async def load_client_from_tdata(tdata_path: Path, session_path: Path):
         raise ValueError(f"Не удалось загрузить tdata из {folder}")
 
     api = API.TelegramDesktop.Generate()
-    client = await tdesk.ToTelethon(
-        session=str(session_path),
-        flag=UseCurrentSession,
-        api=api,
-    )
+    try:
+        client = await tdesk.ToTelethon(
+            session=str(session_path),
+            flag=UseCurrentSession,
+            api=api,
+        )
+    except OperationalError:
+        cleanup_stale_session_journal(session_path)
+        client = await tdesk.ToTelethon(
+            session=str(session_path),
+            flag=UseCurrentSession,
+            api=api,
+        )
     await client.connect()
     if not await client.is_user_authorized():
         await client.disconnect()

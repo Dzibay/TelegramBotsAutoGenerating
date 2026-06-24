@@ -52,6 +52,38 @@ CREATION_STEP_LABELS = {
     "db_save": "Сохранение",
 }
 
+
+def _effective_field_value(fields: dict[str, Any], row_data: dict, key: str) -> str:
+    if fields.get(key) is not None:
+        return str(fields[key] or "").strip()
+    return str(row_data.get(key) or "").strip()
+
+
+def _botfather_text_sync_flags(row_data: dict, fields: dict[str, Any]) -> dict[str, bool]:
+    """Какие текстовые поля реально изменились относительно БД."""
+    return {
+        "sync_name": _effective_field_value(fields, row_data, "display_name")
+        != str(row_data.get("display_name") or "").strip(),
+        "sync_description": _effective_field_value(fields, row_data, "description")
+        != str(row_data.get("description") or "").strip(),
+        "sync_about": _effective_field_value(fields, row_data, "about_text")
+        != str(row_data.get("about_text") or "").strip(),
+    }
+
+
+def _botfather_sync_has_work(plan: dict[str, Any]) -> bool:
+    return any(
+        bool(plan.get(key))
+        for key in (
+            "sync_name",
+            "sync_description",
+            "sync_about",
+            "generate_avatar",
+            "upload_avatar",
+            "upload_description_picture",
+        )
+    )
+
 TELEGRAM_SYNC_IDLE = "idle"
 TELEGRAM_SYNC_PENDING = "pending"
 TELEGRAM_SYNC_SYNCING = "syncing"
@@ -1216,29 +1248,33 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
             raise BadRequestError(
                 "Синхронизация с Telegram недоступна: у бота нет токена BotFather"
             )
-        sync_job = {
+        text_flags = _botfather_text_sync_flags(row_data, fields)
+        sync_plan = {
+            **text_flags,
             "generate_avatar": generate_avatar,
             "upload_avatar": bool(avatar_bytes) or force_avatar_sync,
             "upload_description_picture": bool(description_picture_bytes)
             or force_description_picture_sync,
         }
-        updated = await db.fetch_one(
-            """
-            UPDATE bots
-            SET telegram_sync_status = CASE
-                    WHEN telegram_sync_status = $3 THEN $3
-                    ELSE $2
-                END,
-                botfather_error = NULL,
-                updated_at = NOW()
-            WHERE id = $1
-            RETURNING *
-            """,
-            bot_id,
-            TELEGRAM_SYNC_PENDING,
-            TELEGRAM_SYNC_SYNCING,
-        )
-        row = updated
+        if _botfather_sync_has_work(sync_plan):
+            sync_job = sync_plan
+            updated = await db.fetch_one(
+                """
+                UPDATE bots
+                SET telegram_sync_status = CASE
+                        WHEN telegram_sync_status = $3 THEN $3
+                        ELSE $2
+                    END,
+                    botfather_error = NULL,
+                    updated_at = NOW()
+                WHERE id = $1
+                RETURNING *
+                """,
+                bot_id,
+                TELEGRAM_SYNC_PENDING,
+                TELEGRAM_SYNC_SYNCING,
+            )
+            row = updated
 
     return _bot_row(row, include_welcome=True), sync_job
 
@@ -1249,6 +1285,9 @@ async def enqueue_botfather_sync(
     generate_avatar: bool = False,
     upload_avatar: bool = False,
     upload_description_picture: bool = False,
+    sync_name: bool = True,
+    sync_description: bool = True,
+    sync_about: bool = True,
 ) -> dict[str, Any]:
     """Поставить синхронизацию BotFather в единую durable-очередь."""
     row = await db.fetch_one(
@@ -1283,6 +1322,9 @@ async def enqueue_botfather_sync(
             "generate_avatar": bool(generate_avatar),
             "upload_avatar": bool(upload_avatar),
             "upload_description_picture": bool(upload_description_picture),
+            "sync_name": bool(sync_name),
+            "sync_description": bool(sync_description),
+            "sync_about": bool(sync_about),
         },
         progress_message=f"В очереди: синхронизация @{row.get('username') or bot_id}",
     )
@@ -1313,6 +1355,9 @@ async def run_botfather_sync(
     generate_avatar: bool = False,
     upload_avatar: bool = False,
     upload_description_picture: bool = False,
+    sync_name: bool = True,
+    sync_description: bool = True,
+    sync_about: bool = True,
 ) -> None:
     """Фоновая синхронизация профиля бота с BotFather (после быстрого сохранения в БД)."""
     row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
@@ -1333,6 +1378,9 @@ async def run_botfather_sync(
             generate_avatar=generate_avatar,
             upload_avatar=upload_avatar,
             upload_description_picture=upload_description_picture,
+            sync_name=sync_name,
+            sync_description=sync_description,
+            sync_about=sync_about,
         )
         await _set_telegram_sync_status(bot_id, TELEGRAM_SYNC_SYNCED)
         logger.info("BotFather sync completed bot_id=%s @%s", bot_id, row.get("username"))
@@ -1349,8 +1397,11 @@ async def _sync_botfather_promo(
     generate_avatar: bool = False,
     upload_avatar: bool = False,
     upload_description_picture: bool = False,
+    sync_name: bool = True,
+    sync_description: bool = True,
+    sync_about: bool = True,
 ) -> None:
-    """Обновить имя, описание, about и аватар в BotFather."""
+    """Обновить в BotFather только запрошенные поля профиля."""
     account = await db.fetch_one(
         "SELECT * FROM telegram_accounts WHERE id = $1",
         row.get("telegram_account_id"),
@@ -1378,9 +1429,15 @@ async def _sync_botfather_promo(
         public_link,
     )
     async with locked_account_session(row["campaign_id"], account_id, account) as (client, _):
-        await set_bot_name(client, row["username"], row["display_name"])
-        await set_bot_description(client, row["username"], description)
-        await set_bot_about(client, row["username"], about)
+        if sync_name:
+            await set_bot_name(client, row["username"], row["display_name"])
+            await pace_botfather_op()
+        if sync_description:
+            await set_bot_description(client, row["username"], description)
+            await pace_botfather_op()
+        if sync_about:
+            await set_bot_about(client, row["username"], about)
+            await pace_botfather_op()
         if generate_avatar:
             path = await _apply_bot_avatar(
                 client,
@@ -1395,8 +1452,10 @@ async def _sync_botfather_promo(
                     bot_id,
                     str(path),
                 )
+            await pace_botfather_op()
         elif upload_avatar and row.get("avatar_path"):
             await set_bot_photo(client, row["username"], Path(row["avatar_path"]))
+            await pace_botfather_op()
         if upload_description_picture and row.get("description_picture_path"):
             await set_bot_description_picture(
                 client, row["username"], Path(row["description_picture_path"])

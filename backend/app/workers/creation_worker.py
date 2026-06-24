@@ -78,6 +78,9 @@ async def process_botfather_sync(payload: dict) -> None:
         generate_avatar=bool(payload.get("generate_avatar")),
         upload_avatar=bool(payload.get("upload_avatar")),
         upload_description_picture=bool(payload.get("upload_description_picture")),
+        sync_name=payload.get("sync_name", True),
+        sync_description=payload.get("sync_description", True),
+        sync_about=payload.get("sync_about", True),
     )
 
 

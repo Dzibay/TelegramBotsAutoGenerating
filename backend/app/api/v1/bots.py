@@ -234,6 +234,9 @@ async def update_bot(
                 generate_avatar=sync_job.get("generate_avatar", False),
                 upload_avatar=sync_job.get("upload_avatar", False),
                 upload_description_picture=sync_job.get("upload_description_picture", False),
+                sync_name=sync_job.get("sync_name", True),
+                sync_description=sync_job.get("sync_description", True),
+                sync_about=sync_job.get("sync_about", True),
             )
             payload = success_response(
                 data={"bot": bot, "task": task, "telegram_sync_pending": True},

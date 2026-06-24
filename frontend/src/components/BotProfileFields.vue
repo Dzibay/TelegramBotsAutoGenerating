@@ -135,7 +135,7 @@
           </div>
         </div>
         <p v-if="posterError" class="error-text">{{ posterError }}</p>
-        <p class="field-hint">JPG/PNG/WebP/GIF до 5 МБ. Рекомендуется 640×360 px — блок «Что может делать этот бот?».</p>
+        <p class="field-hint">JPG/PNG/WebP/GIF до 5 МБ. Перед отправкой в Telegram будет приведена к 640×360 (обрезка по центру).</p>
       </div>
       <div class="form-group">
         <textarea

@@ -13,3 +13,4 @@ python-multipart>=0.0.9,<1.0.0
 telethon>=1.36.0,<2.0.0
 opentele>=1.15.0,<2.0.0
 PyQt5>=5.15.0,<6.0.0
+Pillow>=10.0.0,<12.0.0

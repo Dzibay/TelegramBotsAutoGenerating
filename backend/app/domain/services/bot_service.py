@@ -36,6 +36,7 @@ from app.infrastructure.telegram.botfather_client import (
 )
 from app.infrastructure.telegram.botfather_pacing import pace_botfather_op
 from app.utils.crypto import decrypt_token, encrypt_token
+from app.utils.image_normalize import normalize_description_picture, normalize_description_picture_file
 from app.utils.telegram_username import build_username_from_keyword, normalize_bot_username
 from app.infrastructure.telegram.session_loader import load_client_from_tdata
 
@@ -202,7 +203,14 @@ def _save_description_picture_file(campaign_id: int, username: str, data: bytes)
         / f"{username.lstrip('@')}.jpg"
     )
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
+    try:
+        normalized = normalize_description_picture(data)
+    except Exception as exc:
+        raise BadRequestError(
+            f"Не удалось обработать картинку плаката: {exc}. "
+            "Загрузите JPG, PNG или WebP."
+        ) from exc
+    path.write_bytes(normalized)
     return path
 
 
@@ -1345,7 +1353,14 @@ def save_queued_description_picture_bytes(description_picture_bytes: bytes) -> s
     dest_dir = Config.STORAGE_ROOT / "job_description_pictures"
     dest_dir.mkdir(parents=True, exist_ok=True)
     path = dest_dir / f"{uuid.uuid4().hex}.jpg"
-    path.write_bytes(description_picture_bytes)
+    try:
+        normalized = normalize_description_picture(description_picture_bytes)
+    except Exception as exc:
+        raise BadRequestError(
+            f"Не удалось обработать картинку плаката: {exc}. "
+            "Загрузите JPG, PNG или WebP."
+        ) from exc
+    path.write_bytes(normalized)
     return str(path)
 
 
@@ -1457,8 +1472,11 @@ async def _sync_botfather_promo(
             await set_bot_photo(client, row["username"], Path(row["avatar_path"]))
             await pace_botfather_op()
         if upload_description_picture and row.get("description_picture_path"):
+            pic_path = Path(row["description_picture_path"])
+            if pic_path.is_file():
+                normalize_description_picture_file(pic_path)
             await set_bot_description_picture(
-                client, row["username"], Path(row["description_picture_path"])
+                client, row["username"], pic_path
             )
 
 

@@ -10,6 +10,7 @@ from app.domain.services import bot_promo_service, campaign_service, referral_li
 from app.domain.services import job_history_service, task_service
 from app.infrastructure.cache.redis_client import get_redis
 from app.infrastructure.database import repository as db
+from app.utils.image_normalize import normalize_description_picture
 from app.utils.telegram_username import normalize_bot_username
 
 
@@ -647,7 +648,7 @@ async def start_manual_creation_job(
     shared_desc_pic_path: str | None = None
     if shared_description_picture:
         shared_path = staging / "shared_description_picture.jpg"
-        shared_path.write_bytes(shared_description_picture)
+        shared_path.write_bytes(normalize_description_picture(shared_description_picture))
         shared_desc_pic_path = str(shared_path)
     desc_pics = description_pictures or {}
     for plan in manual_plans:
@@ -660,7 +661,7 @@ async def start_manual_creation_job(
         row_desc = desc_pics.get(rid)
         if row_desc:
             path = staging / f"{rid}_description_picture.jpg"
-            path.write_bytes(row_desc)
+            path.write_bytes(normalize_description_picture(row_desc))
             plan["description_picture_path"] = str(path)
         elif shared_desc_pic_path:
             plan["description_picture_path"] = shared_desc_pic_path

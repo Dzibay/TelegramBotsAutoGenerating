@@ -245,6 +245,15 @@ def _raise_botfather_error(text: str, *, field: str, username: str = "") -> None
             f"Username «@{username}» отклонён BotFather. "
             "Допустимо: латиница, цифры, _, длина 5–32, обязательно окончание bot."
         )
+    if (
+        "invalid" in low
+        and "dimension" in low
+        and field == "description_picture"
+    ):
+        raise BadRequestError(
+            "BotFather отклонил картинку плаката: нужен формат 640×360. "
+            "Повторите загрузку — сервер должен был привести изображение автоматически."
+        )
     if field == "display_name" and ("invalid" in low or "sorry" in low):
         raise BadRequestError(f"Имя бота отклонено BotFather: {text[:120]}")
     if _is_username_taken_reply(text):

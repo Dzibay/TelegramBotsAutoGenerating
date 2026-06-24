@@ -61,6 +61,7 @@ class Config:
     PREP_TDATA_DIR = STORAGE_ROOT / "prep_tdata"
     PREPARED_TDATA_DIR = STORAGE_ROOT / "prepared_tdata"
     AVATARS_DIR = STORAGE_ROOT / "avatars"
+    DESCRIPTION_PICTURES_DIR = STORAGE_ROOT / "description_pictures"
 
     # Шифрование токенов ботов (Fernet key, base64)
     BOT_TOKEN_ENCRYPTION_KEY = os.getenv("BOT_TOKEN_ENCRYPTION_KEY", "")

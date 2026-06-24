@@ -101,6 +101,42 @@
 
     <details class="field-details" open>
       <summary>Описание в чате до Start (до 512 символов)</summary>
+      <div class="form-group poster-picture-block">
+        <label>Картинка плаката</label>
+        <div class="poster-row">
+          <div class="poster-preview">
+            <img v-if="posterObjectUrl" :src="posterObjectUrl" alt="Плакат" />
+            <img
+              v-else-if="botId && hasDescriptionPicture && serverPosterUrl"
+              :src="serverPosterUrl"
+              alt="Плакат"
+            />
+            <span v-else class="poster-placeholder">640×360</span>
+          </div>
+          <div class="poster-actions">
+            <input
+              ref="posterFileInput"
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              class="file-input"
+              @change="onPosterFileChange"
+            />
+            <button type="button" class="btn-ghost btn-sm" @click="posterFileInput?.click()">
+              Загрузить файл
+            </button>
+            <button
+              v-if="posterObjectUrl || posterFile"
+              type="button"
+              class="btn-ghost btn-sm"
+              @click="clearPoster"
+            >
+              Убрать
+            </button>
+          </div>
+        </div>
+        <p v-if="posterError" class="error-text">{{ posterError }}</p>
+        <p class="field-hint">JPG/PNG/WebP/GIF до 5 МБ. Рекомендуется 640×360 px — блок «Что может делать этот бот?».</p>
+      </div>
       <div class="form-group">
         <textarea
           :value="modelValue.description"
@@ -151,7 +187,7 @@
 
 <script setup>
 import { formatApiError } from '../utils/apiErrorMessage';
-import { computed, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import apiClient from '../utils/apiClient';
 import BotAvatar from './BotAvatar.vue';
 
@@ -167,6 +203,8 @@ const props = defineProps({
   generateAvatar: { type: Boolean, default: true },
   botId: { type: Number, default: null },
   hasAvatar: { type: Boolean, default: false },
+  hasDescriptionPicture: { type: Boolean, default: false },
+  descriptionPictureCacheKey: { type: String, default: '' },
   avatarCacheKey: { type: String, default: '' },
   keyword: { type: String, default: '' },
   avatarPrompt: { type: String, default: '' },
@@ -178,13 +216,46 @@ const emit = defineEmits([
   'update:generateAvatar',
   'update:avatarFile',
   'update:avatarPreview',
+  'update:descriptionPictureFile',
+  'update:descriptionPicturePreview',
 ]);
 
 const fileInput = ref(null);
+const posterFileInput = ref(null);
 const avatarFile = ref(null);
+const posterFile = ref(null);
 const avatarObjectUrl = ref(null);
+const posterObjectUrl = ref(null);
+const serverPosterUrl = ref(null);
 const generatingAvatar = ref(false);
 const avatarError = ref(null);
+const posterError = ref(null);
+
+async function loadServerPoster() {
+  if (!props.botId || !props.hasDescriptionPicture || posterObjectUrl.value) return;
+  try {
+    const q = props.descriptionPictureCacheKey
+      ? `?v=${encodeURIComponent(String(props.descriptionPictureCacheKey))}`
+      : '';
+    const res = await apiClient.get(`/bots/${props.botId}/description-picture${q}`, {
+      responseType: 'blob',
+    });
+    if (serverPosterUrl.value) URL.revokeObjectURL(serverPosterUrl.value);
+    serverPosterUrl.value = URL.createObjectURL(res.data);
+  } catch {
+    serverPosterUrl.value = null;
+  }
+}
+
+onMounted(loadServerPoster);
+watch(
+  () => [props.botId, props.hasDescriptionPicture, props.descriptionPictureCacheKey],
+  loadServerPoster
+);
+onUnmounted(() => {
+  if (posterObjectUrl.value) URL.revokeObjectURL(posterObjectUrl.value);
+  if (serverPosterUrl.value) URL.revokeObjectURL(serverPosterUrl.value);
+});
 
 const generateAvatarLocal = computed({
   get: () => props.generateAvatar,
@@ -249,7 +320,31 @@ function clearAvatar() {
   emit('update:avatarPreview', null);
 }
 
-defineExpose({ avatarFile, clearAvatar });
+function onPosterFileChange(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  posterError.value = null;
+  if (file.size > 5 * 1024 * 1024) {
+    posterError.value = 'Файл больше 5 МБ — выберите изображение меньшего размера.';
+    return;
+  }
+  if (posterObjectUrl.value) URL.revokeObjectURL(posterObjectUrl.value);
+  posterFile.value = file;
+  posterObjectUrl.value = URL.createObjectURL(file);
+  emit('update:descriptionPictureFile', file);
+  emit('update:descriptionPicturePreview', posterObjectUrl.value);
+}
+
+function clearPoster() {
+  if (posterObjectUrl.value) URL.revokeObjectURL(posterObjectUrl.value);
+  posterFile.value = null;
+  posterObjectUrl.value = null;
+  if (posterFileInput.value) posterFileInput.value.value = '';
+  emit('update:descriptionPictureFile', null);
+  emit('update:descriptionPicturePreview', null);
+}
+
+defineExpose({ avatarFile, clearAvatar, posterFile, clearPoster });
 </script>
 
 <style scoped>
@@ -345,5 +440,42 @@ defineExpose({ avatarFile, clearAvatar });
 
 .field-details[open] summary {
   margin-bottom: 0.5rem;
+}
+
+.poster-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.poster-preview {
+  width: 128px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.poster-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.poster-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.poster-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 </style>

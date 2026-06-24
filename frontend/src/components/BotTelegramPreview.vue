@@ -99,6 +99,9 @@
         <div class="tg-chat-bg tg-chat-bg--doodle">
           <div class="tg-what-card">
             <p class="tg-what-title">Что может делать этот бот?</p>
+            <div v-if="resolvedPosterUrl" class="tg-what-image">
+              <img :src="resolvedPosterUrl" alt="" />
+            </div>
             <p class="tg-what-text">{{ descriptionDisplay }}</p>
           </div>
         </div>
@@ -195,7 +198,10 @@ const props = defineProps({
   welcomeButtonText: { type: String, default: 'Перейти по ссылке' },
   avatarUrl: { type: String, default: null },
   avatarPreviewUrl: { type: String, default: null },
+  descriptionPicturePreviewUrl: { type: String, default: null },
   botId: { type: Number, default: null },
+  hasDescriptionPicture: { type: Boolean, default: false },
+  descriptionPictureCacheKey: { type: String, default: '' },
   hasAvatar: { type: Boolean, default: false },
   avatarCacheKey: { type: String, default: '' },
   publicLink: { type: String, default: '' },
@@ -204,6 +210,8 @@ const props = defineProps({
 const resolvedPreviewUrl = computed(
   () => props.avatarPreviewUrl || props.avatarUrl || null
 );
+
+const resolvedPosterUrl = computed(() => props.descriptionPicturePreviewUrl || null);
 
 const showServerAvatar = computed(
   () => !resolvedPreviewUrl.value && props.botId && props.hasAvatar
@@ -570,6 +578,21 @@ const linkPreviewDesc = computed(() => {
   font-size: 0.88rem;
   font-weight: 700;
   color: #000;
+}
+
+.tg-what-image {
+  margin: 0 0 0.65rem;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f0f0f0;
+}
+
+.tg-what-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
 }
 
 .tg-what-text {

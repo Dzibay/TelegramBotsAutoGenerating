@@ -57,10 +57,11 @@ export const botService = {
     return res.data?.draft;
   },
 
-  async create(payload, avatarFile = null, { idempotencyKey = null } = {}) {
+  async create(payload, avatarFile = null, descriptionPictureFile = null, { idempotencyKey = null } = {}) {
     const form = new FormData();
     form.append('data', JSON.stringify(payload));
     if (avatarFile) form.append('avatar', avatarFile);
+    if (descriptionPictureFile) form.append('description_picture', descriptionPictureFile);
     const headers = { 'Content-Type': 'multipart/form-data' };
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
     const res = await apiClient.post('/bots', form, {
@@ -106,6 +107,27 @@ export const botService = {
       bot: res.data?.bot,
       message: res.data?.message,
     };
+  },
+
+  async uploadDescriptionPicture(id, file) {
+    const form = new FormData();
+    form.append('description_picture', file);
+    const res = await apiClient.post(`/bots/${id}/description-picture`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
+    });
+    return {
+      bot: res.data?.bot,
+      message: res.data?.message,
+    };
+  },
+
+  async loadDescriptionPictureObjectUrl(botId, cacheKey = '') {
+    const q = cacheKey ? `?v=${encodeURIComponent(String(cacheKey))}` : '';
+    const res = await apiClient.get(`/bots/${botId}/description-picture${q}`, {
+      responseType: 'blob',
+    });
+    return URL.createObjectURL(res.data);
   },
 
   async remove(id) {

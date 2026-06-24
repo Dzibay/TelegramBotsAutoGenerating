@@ -110,6 +110,37 @@
         </div>
 
         <div class="form-group">
+          <label>Картинка плаката <span class="optional">(для всех ботов)</span></label>
+          <div class="shared-poster-row">
+            <div class="shared-poster-preview">
+              <img v-if="sharedDescriptionPicturePreview" :src="sharedDescriptionPicturePreview" alt="" />
+              <span v-else class="shared-poster-placeholder">640×360</span>
+            </div>
+            <div class="shared-poster-actions">
+              <input
+                ref="sharedPosterInput"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                class="file-input-hidden"
+                @change="onSharedPosterChange"
+              />
+              <button type="button" class="btn btn-sm btn-ghost" @click="sharedPosterInput?.click()">
+                Загрузить
+              </button>
+              <button
+                v-if="sharedDescriptionPictureFile"
+                type="button"
+                class="btn btn-sm btn-ghost"
+                @click="clearSharedPoster"
+              >
+                Убрать
+              </button>
+            </div>
+          </div>
+          <p class="field-hint">Одинаковая для всей партии. Рекомендуется 640×360 px, до 5 МБ.</p>
+        </div>
+
+        <div class="form-group">
           <label>Сообщение после Start *</label>
           <textarea v-model="sharedTexts.welcome_message" rows="4" maxlength="2000" placeholder="Первое сообщение в чате" />
         </div>
@@ -706,6 +737,33 @@ const sharedTexts = ref({
   welcome_button_enabled: true,
   welcome_button_text: 'Перейти по ссылке',
 });
+
+const sharedPosterInput = ref(null);
+const sharedDescriptionPictureFile = ref(null);
+const sharedDescriptionPicturePreview = ref(null);
+
+function onSharedPosterChange(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) {
+    submitError.value = 'Картинка плаката больше 5 МБ';
+    return;
+  }
+  if (sharedDescriptionPicturePreview.value) {
+    URL.revokeObjectURL(sharedDescriptionPicturePreview.value);
+  }
+  sharedDescriptionPictureFile.value = file;
+  sharedDescriptionPicturePreview.value = URL.createObjectURL(file);
+}
+
+function clearSharedPoster() {
+  if (sharedDescriptionPicturePreview.value) {
+    URL.revokeObjectURL(sharedDescriptionPicturePreview.value);
+  }
+  sharedDescriptionPictureFile.value = null;
+  sharedDescriptionPicturePreview.value = null;
+  if (sharedPosterInput.value) sharedPosterInput.value.value = '';
+}
 
 const manualRows = ref([newManualRow(), newManualRow(), newManualRow()]);
 const pasteText = ref('');
@@ -1441,6 +1499,9 @@ async function startManualCreation() {
     if (avatarFile) {
       form.append(`avatar_${row.id}`, avatarFile);
     }
+  }
+  if (sharedDescriptionPictureFile.value) {
+    form.append('shared_description_picture', sharedDescriptionPictureFile.value);
   }
 
   try {
@@ -2250,6 +2311,47 @@ onUnmounted(() => {
 
 :deep(.preview-compact .tg-preview-title),
 :deep(.preview-compact .tg-map) {
+  display: none;
+}
+
+.shared-poster-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.shared-poster-preview {
+  width: 128px;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.shared-poster-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shared-poster-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.shared-poster-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.file-input-hidden {
   display: none;
 }
 </style>

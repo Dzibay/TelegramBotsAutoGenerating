@@ -375,6 +375,7 @@ async def start_single_bot_job(
     spec: dict[str, Any],
     *,
     avatar_path: str | None = None,
+    description_picture_path: str | None = None,
 ) -> dict[str, Any]:
     """Очередь создания одного бота (job_mode=single)."""
     await campaign_service.get_campaign(campaign_id)
@@ -404,6 +405,7 @@ async def start_single_bot_job(
         "mode": "single",
         "spec": spec,
         "avatar_path": avatar_path,
+        "description_picture_path": description_picture_path,
     }
     await job_history_service.persist_input_snapshot(job_id, job_mode="single", snapshot=snapshot)
     await sync_campaign_status(campaign_id)
@@ -416,6 +418,7 @@ async def start_single_bot_job(
             "mode": "single",
             "spec": spec,
             "avatar_path": avatar_path,
+            "description_picture_path": description_picture_path,
         },
         account_ids=account_ids,
         progress_message=f"В очереди: @{spec.get('username', '?')}",
@@ -477,6 +480,8 @@ async def start_manual_creation_job(
     *,
     body: StartManualBulkRequest,
     avatars: dict[int, bytes],
+    description_pictures: dict[int, bytes] | None = None,
+    shared_description_picture: bytes | None = None,
     retried_from_job_id: int | None = None,
 ) -> dict[str, Any]:
     """Очередь ручного массового создания (worker + логи)."""
@@ -602,6 +607,7 @@ async def start_manual_creation_job(
                 "use_referral_api": use_referral,
                 "link_source": link_source,
                 "avatar_path": None,
+                "description_picture_path": None,
                 "generate_avatar": bool(item.generate_avatar),
             }
         )
@@ -638,13 +644,26 @@ async def start_manual_creation_job(
 
     staging = Config.STORAGE_ROOT / "job_staging" / str(job_id)
     staging.mkdir(parents=True, exist_ok=True)
+    shared_desc_pic_path: str | None = None
+    if shared_description_picture:
+        shared_path = staging / "shared_description_picture.jpg"
+        shared_path.write_bytes(shared_description_picture)
+        shared_desc_pic_path = str(shared_path)
+    desc_pics = description_pictures or {}
     for plan in manual_plans:
         rid = int(plan["row_id"])
         raw = avatars.get(rid)
         if raw:
-            path = staging / f"{rid}.jpg"
+            path = staging / f"{rid}_avatar.jpg"
             path.write_bytes(raw)
             plan["avatar_path"] = str(path)
+        row_desc = desc_pics.get(rid)
+        if row_desc:
+            path = staging / f"{rid}_description_picture.jpg"
+            path.write_bytes(row_desc)
+            plan["description_picture_path"] = str(path)
+        elif shared_desc_pic_path:
+            plan["description_picture_path"] = shared_desc_pic_path
 
     input_snapshot = job_history_service.build_manual_input_snapshot(
         job_id=job_id,

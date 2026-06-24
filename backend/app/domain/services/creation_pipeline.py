@@ -105,6 +105,7 @@ CREATION_STEP_LABELS = {
     "referral_fetch": "Реферальная ссылка",
     "links": "Ссылки",
     "avatar": "Аватар",
+    "description_picture": "Картинка плаката",
     "botfather_texts": "Тексты в BotFather",
     "db_save": "Сохранение",
 }
@@ -402,7 +403,13 @@ class CreationPipeline:
 
         await self._finish_job(total_created, cancelled=await self._is_cancelled())
 
-    async def run_single(self, spec: dict[str, Any], *, avatar_path: str | None = None) -> None:
+    async def run_single(
+        self,
+        spec: dict[str, Any],
+        *,
+        avatar_path: str | None = None,
+        description_picture_path: str | None = None,
+    ) -> None:
         """Создание одного бота (job_mode=single)."""
         from app.domain.services import job_service
 
@@ -421,6 +428,12 @@ class CreationPipeline:
             path = Path(avatar_path)
             if path.is_file():
                 avatar_bytes = path.read_bytes()
+
+        description_picture_bytes = None
+        if description_picture_path:
+            path = Path(description_picture_path)
+            if path.is_file():
+                description_picture_bytes = path.read_bytes()
 
         async def on_step(msg: str, step_id: str = "") -> None:
             await self.log(msg, progress=msg[:120], context={"step": step_id} if step_id else None)
@@ -446,6 +459,7 @@ class CreationPipeline:
                     auto_start=spec.get("auto_start", False),
                     avatar_bytes=avatar_bytes,
                     generate_avatar=bool(spec.get("generate_avatar", True)) and not avatar_bytes,
+                    description_picture_bytes=description_picture_bytes,
                     use_referral_api=spec.get("use_referral_api"),
                     on_step=on_step,
                 )
@@ -506,6 +520,11 @@ class CreationPipeline:
             if avatar_path:
                 try:
                     Path(avatar_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if description_picture_path:
+                try:
+                    Path(description_picture_path).unlink(missing_ok=True)
                 except OSError:
                     pass
             await release_cached_session(self.campaign_id, account_id, force_disconnect=True)
@@ -684,10 +703,18 @@ class CreationPipeline:
                         if path.is_file():
                             avatar_bytes = path.read_bytes()
 
+                    description_picture_bytes = None
+                    description_picture_path = plan.get("description_picture_path")
+                    if description_picture_path:
+                        path = Path(description_picture_path)
+                        if path.is_file():
+                            description_picture_bytes = path.read_bytes()
+
                     try:
                         bot = await self._create_manual_bot_with_flood_retry(
                             plan,
                             avatar_bytes=avatar_bytes,
+                            description_picture_bytes=description_picture_bytes,
                             client=client,
                         )
                         if await self._is_cancelled():
@@ -932,6 +959,7 @@ class CreationPipeline:
         plan: dict[str, Any],
         *,
         avatar_bytes: Optional[bytes],
+        description_picture_bytes: Optional[bytes] = None,
         client,
         account_id: int,
     ) -> dict[str, Any]:
@@ -952,6 +980,7 @@ class CreationPipeline:
             create_via_botfather=True,
             auto_start=bool(plan.get("auto_start", True)),
             avatar_bytes=avatar_bytes,
+            description_picture_bytes=description_picture_bytes,
             generate_avatar=bool(plan.get("generate_avatar")) and not avatar_bytes,
             telethon_client=client,
             use_referral_api=plan.get("use_referral_api"),
@@ -1236,6 +1265,13 @@ class CreationPipeline:
                         if path.is_file():
                             avatar_bytes = path.read_bytes()
 
+                    description_picture_bytes = None
+                    description_picture_path = plan.get("description_picture_path")
+                    if description_picture_path:
+                        path = Path(description_picture_path)
+                        if path.is_file():
+                            description_picture_bytes = path.read_bytes()
+
                     flood_ctx = flood_contexts.get(account_id)
                     if flood_ctx is None:
                         flood_ctx = account_flood_service.set_flood_account_context(account_id)
@@ -1246,6 +1282,7 @@ class CreationPipeline:
                         bot = await self._create_manual_bot_once(
                             plan,
                             avatar_bytes=avatar_bytes,
+                            description_picture_bytes=description_picture_bytes,
                             client=client,
                             account_id=account_id,
                         )
@@ -1396,6 +1433,7 @@ class CreationPipeline:
         plan: dict[str, Any],
         *,
         avatar_bytes: Optional[bytes],
+        description_picture_bytes: Optional[bytes] = None,
         client,
     ) -> dict[str, Any]:
         for attempt in range(FLOOD_MAX_RETRIES + 1):
@@ -1419,6 +1457,7 @@ class CreationPipeline:
                     create_via_botfather=True,
                     auto_start=bool(plan.get("auto_start", True)),
                     avatar_bytes=avatar_bytes,
+                    description_picture_bytes=description_picture_bytes,
                     generate_avatar=bool(plan.get("generate_avatar")) and not avatar_bytes,
                     telethon_client=client,
                     use_referral_api=plan.get("use_referral_api"),

@@ -352,6 +352,8 @@ def _is_set_field_success(text: str) -> bool:
             "new name",
             "profile photo updated",
             "photo updated",
+            "description picture updated",
+            "description picture",
             "успешно",
             "обновлен",
         )
@@ -761,3 +763,28 @@ async def set_bot_photo(client, username: str, image_path: Path) -> None:
     except Exception as exc:
         logger.warning("setuserpic failed for @%s: %s", username, exc)
         raise BadRequestError(f"Не удалось обновить аватар бота в Telegram: {exc}") from exc
+
+
+async def set_bot_description_picture(client, username: str, image_path: Path) -> None:
+    """Картинка в блоке «Что может делать этот бот?» (BotFather /setdescriptionpic)."""
+    path = Path(image_path)
+    if not path.is_file():
+        return
+    try:
+        async with _botfather_conv(client, timeout=30) as conv:
+            await _conv_send(conv, "/setdescriptionpic")
+            await _wait_reply(conv)
+            await _conv_send(conv, f"@{username.lstrip('@')}")
+            await _wait_reply(conv)
+            await _conv_send_file(conv, path)
+            reply = await _wait_reply(conv)
+            _validate_set_field_reply(
+                reply.raw_text or "", field="description_picture", username=username
+            )
+    except BadRequestError:
+        raise
+    except Exception as exc:
+        logger.warning("setdescriptionpic failed for @%s: %s", username, exc)
+        raise BadRequestError(
+            f"Не удалось обновить картинку плаката в Telegram: {exc}"
+        ) from exc

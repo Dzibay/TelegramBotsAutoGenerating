@@ -112,6 +112,10 @@ class BotUpdateRequest(BaseModel):
         False,
         description="Загрузить текущий avatar_path в BotFather при sync (после отдельной загрузки файла)",
     )
+    force_description_picture_sync: bool = Field(
+        False,
+        description="Загрузить текущий description_picture_path в BotFather при sync",
+    )
 
     @field_validator(
         "display_name",

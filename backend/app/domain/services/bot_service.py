@@ -30,6 +30,7 @@ from app.infrastructure.telegram.botfather_client import (
     delete_bot_via_botfather,
     set_bot_about,
     set_bot_description,
+    set_bot_description_picture,
     set_bot_name,
     set_bot_photo,
 )
@@ -46,6 +47,7 @@ CREATION_STEP_LABELS = {
     "referral_fetch": "Реферальная ссылка",
     "links": "Ссылки",
     "avatar": "Аватар",
+    "description_picture": "Картинка плаката",
     "botfather_texts": "Тексты в BotFather",
     "db_save": "Сохранение",
 }
@@ -150,8 +152,23 @@ def _avatar_api_url(bot_id: int) -> str:
     return f"/api/v1/bots/{bot_id}/avatar"
 
 
+def _description_picture_api_url(bot_id: int) -> str:
+    return f"/api/v1/bots/{bot_id}/description-picture"
+
+
 def _save_avatar_file(campaign_id: int, username: str, data: bytes) -> Path:
     path = Config.AVATARS_DIR / str(campaign_id) / f"{username.lstrip('@')}.jpg"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+def _save_description_picture_file(campaign_id: int, username: str, data: bytes) -> Path:
+    path = (
+        Config.DESCRIPTION_PICTURES_DIR
+        / str(campaign_id)
+        / f"{username.lstrip('@')}.jpg"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return path
@@ -175,6 +192,10 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
         "about_text": row.get("about_text"),
         "has_avatar": bool(row.get("avatar_path")),
         "avatar_url": _avatar_api_url(bot_id) if row.get("avatar_path") else None,
+        "has_description_picture": bool(row.get("description_picture_path")),
+        "description_picture_url": (
+            _description_picture_api_url(bot_id) if row.get("description_picture_path") else None
+        ),
         "status": row["status"],
         "has_token": bool(row.get("token_encrypted")),
         "telegram_url": telegram_bot_url(row.get("username")),
@@ -230,6 +251,27 @@ async def _apply_bot_avatar(
     return path if path and path.is_file() else None
 
 
+async def _apply_bot_description_picture(
+    client,
+    campaign_id: int,
+    username: str,
+    *,
+    description_picture_bytes: Optional[bytes] = None,
+) -> Optional[Path]:
+    """Сохраняет картинку плаката на диск и загружает в BotFather."""
+    if not description_picture_bytes:
+        return None
+    path: Optional[Path] = None
+    try:
+        path = _save_description_picture_file(campaign_id, username, description_picture_bytes)
+        if path.is_file():
+            await set_bot_description_picture(client, username, path)
+            return path
+    except Exception as exc:
+        logger.warning("Description picture apply failed for @%s: %s", username, exc)
+    return path if path and path.is_file() else None
+
+
 async def get_bot_avatar_path(bot_id: int) -> Path:
     row = await db.fetch_one("SELECT avatar_path FROM bots WHERE id = $1", bot_id)
     if not row or not row.get("avatar_path"):
@@ -237,6 +279,18 @@ async def get_bot_avatar_path(bot_id: int) -> Path:
     path = Path(row["avatar_path"])
     if not path.is_file():
         raise NotFoundError("Файл аватара не найден")
+    return path
+
+
+async def get_bot_description_picture_path(bot_id: int) -> Path:
+    row = await db.fetch_one(
+        "SELECT description_picture_path FROM bots WHERE id = $1", bot_id
+    )
+    if not row or not row.get("description_picture_path"):
+        raise NotFoundError("Картинка плаката не задана")
+    path = Path(row["description_picture_path"])
+    if not path.is_file():
+        raise NotFoundError("Файл картинки плаката не найден")
     return path
 
 
@@ -520,6 +574,7 @@ async def create_bot(
     create_via_botfather: bool = True,
     auto_start: bool = False,
     avatar_bytes: Optional[bytes] = None,
+    description_picture_bytes: Optional[bytes] = None,
     generate_avatar: bool = True,
     telethon_client=None,
     use_referral_api: bool | None = None,
@@ -536,6 +591,7 @@ async def create_bot(
 
     token = None
     avatar_path = None
+    description_picture_path = None
     client = telethon_client
     owns_client = client is None
     target = ""
@@ -717,6 +773,24 @@ async def create_bot(
                         botfather_created=True,
                         username=final_username,
                     )
+                await pace_botfather_op()
+                if description_picture_bytes:
+                    await _step("Картинка плаката в BotFather…", "description_picture")
+                    try:
+                        description_picture_path = await _apply_bot_description_picture(
+                            client,
+                            campaign_id,
+                            final_username,
+                            description_picture_bytes=description_picture_bytes,
+                        )
+                    except Exception as exc:
+                        raise _wrap_creation_step_error(
+                            "description_picture",
+                            exc,
+                            botfather_created=True,
+                            username=final_username,
+                        )
+                    await pace_botfather_op()
             else:
                 links = await referral_link_service.resolve_bot_links(
                     campaign,
@@ -756,12 +830,13 @@ async def create_bot(
                 """
                 INSERT INTO bots (
                     campaign_id, telegram_account_id, keyword, username, display_name,
-                    description, about_text, token_encrypted, avatar_path, welcome_message,
+                    description, about_text, token_encrypted, avatar_path,
+                    description_picture_path, welcome_message,
                     welcome_button_enabled, welcome_button_text,
                     target_url, link_mode, redirect_slug, status,
                     telegram_sync_status, telegram_sync_at
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())
                 RETURNING *
                 """,
                 campaign_id,
@@ -773,6 +848,7 @@ async def create_bot(
                 about_final or None,
                 token_enc,
                 str(avatar_path) if avatar_path else None,
+                str(description_picture_path) if description_picture_path else None,
                 welcome_message,
                 welcome_button_enabled,
                 bot_promo_service.welcome_button_label(welcome_button_text),
@@ -934,11 +1010,32 @@ async def save_bot_avatar(bot_id: int, avatar_bytes: bytes) -> dict[str, Any]:
     return _bot_row(row)
 
 
+async def save_bot_description_picture(
+    bot_id: int, description_picture_bytes: bytes
+) -> dict[str, Any]:
+    """Сохраняет картинку плаката на диск и в БД без обращения к BotFather."""
+    if len(description_picture_bytes) > 5 * 1024 * 1024:
+        raise BadRequestError("Картинка плаката не больше 5 МБ")
+    row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
+    if not row or not row.get("username"):
+        raise BadRequestError("У бота нет username для сохранения картинки плаката")
+    path = _save_description_picture_file(
+        row["campaign_id"], row["username"], description_picture_bytes
+    )
+    row = await db.fetch_one(
+        "UPDATE bots SET description_picture_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+        bot_id,
+        str(path),
+    )
+    return _bot_row(row)
+
+
 async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[str, Any] | None]:
     bot = await get_bot(bot_id)
     row_data = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
     sync_botfather = bool(fields.pop("sync_botfather", False))
     force_avatar_sync = bool(fields.pop("force_avatar_sync", False))
+    force_description_picture_sync = bool(fields.pop("force_description_picture_sync", False))
 
     link_mode = bot_promo_service.normalize_link_mode(
         fields.get("link_mode") if fields.get("link_mode") is not None else row_data.get("link_mode")
@@ -1014,9 +1111,16 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
             params.append(fields[key])
             updates.append(f"{key} = ${len(params)}")
     avatar_bytes = fields.pop("avatar_bytes", None)
+    description_picture_bytes = fields.pop("description_picture_bytes", None)
     generate_avatar = fields.pop("generate_avatar", False)
 
-    if not updates and not sync_botfather and not avatar_bytes and not generate_avatar:
+    if (
+        not updates
+        and not sync_botfather
+        and not avatar_bytes
+        and not description_picture_bytes
+        and not generate_avatar
+    ):
         return bot, None
 
     row = row_data
@@ -1074,6 +1178,38 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
                             str(path),
                         )
 
+    if description_picture_bytes and row.get("username"):
+        if sync_botfather:
+            path = _save_description_picture_file(
+                row["campaign_id"], row["username"], description_picture_bytes
+            )
+            row = await db.fetch_one(
+                "UPDATE bots SET description_picture_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+                bot_id,
+                str(path),
+            )
+        else:
+            account = await db.fetch_one(
+                "SELECT * FROM telegram_accounts WHERE id = $1",
+                row.get("telegram_account_id"),
+            )
+            if account:
+                async with locked_account_session(
+                    row["campaign_id"], int(account["id"]), account
+                ) as (client, _):
+                    path = await _apply_bot_description_picture(
+                        client,
+                        row["campaign_id"],
+                        row["username"],
+                        description_picture_bytes=description_picture_bytes,
+                    )
+                    if path:
+                        row = await db.fetch_one(
+                            "UPDATE bots SET description_picture_path = $2, updated_at = NOW() WHERE id = $1 RETURNING *",
+                            bot_id,
+                            str(path),
+                        )
+
     sync_job: dict[str, Any] | None = None
     if sync_botfather:
         if not row.get("token_encrypted"):
@@ -1083,6 +1219,8 @@ async def update_bot(bot_id: int, **fields: Any) -> tuple[dict[str, Any], dict[s
         sync_job = {
             "generate_avatar": generate_avatar,
             "upload_avatar": bool(avatar_bytes) or force_avatar_sync,
+            "upload_description_picture": bool(description_picture_bytes)
+            or force_description_picture_sync,
         }
         updated = await db.fetch_one(
             """
@@ -1110,6 +1248,7 @@ async def enqueue_botfather_sync(
     *,
     generate_avatar: bool = False,
     upload_avatar: bool = False,
+    upload_description_picture: bool = False,
 ) -> dict[str, Any]:
     """Поставить синхронизацию BotFather в единую durable-очередь."""
     row = await db.fetch_one(
@@ -1143,6 +1282,7 @@ async def enqueue_botfather_sync(
             "bot_id": bot_id,
             "generate_avatar": bool(generate_avatar),
             "upload_avatar": bool(upload_avatar),
+            "upload_description_picture": bool(upload_description_picture),
         },
         progress_message=f"В очереди: синхронизация @{row.get('username') or bot_id}",
     )
@@ -1158,11 +1298,21 @@ def save_queued_avatar_bytes(avatar_bytes: bytes) -> str:
     return str(path)
 
 
+def save_queued_description_picture_bytes(description_picture_bytes: bytes) -> str:
+    """Временный файл картинки плаката для single-create job."""
+    dest_dir = Config.STORAGE_ROOT / "job_description_pictures"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    path = dest_dir / f"{uuid.uuid4().hex}.jpg"
+    path.write_bytes(description_picture_bytes)
+    return str(path)
+
+
 async def run_botfather_sync(
     bot_id: int,
     *,
     generate_avatar: bool = False,
     upload_avatar: bool = False,
+    upload_description_picture: bool = False,
 ) -> None:
     """Фоновая синхронизация профиля бота с BotFather (после быстрого сохранения в БД)."""
     row = await db.fetch_one("SELECT * FROM bots WHERE id = $1", bot_id)
@@ -1182,6 +1332,7 @@ async def run_botfather_sync(
             row,
             generate_avatar=generate_avatar,
             upload_avatar=upload_avatar,
+            upload_description_picture=upload_description_picture,
         )
         await _set_telegram_sync_status(bot_id, TELEGRAM_SYNC_SYNCED)
         logger.info("BotFather sync completed bot_id=%s @%s", bot_id, row.get("username"))
@@ -1197,6 +1348,7 @@ async def _sync_botfather_promo(
     *,
     generate_avatar: bool = False,
     upload_avatar: bool = False,
+    upload_description_picture: bool = False,
 ) -> None:
     """Обновить имя, описание, about и аватар в BotFather."""
     account = await db.fetch_one(
@@ -1245,6 +1397,10 @@ async def _sync_botfather_promo(
                 )
         elif upload_avatar and row.get("avatar_path"):
             await set_bot_photo(client, row["username"], Path(row["avatar_path"]))
+        if upload_description_picture and row.get("description_picture_path"):
+            await set_bot_description_picture(
+                client, row["username"], Path(row["description_picture_path"])
+            )
 
 
 async def cleanup_bots_for_phone(phone: str) -> int:

@@ -77,6 +77,7 @@ async def process_botfather_sync(payload: dict) -> None:
         bot_id,
         generate_avatar=bool(payload.get("generate_avatar")),
         upload_avatar=bool(payload.get("upload_avatar")),
+        upload_description_picture=bool(payload.get("upload_description_picture")),
     )
 
 
@@ -96,6 +97,7 @@ async def process_job(
     *,
     single_spec: dict | None = None,
     avatar_path: str | None = None,
+    description_picture_path: str | None = None,
     batch_specs: list | None = None,
 ) -> None:
     from app.infrastructure.database import repository as db
@@ -143,7 +145,11 @@ async def process_job(
                 batch_specs=batch_specs,
             )
             if single_spec is not None:
-                await pipeline.run_single(single_spec, avatar_path=avatar_path)
+                await pipeline.run_single(
+                    single_spec,
+                    avatar_path=avatar_path,
+                    description_picture_path=description_picture_path,
+                )
             else:
                 await pipeline.run()
         except Exception as exc:
@@ -175,6 +181,7 @@ async def _run_job_payload(data: dict) -> None:
             campaign_id,
             single_spec=data.get("spec") or {},
             avatar_path=data.get("avatar_path"),
+            description_picture_path=data.get("description_picture_path"),
         )
         return
     if mode == "batch_create":

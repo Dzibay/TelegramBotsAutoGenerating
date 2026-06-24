@@ -96,6 +96,8 @@
             collapse-long-fields
             @update:avatar-file="avatarFile = $event"
             @update:avatar-preview="avatarPreviewUrl = $event"
+            @update:description-picture-file="descriptionPictureFile = $event"
+            @update:description-picture-preview="descriptionPicturePreviewUrl = $event"
           />
 
           <label class="check">
@@ -133,6 +135,7 @@
         :welcome-button-enabled="form.welcome_button_enabled"
         :welcome-button-text="form.welcome_button_text"
         :avatar-url="avatarPreviewUrl"
+        :description-picture-preview-url="descriptionPicturePreviewUrl"
         :public-link="linkPreview || ''"
       />
     </div>
@@ -185,6 +188,8 @@ const autoStart = ref(true);
 const generateAvatar = ref(true);
 const avatarFile = ref(null);
 const avatarPreviewUrl = ref(null);
+const descriptionPictureFile = ref(null);
+const descriptionPicturePreviewUrl = ref(null);
 const avatarPrompt = ref('');
 const form = ref({
   display_name: '',
@@ -387,7 +392,12 @@ async function createBotWithFloodRetry(uname, logStep, setServerProgress) {
   let retries = 0;
   while (retries <= 3) {
     try {
-      const result = await botService.create(payload, avatarFile.value, { idempotencyKey });
+      const result = await botService.create(
+        payload,
+        avatarFile.value,
+        descriptionPictureFile.value,
+        { idempotencyKey }
+      );
       if (result.queued && result.job?.id) {
         logStep('Бот поставлен в очередь создания', 'info', { job_id: result.job.id });
         return waitForSingleBotJob(result.job.id, logStep, setServerProgress);

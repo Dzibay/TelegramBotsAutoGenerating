@@ -54,10 +54,14 @@
         :public-link="linkPreview"
         :bot-id="bot.id"
         :has-avatar="bot.has_avatar"
+        :has-description-picture="bot.has_description_picture"
+        :description-picture-cache-key="bot.updated_at"
         :avatar-cache-key="bot.updated_at"
         collapse-long-fields
         @update:avatar-file="pendingAvatarFile = $event"
         @update:avatar-preview="avatarPreviewUrl = $event"
+        @update:description-picture-file="pendingDescriptionPictureFile = $event"
+        @update:description-picture-preview="descriptionPicturePreviewUrl = $event"
       />
 
       <div class="form-group">
@@ -67,7 +71,7 @@
 
       <label class="check">
         <input v-model="form.sync_botfather" type="checkbox" />
-        Обновить в Telegram (имя, описание, аватар)
+        Обновить в Telegram (имя, описание, аватар, картинка плаката)
       </label>
       <label v-if="form.sync_botfather" class="check">
         <input v-model="form.generate_avatar" type="checkbox" />
@@ -117,8 +121,11 @@
       :welcome-button-enabled="profile.welcome_button_enabled"
       :welcome-button-text="profile.welcome_button_text"
       :avatar-preview-url="avatarPreviewUrl"
+      :description-picture-preview-url="descriptionPicturePreviewUrl"
       :bot-id="bot.id"
       :has-avatar="bot.has_avatar"
+      :has-description-picture="bot.has_description_picture"
+      :description-picture-cache-key="bot.updated_at"
       :avatar-cache-key="bot.updated_at"
       :public-link="linkPreview"
     />
@@ -167,12 +174,14 @@ const backRoute = computed(() => {
 
 const loading = ref(true);
 const avatarPreviewUrl = ref(null);
+const descriptionPicturePreviewUrl = ref(null);
 const loadError = ref(null);
 const saveError = ref(null);
 const saveNotice = ref(null);
 const saving = ref(false);
 const acting = ref(false);
 const pendingAvatarFile = ref(null);
+const pendingDescriptionPictureFile = ref(null);
 const copiedExport = ref(false);
 const syncPollTimer = ref(null);
 
@@ -203,6 +212,23 @@ const linkPreview = computed(() => {
   return bot.value.public_link || bot.value.tracking_url || '';
 });
 
+async function loadDescriptionPicturePreview(source) {
+  if (descriptionPicturePreviewUrl.value?.startsWith('blob:')) {
+    URL.revokeObjectURL(descriptionPicturePreviewUrl.value);
+  }
+  descriptionPicturePreviewUrl.value = null;
+  if (source?.has_description_picture && source?.id) {
+    try {
+      descriptionPicturePreviewUrl.value = await botService.loadDescriptionPictureObjectUrl(
+        source.id,
+        source.updated_at
+      );
+    } catch {
+      descriptionPicturePreviewUrl.value = null;
+    }
+  }
+}
+
 function applyBotToForm(source) {
   if (!source?.id) return;
   form.value = {
@@ -221,6 +247,7 @@ function applyBotToForm(source) {
     welcome_button_enabled: source.welcome_button_enabled !== false,
     welcome_button_text: source.welcome_button_text || 'Перейти по ссылке',
   };
+  loadDescriptionPicturePreview(source);
 }
 
 async function load() {
@@ -272,11 +299,21 @@ async function onSave() {
   try {
     const runUpdate = async ({ logStep, setServerProgress } = {}) => {
       let forceAvatarSync = false;
+      let forceDescriptionPictureSync = false;
       if (pendingAvatarFile.value) {
         const avatarResult = await botService.uploadAvatar(bot.value.id, pendingAvatarFile.value);
         bot.value = avatarResult.bot;
         pendingAvatarFile.value = null;
         forceAvatarSync = syncBf;
+      }
+      if (pendingDescriptionPictureFile.value) {
+        const posterResult = await botService.uploadDescriptionPicture(
+          bot.value.id,
+          pendingDescriptionPictureFile.value
+        );
+        bot.value = posterResult.bot;
+        pendingDescriptionPictureFile.value = null;
+        forceDescriptionPictureSync = syncBf;
       }
       const idempotencyKey = newIdempotencyKey();
       const result = await botService.update(
@@ -294,6 +331,7 @@ async function onSave() {
           sync_botfather: syncBf,
           generate_avatar: form.value.generate_avatar,
           force_avatar_sync: forceAvatarSync,
+          force_description_picture_sync: forceDescriptionPictureSync,
         },
         { idempotencyKey }
       );

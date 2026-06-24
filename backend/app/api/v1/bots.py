@@ -94,6 +94,12 @@ async def get_bot_avatar(bot_id: int, _user: dict = Depends(get_current_user)):
     return FileResponse(path, media_type="image/jpeg")
 
 
+@router.get("/{bot_id}/description-picture")
+async def get_bot_description_picture(bot_id: int, _user: dict = Depends(get_current_user)):
+    path = await bot_service.get_bot_description_picture_path(bot_id)
+    return FileResponse(path, media_type="image/jpeg")
+
+
 @router.get("/{bot_id}")
 async def get_bot(bot_id: int, _user: dict = Depends(get_current_user)):
     bot = await bot_service.get_bot(bot_id)
@@ -126,6 +132,7 @@ async def create_bots_batch(
 async def create_bot(
     data: str = Form(..., description="JSON BotCreateRequest"),
     avatar: Optional[UploadFile] = File(None),
+    description_picture: Optional[UploadFile] = File(None),
     idem: IdempotencyContext = Depends(begin_idempotent_request),
     _user: dict = Depends(get_current_user),
 ):
@@ -144,6 +151,20 @@ async def create_bot(
     avatar_path = None
     if avatar_bytes:
         avatar_path = bot_service.save_queued_avatar_bytes(avatar_bytes)
+
+    description_picture_bytes = None
+    if description_picture and description_picture.filename:
+        description_picture_bytes = await description_picture.read()
+        if len(description_picture_bytes) > 5 * 1024 * 1024:
+            from app.core.exceptions import BadRequestError
+
+            raise BadRequestError("Картинка плаката не больше 5 МБ")
+
+    description_picture_path = None
+    if description_picture_bytes:
+        description_picture_path = bot_service.save_queued_description_picture_bytes(
+            description_picture_bytes
+        )
 
     spec = {
         "campaign_id": body.campaign_id,
@@ -170,6 +191,7 @@ async def create_bot(
             body.campaign_id,
             spec,
             avatar_path=avatar_path,
+            description_picture_path=description_picture_path,
         )
         payload = success_response(
             data={"job": job, "queued": True},
@@ -211,6 +233,7 @@ async def update_bot(
                 bot_id,
                 generate_avatar=sync_job.get("generate_avatar", False),
                 upload_avatar=sync_job.get("upload_avatar", False),
+                upload_description_picture=sync_job.get("upload_description_picture", False),
             )
             payload = success_response(
                 data={"bot": bot, "task": task, "telegram_sync_pending": True},
@@ -235,6 +258,17 @@ async def upload_bot_avatar(
     avatar_bytes = await avatar.read()
     bot = await bot_service.save_bot_avatar(bot_id, avatar_bytes)
     return success_response(data={"bot": bot}, message="Аватар сохранён")
+
+
+@router.post("/{bot_id}/description-picture")
+async def upload_bot_description_picture(
+    bot_id: int,
+    description_picture: UploadFile = File(...),
+    _user: dict = Depends(get_current_user),
+):
+    raw = await description_picture.read()
+    bot = await bot_service.save_bot_description_picture(bot_id, raw)
+    return success_response(data={"bot": bot}, message="Картинка плаката сохранена")
 
 
 @router.delete("/{bot_id}")

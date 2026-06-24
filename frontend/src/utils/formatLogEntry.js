@@ -6,6 +6,7 @@ const STEP_LABELS = {
   referral_fetch: 'Реферальная ссылка',
   links: 'Ссылки',
   avatar: 'Аватар',
+  description_picture: 'Картинка плаката',
   botfather_texts: 'Тексты в BotFather',
   db_save: 'Сохранение',
 };

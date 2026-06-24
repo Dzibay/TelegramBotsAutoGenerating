@@ -372,26 +372,53 @@ async def start_manual_bulk(
         raise BadRequestError("Отсутствует поле data")
     body = StartManualBulkRequest.model_validate_json(raw)
     avatars: dict[int, bytes] = {}
+    description_pictures: dict[int, bytes] = {}
+    shared_description_picture: bytes | None = None
     for key in form.keys():
-        if not str(key).startswith("avatar_"):
+        key_str = str(key)
+        if key_str == "shared_description_picture":
+            upload = form[key]
+            if hasattr(upload, "read"):
+                raw_bytes = await upload.read()
+                if len(raw_bytes) > 5 * 1024 * 1024:
+                    raise BadRequestError("Картинка плаката больше 5 МБ")
+                if raw_bytes:
+                    shared_description_picture = raw_bytes
             continue
-        try:
-            row_id = int(str(key).split("_", 1)[1])
-        except (IndexError, ValueError):
+        if key_str.startswith("avatar_"):
+            try:
+                row_id = int(key_str.split("_", 1)[1])
+            except (IndexError, ValueError):
+                continue
+            upload = form[key]
+            if not hasattr(upload, "read"):
+                continue
+            raw_bytes = await upload.read()
+            if len(raw_bytes) > 5 * 1024 * 1024:
+                raise BadRequestError(f"Аватар в строке {row_id} больше 5 МБ")
+            if raw_bytes:
+                avatars[row_id] = raw_bytes
             continue
-        upload = form[key]
-        if not hasattr(upload, "read"):
-            continue
-        raw_bytes = await upload.read()
-        if len(raw_bytes) > 5 * 1024 * 1024:
-            raise BadRequestError(f"Аватар в строке {row_id} больше 5 МБ")
-        if raw_bytes:
-            avatars[row_id] = raw_bytes
+        if key_str.startswith("description_picture_"):
+            try:
+                row_id = int(key_str.split("_", 2)[2])
+            except (IndexError, ValueError):
+                continue
+            upload = form[key]
+            if not hasattr(upload, "read"):
+                continue
+            raw_bytes = await upload.read()
+            if len(raw_bytes) > 5 * 1024 * 1024:
+                raise BadRequestError(f"Картинка плаката в строке {row_id} больше 5 МБ")
+            if raw_bytes:
+                description_pictures[row_id] = raw_bytes
     try:
         job = await job_service.start_manual_creation_job(
             campaign_id,
             body=body,
             avatars=avatars,
+            description_pictures=description_pictures,
+            shared_description_picture=shared_description_picture,
         )
         payload = success_response(data={"job": job}, message=SuccessMessages.JOB_STARTED)
         await complete_idempotent(idem, {"status_code": 200, "body": payload})

@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS bots (
     about_text TEXT,
     token_encrypted BYTEA,
     avatar_path TEXT,
+    description_picture_path TEXT,
     welcome_message TEXT NOT NULL,
     welcome_button_enabled BOOLEAN NOT NULL DEFAULT TRUE,
     welcome_button_text TEXT NOT NULL DEFAULT 'Перейти по ссылке',

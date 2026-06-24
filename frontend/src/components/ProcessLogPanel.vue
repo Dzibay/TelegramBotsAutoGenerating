@@ -4,8 +4,8 @@
       <div class="process-log-title-wrap">
         <h3 v-if="title">{{ title }}</h3>
         <span v-if="polling" class="live-dot" title="Обновляется">● live</span>
-        <span v-if="filteredCount !== totalCount" class="log-filter-hint">
-          {{ filteredCount }}/{{ totalCount }}
+        <span v-if="hiddenDebugCount" class="log-filter-hint" :title="filterHintTitle">
+          +{{ hiddenDebugCount }} debug
         </span>
       </div>
       <div class="process-log-actions">
@@ -28,7 +28,7 @@
     <p v-if="!logs.length && !loading" class="muted empty">{{ emptyText }}</p>
     <p v-else-if="loading && !logs.length" class="muted empty">Загрузка…</p>
     <p v-else-if="!displayLogs.length && logs.length" class="muted empty">
-      Включите «Детальные логи» для просмотра всех {{ logs.length }} записей
+      Включите «Детальные логи», чтобы увидеть {{ hiddenDebugCount }} служебных записей
     </p>
 
     <div ref="scrollRef" class="process-log-body">
@@ -36,19 +36,28 @@
         v-for="entry in displayLogs"
         :key="entry.id"
         class="log-row"
-        :class="`log-row--${entry.level}`"
+        :class="[
+          `log-row--${entry.level}`,
+          { 'log-row--break': entry._rowBreak },
+        ]"
       >
         <div class="log-row-main">
           <time>{{ formatLogTime(entry.time) }}</time>
           <span v-if="uiPrefs.verboseLogs" class="log-level">{{ levelLabel(entry.level) }}</span>
           <span v-if="uiPrefs.verboseLogs && entry.source === 'client'" class="log-src">CLI</span>
-          <span class="log-msg">{{ entry.message }}</span>
+          <span
+            v-for="(tag, idx) in extractLogTags(entry.context)"
+            :key="`${entry.id}-tag-${idx}`"
+            class="log-tag"
+            :class="`log-tag--${tag.kind}`"
+          >{{ tag.text }}</span>
+          <span class="log-msg">{{ enrichLogMessage(entry) }}</span>
         </div>
         <details
-          v-if="uiPrefs.verboseLogs && entry.context && hasContext(entry.context)"
+          v-if="uiPrefs.verboseLogs && entry.context && hasExtraContext(entry.context)"
           class="log-context"
         >
-          <summary>контекст</summary>
+          <summary>техн. детали</summary>
           <pre>{{ formatContext(entry.context) }}</pre>
         </details>
       </div>
@@ -60,11 +69,15 @@
 import { computed, nextTick, ref, watch } from 'vue';
 import VerboseLogToggle from './VerboseLogToggle.vue';
 import {
+  enrichLogMessage,
+  extractLogTags,
   filterLogsForMode,
   formatContext,
   formatLogTime,
+  hasExtraContext,
   levelLabel,
   normalizeLogList,
+  withLogRowBreaks,
 } from '../utils/formatLogEntry';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
 
@@ -86,15 +99,18 @@ const uiPrefs = useUiPrefsStore();
 const scrollRef = ref(null);
 
 const normalized = computed(() => normalizeLogList(props.logs));
-const totalCount = computed(() => normalized.value.length);
-const displayLogs = computed(() => filterLogsForMode(normalized.value, uiPrefs.verboseLogs));
-const filteredCount = computed(() => displayLogs.value.length);
+const hiddenDebugCount = computed(
+  () => normalized.value.filter((e) => e.level === 'debug').length
+);
+const displayLogs = computed(() =>
+  withLogRowBreaks(filterLogsForMode(normalized.value, uiPrefs.verboseLogs))
+);
 
-function hasContext(ctx) {
-  if (ctx == null) return false;
-  if (typeof ctx === 'object') return Object.keys(ctx).length > 0;
-  return String(ctx).trim().length > 0;
-}
+const filterHintTitle = computed(() =>
+  uiPrefs.verboseLogs
+    ? ''
+    : 'Служебные debug-записи скрыты. Включите «Детальные логи».'
+);
 
 watch(
   () => props.logs.length,
@@ -210,10 +226,16 @@ watch(
   border-bottom: 1px solid rgba(45, 58, 77, 0.35);
 }
 
+.log-row--break {
+  margin-top: 0.35rem;
+  padding-top: 0.55rem;
+  border-top: 1px dashed rgba(59, 130, 246, 0.35);
+}
+
 .log-row-main {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem 0.5rem;
+  gap: 0.3rem 0.45rem;
   align-items: baseline;
 }
 
@@ -239,6 +261,58 @@ watch(
   border-radius: 3px;
   background: rgba(59, 130, 246, 0.15);
   color: #93c5fd;
+}
+
+.log-tag {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  padding: 0.06rem 0.35rem;
+  border-radius: 4px;
+  line-height: 1.35;
+  font-family: inherit;
+}
+
+.log-tag--user {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+.log-tag--step {
+  background: rgba(167, 139, 250, 0.2);
+  color: #c4b5fd;
+}
+
+.log-tag--status {
+  background: rgba(74, 222, 128, 0.15);
+  color: #86efac;
+}
+
+.log-row--error .log-tag--status {
+  background: rgba(248, 113, 113, 0.15);
+  color: #fca5a5;
+}
+
+.log-tag--row,
+.log-tag--index {
+  background: rgba(250, 204, 21, 0.12);
+  color: #fde047;
+}
+
+.log-tag--account,
+.log-tag--bot {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+}
+
+.log-tag--wait {
+  background: rgba(251, 146, 60, 0.15);
+  color: #fdba74;
+}
+
+.log-tag--meta {
+  background: rgba(100, 116, 139, 0.2);
+  color: #94a3b8;
 }
 
 .log-msg {

@@ -71,6 +71,7 @@ import { RouterLink } from 'vue-router';
 import JobLogPanel from './JobLogPanel.vue';
 import StatusBadge from './StatusBadge.vue';
 import { campaignService, jobService } from '../services/campaignService';
+import { mapApiLog } from '../utils/formatLogEntry';
 import { useUiPrefsStore } from '../stores/uiPrefsStore';
 
 const props = defineProps({
@@ -160,7 +161,7 @@ async function fetchLogs(jobId, reset = false) {
     if (batch.length) {
       logsByJob.value = {
         ...logsByJob.value,
-        [jobId]: [...(logsByJob.value[jobId] ?? []), ...batch],
+        [jobId]: [...(logsByJob.value[jobId] ?? []), ...batch.map(mapApiLog)],
       };
       lastLogIdByJob.value = {
         ...lastLogIdByJob.value,

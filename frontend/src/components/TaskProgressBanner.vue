@@ -17,7 +17,7 @@
           </div>
 
           <p v-if="taskStore.isActive" class="task-step">{{ taskStore.currentStep }}</p>
-          <p v-else-if="uiPrefs.verboseLogs" class="task-step task-step--done">Операция завершена — см. журнал ниже</p>
+          <p v-else-if="runtimeLogs.length" class="task-step task-step--done">Операция завершена — см. журнал ниже</p>
 
           <div v-if="taskStore.isActive" class="task-track">
             <div
@@ -34,13 +34,12 @@
       </div>
 
       <ProcessLogPanel
-        v-if="uiPrefs.verboseLogs && runtimeLogs.length"
+        v-if="runtimeLogs.length"
         class="task-log-panel"
         :logs="runtimeLogs"
         :polling="taskStore.isActive"
         :show-progress="false"
-        :show-toggle="false"
-        title="Детальный журнал"
+        title="Журнал операции"
         compact
         :show-clear="!taskStore.isActive"
         @clear="taskStore.clearLastLogs()"
@@ -63,7 +62,7 @@ const uiPrefs = useUiPrefsStore();
 const runtimeLogs = computed(() => taskStore.visibleRuntimeLogs);
 
 const showBanner = computed(
-  () => taskStore.isActive || (uiPrefs.verboseLogs && runtimeLogs.value.length > 0)
+  () => taskStore.isActive || runtimeLogs.value.length > 0
 );
 
 const bannerTitle = computed(

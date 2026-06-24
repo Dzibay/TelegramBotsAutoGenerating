@@ -20,7 +20,7 @@ defineProps({
   label: { type: String, default: 'Детальные логи' },
   title: {
     type: String,
-    default: 'Показывать все шаги, контекст API и служебные записи',
+    default: 'Добавляет debug-записи, уровни логов и технический JSON-контекст',
   },
 });
 

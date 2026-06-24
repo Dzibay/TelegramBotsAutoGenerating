@@ -82,15 +82,16 @@
           </div>
         </div>
 
-        <div v-if="expandedId === task.id" class="logs">
-          <div v-if="logsLoading" class="muted">Загрузка логов…</div>
-          <div v-else-if="!logs.length" class="muted">Логов пока нет.</div>
-          <div v-for="log in logs" :key="log.id" class="log-line" :class="`log-${log.level}`">
-            <span>{{ formatDate(log.created_at) }}</span>
-            <strong>{{ log.level }}</strong>
-            <p>{{ log.message }}</p>
-          </div>
-        </div>
+        <ProcessLogPanel
+          v-if="expandedId === task.id"
+          class="task-logs-panel"
+          :logs="logs"
+          :loading="logsLoading"
+          :polling="isActive(task)"
+          :show-progress="false"
+          title="Журнал задачи"
+          compact
+        />
       </article>
 
       <div v-if="!store.loading && !store.tasks.length" class="empty">
@@ -101,19 +102,26 @@
 </template>
 
 <script setup>
-import { onMounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { RouterLink } from 'vue-router';
+import ProcessLogPanel from '../components/ProcessLogPanel.vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { taskService } from '../services/taskService';
 import { useTaskQueueStore } from '../stores/taskQueueStore';
+import { mapApiLog } from '../utils/formatLogEntry';
+import { useUiPrefsStore } from '../stores/uiPrefsStore';
 
 const store = useTaskQueueStore();
+const uiPrefs = useUiPrefsStore();
 const expandedId = ref(null);
 const logs = ref([]);
 const logsLoading = ref(false);
+const lastLogId = ref(0);
 const busyId = ref(null);
+let logPollTimer = null;
 
 onMounted(() => store.startPolling());
+onUnmounted(() => stopLogPolling());
 
 function isActive(task) {
   return ['queued', 'running'].includes(task.status);
@@ -145,20 +153,65 @@ function formatDate(value) {
   return new Date(value).toLocaleString('ru-RU');
 }
 
+function stopLogPolling() {
+  if (logPollTimer) {
+    clearInterval(logPollTimer);
+    logPollTimer = null;
+  }
+}
+
+function startLogPolling(taskId) {
+  stopLogPolling();
+  const task = store.tasks.find((t) => t.id === taskId);
+  if (!task || !isActive(task)) return;
+  logPollTimer = setInterval(() => fetchLogs(taskId), 2000);
+}
+
+async function fetchLogs(taskId, reset = false) {
+  if (reset) {
+    logs.value = [];
+    lastLogId.value = 0;
+  }
+  const batch = await taskService.getLogs(taskId, lastLogId.value, {
+    minLevel: uiPrefs.verboseLogs ? 'debug' : 'info',
+  });
+  if (batch.length) {
+    logs.value.push(...batch.map(mapApiLog));
+    lastLogId.value = batch[batch.length - 1].id;
+  }
+}
+
 async function toggleLogs(taskId) {
   if (expandedId.value === taskId) {
     expandedId.value = null;
     logs.value = [];
+    lastLogId.value = 0;
+    stopLogPolling();
     return;
   }
   expandedId.value = taskId;
   logsLoading.value = true;
   try {
-    logs.value = await taskService.getLogs(taskId, 0, { minLevel: 'info' });
+    await fetchLogs(taskId, true);
+    startLogPolling(taskId);
   } finally {
     logsLoading.value = false;
   }
 }
+
+watch(
+  () => uiPrefs.verboseLogs,
+  async () => {
+    if (expandedId.value) {
+      logsLoading.value = true;
+      try {
+        await fetchLogs(expandedId.value, true);
+      } finally {
+        logsLoading.value = false;
+      }
+    }
+  }
+);
 
 async function cancel(taskId) {
   busyId.value = taskId;
@@ -288,33 +341,8 @@ async function retry(taskId) {
   justify-content: flex-end;
 }
 
-.logs {
+.task-logs-panel {
   margin-top: 1rem;
-  border-top: 1px solid var(--border);
-  padding-top: 0.75rem;
-}
-
-.log-line {
-  display: grid;
-  grid-template-columns: 150px 60px 1fr;
-  gap: 0.75rem;
-  padding: 0.35rem 0;
-  color: var(--text);
-  font-size: 0.85rem;
-}
-
-.log-line span,
-.log-line strong {
-  color: var(--muted);
-}
-
-.log-line p {
-  margin: 0;
-}
-
-.log-error p,
-.log-warn p {
-  color: var(--warning);
 }
 
 .empty,

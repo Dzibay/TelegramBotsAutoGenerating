@@ -10,6 +10,7 @@ from app.domain.models.bot_models import (
     BotBatchCreateRequest,
     BotCreateRequest,
     BotGenerateRequest,
+    BotImportRequest,
     BotUpdateRequest,
     GenerateAvatarPreviewRequest,
 )
@@ -179,6 +180,18 @@ async def create_bot(
     except Exception:
         await fail_idempotent(idem)
         raise
+
+
+@router.post("/import")
+async def import_bots(body: BotImportRequest, _user: dict = Depends(get_current_user)):
+    result = await bot_service.import_bots_batch(
+        campaign_id=body.campaign_id,
+        tokens=body.tokens,
+    )
+    return success_response(
+        data=result,
+        message=f"Импортировано: {result['imported_count']}, ошибок: {result['failed_count']}",
+    )
 
 
 @router.patch("/{bot_id}")

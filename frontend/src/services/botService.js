@@ -131,4 +131,12 @@ export const botService = {
     const res = await apiClient.post('/bots/batch-create', { bots });
     return res.data;
   },
+
+  async importByTokens(campaignId, tokens) {
+    const res = await apiClient.post('/bots/import', {
+      campaign_id: campaignId,
+      tokens,
+    }, { timeout: 300000 });
+    return res.data;
+  },
 };

@@ -22,6 +22,13 @@
             Настройки
           </RouterLink>
           <RouterLink
+            :to="{ name: 'bot-import', params: { id: campaignId } }"
+            class="btn-ghost btn-sm"
+          >
+            <DownloadCloud :size="14" />
+            Импортировать ботов
+          </RouterLink>
+          <RouterLink
             v-if="canOpenCreate"
             :to="{ name: 'bulk-bot-create', params: { id: campaignId } }"
             class="btn btn-sm"
@@ -370,7 +377,7 @@
 import { formatApiError } from '../utils/apiErrorMessage.js';
 import { pollCreationJob } from '../utils/serverTaskProgress';
 import { computed, onMounted, ref, watch } from 'vue';
-import { Bot, Check, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
+import { Bot, Check, DownloadCloud, MoreVertical, Rocket, Search, Settings, Users, Zap } from 'lucide-vue-next';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import BotAvatar from '../components/BotAvatar.vue';
 import CampaignAccountsPanel from '../components/CampaignAccountsPanel.vue';

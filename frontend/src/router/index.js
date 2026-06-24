@@ -37,6 +37,12 @@ const routes = [
         meta: { hideWorkflowNav: true, title: 'Массовое создание ботов' },
       },
       { path: 'campaigns/:id/bots/new', name: 'campaign-bot-create', component: BotCreate, meta: { hideWorkflowNav: true, title: 'Новый бот' } },
+      {
+        path: 'campaigns/:id/bots/import',
+        name: 'bot-import',
+        component: () => import('../views/ImportBots.vue'),
+        meta: { hideWorkflowNav: true, title: 'Импорт ботов по токену' },
+      },
       { path: 'campaigns/:id/edit', name: 'campaign-edit', component: CampaignEdit, meta: { hideWorkflowNav: true, title: 'Редактирование кампании' } },
       { path: 'bots', redirect: { name: 'dashboard' } },
       {

@@ -24,7 +24,7 @@ from app.domain.services import (
 from app.domain.services.account_session_service import account_lock, acquire_cached_client, locked_account_session
 from app.infrastructure.cache.bot_runner_signals import signal_bot_runner_reload
 from app.infrastructure.database import repository as db
-from app.infrastructure.telegram.bot_api import telegram_bot_url, verify_bot_token
+from app.infrastructure.telegram.bot_api import fetch_bot_profile, telegram_bot_url, verify_bot_token
 from app.infrastructure.telegram.botfather_client import (
     create_bot_via_botfather,
     delete_bot_via_botfather,
@@ -813,6 +813,102 @@ async def create_bots_batch(specs: list[dict[str, Any]]) -> dict[str, Any]:
         "created_count": len(created),
         "failed_count": len(errors),
         "bots": created,
+        "errors": errors,
+    }
+
+
+async def import_bot_by_token(*, campaign_id: int, token: str) -> dict[str, Any]:
+    """Импорт уже созданного вручную бота по токену.
+
+    Данные (username, name, description, about) читаются из Bot API без изменений.
+    telegram_account_id и avatar_path остаются пустыми; welcome — из дефолтов кампании;
+    target_url — через реферальный API кампании по username (best-effort).
+    """
+    campaign = await campaign_service.get_campaign(campaign_id)
+
+    profile = await fetch_bot_profile(token)
+    username = normalize_bot_username(profile.get("username") or "")
+    if not username:
+        raise BadRequestError("Bot API не вернул username — токен не похож на бота")
+    if await username_service.is_username_taken_in_db(username):
+        raise ConflictError(f"Бот @{username} уже есть в системе")
+
+    display_name = (profile.get("display_name") or username)[:64]
+    description = (profile.get("description") or "")[:512]
+    about_text = (profile.get("about_text") or "")[:120]
+
+    # target_url — реферальная ссылка по username (если API настроен), best-effort.
+    target_url = ""
+    link_mode = bot_promo_service.LINK_MODE_DIRECT
+    if referral_link_service.is_referral_configured(campaign):
+        try:
+            target_url = await referral_link_service.fetch_referral_link(
+                campaign["referral_endpoint_url"],
+                campaign["referral_api_key"],
+                username,
+                response_field=campaign.get("referral_response_field"),
+            )
+        except Exception as exc:
+            logger.warning("Import @%s: referral link fetch failed: %s", username, exc)
+
+    defaults = bot_promo_service.campaign_text_defaults(campaign)
+    welcome_message = (defaults.get("welcome_message") or "")  # колонка NOT NULL
+    welcome_button_enabled = bool(defaults.get("welcome_button_enabled", True))
+    welcome_button_text = bot_promo_service.welcome_button_label(
+        defaults.get("welcome_button_text")
+    )
+
+    token_enc = encrypt_token(token)
+    row = await db.fetch_one(
+        """
+        INSERT INTO bots (
+            campaign_id, telegram_account_id, keyword, username, display_name,
+            description, about_text, token_encrypted, avatar_path, welcome_message,
+            welcome_button_enabled, welcome_button_text,
+            target_url, link_mode, redirect_slug, status,
+            telegram_sync_status
+        )
+        VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10, $11, NULL, 'active', $12)
+        RETURNING *
+        """,
+        campaign_id,
+        username,
+        display_name,
+        description or None,
+        about_text or None,
+        token_enc,
+        welcome_message,
+        welcome_button_enabled,
+        welcome_button_text,
+        target_url or None,
+        link_mode,
+        TELEGRAM_SYNC_IDLE,
+    )
+    await signal_bot_runner_reload(f"bot_import:{row['id']}")
+    return _bot_row(row, include_welcome=True)
+
+
+async def import_bots_batch(*, campaign_id: int, tokens: list[str]) -> dict[str, Any]:
+    """Последовательный импорт ботов по токенам с отчётом по каждому."""
+    imported: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    for i, token in enumerate(tokens):
+        try:
+            bot = await import_bot_by_token(campaign_id=campaign_id, token=token)
+            imported.append(bot)
+        except Exception as exc:
+            err = getattr(exc, "message", None) or str(exc)
+            errors.append(
+                {
+                    "index": i,
+                    "token_tail": token[-6:] if token else "",
+                    "error": err[:300],
+                }
+            )
+    return {
+        "imported_count": len(imported),
+        "failed_count": len(errors),
+        "bots": imported,
         "errors": errors,
     }
 

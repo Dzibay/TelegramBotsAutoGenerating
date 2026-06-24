@@ -1,3 +1,4 @@
+import re
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -66,6 +67,33 @@ class BotBatchCreateRequest(BaseModel):
     """Пакетное создание ботов после предпросмотра текстов."""
 
     bots: list[BotCreateRequest] = Field(..., min_length=1, max_length=50)
+
+
+class BotImportRequest(BaseModel):
+    """Импорт уже созданных вручную ботов по токенам (read-only сбор данных)."""
+
+    campaign_id: int
+    tokens: list[str] = Field(..., min_length=1, max_length=100)
+
+    @field_validator("tokens", mode="before")
+    @classmethod
+    def _parse_tokens(cls, v: object) -> list[str]:
+        if isinstance(v, str):
+            raw = re.split(r"[\s,;]+", v)
+        elif isinstance(v, (list, tuple)):
+            raw: list[str] = []
+            for item in v:
+                raw.extend(re.split(r"[\s,;]+", str(item)))
+        else:
+            return v  # type: ignore[return-value]
+        seen: set[str] = set()
+        result: list[str] = []
+        for tok in raw:
+            tok = tok.strip()
+            if tok and tok not in seen:
+                seen.add(tok)
+                result.append(tok)
+        return result
 
 
 class BotUpdateRequest(BaseModel):

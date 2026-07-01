@@ -1055,7 +1055,7 @@ async def build_copy_specs(
                 "redirect_slug": None,
                 "link_mode": bot_promo_service.LINK_MODE_REDIRECT,
                 "create_via_botfather": True,
-                "auto_start": False,
+                "auto_start": True,
                 "generate_avatar": False,
                 "use_referral_api": None,  # по настройкам кампании
                 "source_username": source,

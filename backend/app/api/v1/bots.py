@@ -8,6 +8,7 @@ from app.core.dependencies import begin_idempotent_request, get_current_user
 from app.core.idempotency import IdempotencyContext, complete_idempotent, fail_idempotent
 from app.domain.models.bot_models import (
     BotBatchCreateRequest,
+    BotCopyByUsernameRequest,
     BotCreateRequest,
     BotGenerateRequest,
     BotImportRequest,
@@ -196,6 +197,32 @@ async def create_bot(
         payload = success_response(
             data={"job": job, "queued": True},
             message="Бот поставлен в очередь создания",
+        )
+        await complete_idempotent(idem, {"status_code": 202, "body": payload})
+        return payload
+    except Exception:
+        await fail_idempotent(idem)
+        raise
+
+
+@router.post("/copy-by-username", status_code=202)
+async def copy_bots_by_username(
+    body: BotCopyByUsernameRequest,
+    idem: IdempotencyContext = Depends(begin_idempotent_request),
+    _user: dict = Depends(get_current_user),
+):
+    if idem.replay:
+        return _idempotent_json(idem, JSONResponse(content={}))
+    try:
+        specs = await bot_service.build_copy_specs(
+            campaign_id=body.campaign_id,
+            telegram_account_ids=body.telegram_account_ids,
+            pairs=body.pairs,
+        )
+        job = await job_service.start_batch_create_job(specs)
+        payload = success_response(
+            data={"job": job, "queued": True},
+            message=f"Копирование {len(specs)} ботов поставлено в очередь",
         )
         await complete_idempotent(idem, {"status_code": 202, "body": payload})
         return payload

@@ -43,6 +43,12 @@ const routes = [
         component: () => import('../views/ImportBots.vue'),
         meta: { hideWorkflowNav: true, title: 'Импорт ботов по токену' },
       },
+      {
+        path: 'campaigns/:id/bots/copy',
+        name: 'bot-copy-by-username',
+        component: () => import('../views/CopyBotsByUsername.vue'),
+        meta: { hideWorkflowNav: true, title: 'Копирование ботов по username' },
+      },
       { path: 'campaigns/:id/edit', name: 'campaign-edit', component: CampaignEdit, meta: { hideWorkflowNav: true, title: 'Редактирование кампании' } },
       { path: 'bots', redirect: { name: 'dashboard' } },
       {

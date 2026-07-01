@@ -25,6 +25,7 @@ from app.domain.services.account_session_service import account_lock, acquire_ca
 from app.infrastructure.cache.bot_runner_signals import signal_bot_runner_reload
 from app.infrastructure.database import repository as db
 from app.infrastructure.telegram.bot_api import fetch_bot_profile, telegram_bot_url, verify_bot_token
+from app.infrastructure.telegram.bot_profile_copy import SourceBotProfile, fetch_source_bot_profile
 from app.infrastructure.telegram.botfather_client import (
     create_bot_via_botfather,
     delete_bot_via_botfather,
@@ -309,6 +310,48 @@ async def _apply_bot_description_picture(
             return path
     except Exception as exc:
         logger.warning("Description picture apply failed for @%s: %s", username, exc)
+    return path if path and path.is_file() else None
+
+
+def _save_copied_description_media(
+    campaign_id: int, username: str, data: bytes, ext: str
+) -> Path:
+    """Сохраняет медиа описания как есть (без JPEG-нормализации) — для gif/видео."""
+    safe_ext = (ext or ".jpg").lower()
+    if not safe_ext.startswith("."):
+        safe_ext = "." + safe_ext
+    path = (
+        Config.DESCRIPTION_PICTURES_DIR
+        / str(campaign_id)
+        / f"{username.lstrip('@')}{safe_ext}"
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    return path
+
+
+async def _apply_copied_description_media(
+    client,
+    campaign_id: int,
+    username: str,
+    *,
+    media_bytes: Optional[bytes],
+    media_ext: str,
+) -> Optional[Path]:
+    """
+    Загружает медиа описания (фото/gif/видео) в оригинальном формате в BotFather.
+    Best-effort: при отказе BotFather логируем и продолжаем — бот всё равно создан.
+    """
+    if not media_bytes:
+        return None
+    path: Optional[Path] = None
+    try:
+        path = _save_copied_description_media(campaign_id, username, media_bytes, media_ext)
+        if path.is_file():
+            await set_bot_description_picture(client, username, path)
+            return path
+    except Exception as exc:
+        logger.warning("Copied description media apply failed for @%s: %s", username, exc)
     return path if path and path.is_file() else None
 
 
@@ -618,6 +661,7 @@ async def create_bot(
     generate_avatar: bool = True,
     telethon_client=None,
     use_referral_api: bool | None = None,
+    source_username: str | None = None,
     on_step: OnStepCallback | None = None,
 ) -> dict[str, Any]:
     campaign = await campaign_service.get_campaign(campaign_id)
@@ -643,6 +687,8 @@ async def create_bot(
     promo: dict[str, str] = {}
     final_username = normalize_bot_username(username)
     botfather_created = False
+    copy_mode = bool((source_username or "").strip())
+    source_profile: SourceBotProfile | None = None
 
     async def _step(msg: str, step_id: str = "") -> None:
         if on_step:
@@ -677,25 +723,43 @@ async def create_bot(
                     on_message=_notify_saved_flood,
                 )
                 requested_username = normalize_bot_username(username)
-                await _step(f"Подбор username (запрошен @{requested_username})…", "username")
-                final_username = await username_service.allocate_unique_username(
-                    kw_for_user,
-                    preferred=username,
-                    campaign_id=campaign_id,
-                    telethon_client=client,
-                )
-                if final_username != requested_username:
-                    await _step(
-                        f"Username @{final_username} (запрошен был @{requested_username})",
-                        "username",
+
+                if copy_mode:
+                    src = (source_username or "").strip().lstrip("@")
+                    await _step(f"Копирование профиля @{src}…", "username")
+                    source_profile = await fetch_source_bot_profile(client, source_username)
+                    if source_profile.name.strip():
+                        display_name = source_profile.name.strip()[:64]
+                    elif not (display_name or "").strip():
+                        display_name = requested_username
+                    avatar_bytes = source_profile.photo_bytes
+                    # Строгий режим: точный username, без авто-подбора.
+                    if await username_service.is_username_taken_in_db(requested_username):
+                        raise BadRequestError(
+                            f"Username @{requested_username} уже занят в приложении."
+                        )
+                    final_username = requested_username
+                    username_factory = None
+                else:
+                    await _step(f"Подбор username (запрошен @{requested_username})…", "username")
+                    final_username = await username_service.allocate_unique_username(
+                        kw_for_user,
+                        preferred=username,
+                        campaign_id=campaign_id,
+                        telethon_client=client,
                     )
-                reserved = await username_service.get_reserved_usernames()
-                username_factory = username_service.make_username_factory(
-                    kw_for_user,
-                    preferred=final_username,
-                    campaign_id=campaign_id,
-                    reserved=reserved,
-                )
+                    if final_username != requested_username:
+                        await _step(
+                            f"Username @{final_username} (запрошен был @{requested_username})",
+                            "username",
+                        )
+                    reserved = await username_service.get_reserved_usernames()
+                    username_factory = username_service.make_username_factory(
+                        kw_for_user,
+                        preferred=final_username,
+                        campaign_id=campaign_id,
+                        reserved=reserved,
+                    )
                 await _step(f"BotFather: создание @{final_username}…", "botfather_create")
                 try:
                     result = await create_bot_via_botfather(
@@ -767,6 +831,10 @@ async def create_bot(
                 description = texts["description"] or ""
                 welcome_message = texts["welcome_message"] or ""
                 about_final = texts["about_text"] or ""
+                if copy_mode and source_profile is not None:
+                    # name/about/description копируем как есть; ссылка живёт в welcome + кнопке.
+                    description = source_profile.description
+                    about_final = source_profile.about
                 promo = bot_promo_service.build_promo_texts(
                     public_link=public_link,
                     display_name=display_name,
@@ -814,7 +882,17 @@ async def create_bot(
                         username=final_username,
                     )
                 await pace_botfather_op()
-                if description_picture_bytes:
+                if copy_mode and source_profile is not None and source_profile.desc_media_bytes:
+                    await _step("Медиа описания в BotFather…", "description_picture")
+                    description_picture_path = await _apply_copied_description_media(
+                        client,
+                        campaign_id,
+                        final_username,
+                        media_bytes=source_profile.desc_media_bytes,
+                        media_ext=source_profile.desc_media_ext,
+                    )
+                    await pace_botfather_op()
+                elif description_picture_bytes:
                     await _step("Картинка плаката в BotFather…", "description_picture")
                     try:
                         description_picture_path = await _apply_bot_description_picture(
@@ -936,6 +1014,54 @@ async def create_bots_batch(specs: list[dict[str, Any]]) -> dict[str, Any]:
         "bots": created,
         "errors": errors,
     }
+
+
+async def build_copy_specs(
+    *,
+    campaign_id: int,
+    telegram_account_ids: list[int],
+    pairs: list[tuple[str, str]],
+) -> list[dict[str, Any]]:
+    """
+    Строит spec'и пакетного создания для копирования ботов по username.
+    Аккаунты распределяются по парам по кругу. Тексты приветствия и кнопка —
+    из настроек кампании, реферальная ссылка — автоматически по API.
+    """
+    if not pairs:
+        raise BadRequestError("Не указаны пары username")
+    if not telegram_account_ids:
+        raise BadRequestError("Не выбран аккаунт для создания")
+
+    campaign = await campaign_service.get_campaign(campaign_id)
+    defaults = bot_promo_service.campaign_text_defaults(campaign)
+    target_url = (campaign.get("resource_url") or "").strip()
+
+    specs: list[dict[str, Any]] = []
+    for idx, (source, target) in enumerate(pairs):
+        account_id = telegram_account_ids[idx % len(telegram_account_ids)]
+        specs.append(
+            {
+                "campaign_id": campaign_id,
+                "telegram_account_id": account_id,
+                "target_url": target_url,
+                "display_name": "",  # берётся из исходного бота при создании
+                "username": target,
+                "description": "",  # копируется из исходного бота
+                "about_text": "",  # копируется из исходного бота
+                "welcome_message": "",  # дефолт кампании через finalize_bot_texts
+                "welcome_button_enabled": defaults["welcome_button_enabled"],
+                "welcome_button_text": defaults["welcome_button_text"],
+                "keyword": None,
+                "redirect_slug": None,
+                "link_mode": bot_promo_service.LINK_MODE_REDIRECT,
+                "create_via_botfather": True,
+                "auto_start": False,
+                "generate_avatar": False,
+                "use_referral_api": None,  # по настройкам кампании
+                "source_username": source,
+            }
+        )
+    return specs
 
 
 async def import_bot_by_token(*, campaign_id: int, token: str) -> dict[str, Any]:

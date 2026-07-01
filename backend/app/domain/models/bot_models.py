@@ -3,7 +3,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.utils.telegram_username import normalize_bot_username
+from app.utils.telegram_username import BOT_USERNAME_RE, normalize_bot_username
 
 
 class CampaignUpdateRequest(BaseModel):
@@ -93,6 +93,53 @@ class BotImportRequest(BaseModel):
             if tok and tok not in seen:
                 seen.add(tok)
                 result.append(tok)
+        return result
+
+
+class BotCopyByUsernameRequest(BaseModel):
+    """Копирование ботов по username: пара (кого копируем, какого создаём)."""
+
+    campaign_id: int
+    telegram_account_ids: list[int] = Field(..., min_length=1)
+    pairs: list[tuple[str, str]] = Field(..., min_length=1, max_length=50)
+
+    @field_validator("pairs", mode="before")
+    @classmethod
+    def _parse_pairs(cls, v: object) -> list[tuple[str, str]]:
+        raw_lines: list[str] = []
+        if isinstance(v, str):
+            raw_lines = v.splitlines()
+        elif isinstance(v, (list, tuple)):
+            for item in v:
+                if isinstance(item, str):
+                    raw_lines.append(item)
+                elif isinstance(item, (list, tuple)):
+                    raw_lines.append(" ".join(str(x) for x in item))
+                else:
+                    raw_lines.append(str(item))
+        else:
+            return v  # type: ignore[return-value]
+
+        seen: set[str] = set()
+        result: list[tuple[str, str]] = []
+        for line in raw_lines:
+            tokens = [t for t in re.split(r"[\s,;]+", line.strip()) if t]
+            if len(tokens) < 2:
+                # Неполные строки (меньше двух username) пропускаем — как и на фронте.
+                continue
+            source = tokens[0].lstrip("@")
+            # Целевой username берём точно (без транслита/рандома): создаём именно его.
+            target = tokens[1].lstrip("@").lower()
+            if not source or not BOT_USERNAME_RE.match(target):
+                # Некорректный целевой username пропускаем — пара не создаётся.
+                continue
+            key = target
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append((source, target))
+        if not result:
+            raise ValueError("Не удалось разобрать ни одной пары username")
         return result
 
 

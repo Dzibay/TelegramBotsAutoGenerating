@@ -161,4 +161,13 @@ export const botService = {
     }, { timeout: 300000 });
     return res.data;
   },
+
+  async copyByUsername(campaignId, accountIds, pairs) {
+    const res = await apiClient.post('/bots/copy-by-username', {
+      campaign_id: campaignId,
+      telegram_account_ids: accountIds,
+      pairs,
+    }, { timeout: 300000 });
+    return res.data;
+  },
 };

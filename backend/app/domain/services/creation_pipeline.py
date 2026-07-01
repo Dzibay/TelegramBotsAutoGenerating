@@ -461,6 +461,7 @@ class CreationPipeline:
                     generate_avatar=bool(spec.get("generate_avatar", True)) and not avatar_bytes,
                     description_picture_bytes=description_picture_bytes,
                     use_referral_api=spec.get("use_referral_api"),
+                    source_username=spec.get("source_username"),
                     on_step=on_step,
                 )
             self._record_row_result(spec, 0, "done", bot_id=bot.get("id"))
@@ -581,6 +582,7 @@ class CreationPipeline:
                     auto_start=spec.get("auto_start", False),
                     generate_avatar=bool(spec.get("generate_avatar", True)),
                     use_referral_api=spec.get("use_referral_api"),
+                    source_username=spec.get("source_username"),
                     on_step=on_step,
                 )
                 created_count += 1

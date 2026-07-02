@@ -914,6 +914,93 @@ async def start_batch_create_job(specs: list[dict[str, Any]]) -> dict[str, Any]:
     return _job_row(row)
 
 
+async def start_copy_multi_job(
+    campaign_id: int,
+    *,
+    plans: list[dict[str, Any]],
+    telegram_account_ids: list[int],
+) -> dict[str, Any]:
+    """Очередь копирования ботов по username в мультиаккаунтном режиме с ротацией.
+
+    Аккаунты раздаются динамически движком _run_manual_multi: выбор свободного
+    аккаунта по слотам, ротация при бане/лимите/flood, перенос непоместившихся
+    пар на свободные аккаунты (в отличие от старой жёсткой round-robin привязки).
+    """
+    if not plans:
+        raise BadRequestError("Пустой список ботов для копирования")
+    if not telegram_account_ids:
+        raise BadRequestError("Не выбран аккаунт для создания")
+
+    await campaign_service.get_campaign(campaign_id)
+
+    account_ids: set[int] = set()
+    accounts: list[dict[str, Any]] = []
+    for raw_aid in telegram_account_ids:
+        aid = int(raw_aid)
+        if aid in account_ids:
+            continue
+        account = await db.fetch_one(
+            "SELECT * FROM telegram_accounts WHERE id = $1 AND campaign_id = $2",
+            aid,
+            campaign_id,
+        )
+        if not account:
+            raise BadRequestError(f"Аккаунт #{aid} не найден в кампании")
+        if account.get("is_banned"):
+            raise ConflictError(f"Аккаунт #{aid} забанен")
+        if account.get("status") not in ("ready", "creating") or not account.get("tdata_path"):
+            raise ConflictError(f"Аккаунт #{aid} не готов к созданию ботов")
+        account_ids.add(aid)
+        accounts.append(account)
+
+    total_slots = sum(_account_free_slots(a) for a in accounts)
+    if len(plans) > total_slots:
+        raise ConflictError(
+            f"В партии {len(plans)} ботов, суммарно свободно слотов: {total_slots}."
+        )
+
+    total = len(plans)
+    progress_msg = f"В очереди: копирование {total} бот(ов), мультиаккаунт"
+    async with db.transaction() as conn:
+        await db.tx_execute(conn, "SELECT pg_advisory_xact_lock($1)", campaign_id)
+        row = await db.tx_fetch_one(
+            conn,
+            """
+            INSERT INTO creation_jobs (
+                campaign_id, status, total_accounts, progress_message, job_mode,
+                telegram_account_id, account_ids
+            )
+            VALUES ($1, 'queued', $2, $3, 'manual_multi', $4, $5)
+            RETURNING *
+            """,
+            campaign_id,
+            total,
+            progress_msg,
+            next(iter(account_ids)) if len(account_ids) == 1 else None,
+            list(account_ids),
+        )
+
+    job_id = row["id"]
+    snapshot = {"mode": "manual_multi", "manual_plans": plans}
+    await job_history_service.persist_input_snapshot(
+        job_id, job_mode="manual_multi", snapshot=snapshot
+    )
+    await sync_campaign_status(campaign_id)
+    await _create_creation_task(
+        row,
+        {
+            "job_id": job_id,
+            "campaign_id": campaign_id,
+            "mode": "manual_multi",
+            "manual_plans": plans,
+            "account_ids": list(account_ids),
+        },
+        account_ids=account_ids,
+        progress_message=progress_msg,
+    )
+    return _job_row(row)
+
+
 async def add_accounts_to_multi_job(job_id: int, account_ids: list[int]) -> dict[str, Any]:
     """Добавить аккаунты в выполняющуюся мультиаккаунтную задачу."""
     from app.domain.services import job_log_service

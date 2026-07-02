@@ -415,8 +415,12 @@ class CreationPipeline:
 
         uname = (spec.get("username") or "?").lstrip("@")
         account_id = int(spec["telegram_account_id"])
-        label = f"Аккаунт #{account_id}"
-        await self.log(f"Один бот: @{uname}", progress="Старт")
+        # Подгружаем аккаунт, чтобы в логах была его метка, а не только #id.
+        account = await db.fetch_one(
+            "SELECT * FROM telegram_accounts WHERE id = $1", account_id
+        )
+        label = self._account_label(account) if account else f"Аккаунт #{account_id}"
+        await self.log(f"Один бот: @{uname} на {label}", progress="Старт")
         await self._wait_account_flood(account_id, label)
         await db.execute(
             "UPDATE telegram_accounts SET status = 'creating', updated_at = NOW() WHERE id = $1",
@@ -474,10 +478,15 @@ class CreationPipeline:
                 self.job_id,
             )
             await self.log(
-                f"Бот #{bot['id']} @{bot.get('username')} создан",
+                f"Бот #{bot['id']} @{bot.get('username')} создан на {label}",
                 level="success",
                 progress="Готово",
-                context={"bot_id": bot.get("id"), "username": bot.get("username"), "status": "done"},
+                context={
+                    "bot_id": bot.get("id"),
+                    "username": bot.get("username"),
+                    "account_id": account_id,
+                    "status": "done",
+                },
             )
             await job_history_service.save_result_snapshot(
                 self.job_id,
@@ -535,6 +544,10 @@ class CreationPipeline:
         specs = self.batch_specs
         total = len(specs)
         created_count = 0
+        # Аккаунты, исключённые из очереди в этом прогоне (бан BotFather / лимит 20 ботов).
+        # Следующие spec'и на этих же аккаунтах пропускаем, не дёргая BotFather повторно.
+        skip_accounts: dict[int, str] = {}
+        account_labels: dict[int, str] = {}
         await self.log(f"Пакетное создание: {total} бот(ов)", progress=f"0/{total}")
 
         for idx, spec in enumerate(specs):
@@ -542,8 +555,27 @@ class CreationPipeline:
                 await self.log("Создание остановлено пользователем", level="warn")
                 break
 
-            uname = (spec.get("username") or "?").lstrip("@")
-            account_id = int(spec["telegram_account_id"])
+            uname: str = (spec.get("username") or "?").lstrip("@")
+            account_id: int = int(spec["telegram_account_id"])
+
+            # Метку аккаунта берём один раз и кэшируем — используется в логах.
+            label: str | None = account_labels.get(account_id)
+            if label is None:
+                account = await self._refresh_multi_account(account_id)
+                label = self._account_label(account) if account else f"Аккаунт #{account_id}"
+                account_labels[account_id] = label
+
+            # Аккаунт уже забанен/исчерпан в этом прогоне — берём следующий, очередь не рвём.
+            if account_id in skip_accounts:
+                reason: str = skip_accounts[account_id]
+                self._record_row_result(spec, idx, "error", error=reason)
+                await self.log(
+                    f"[{idx + 1}/{total}] @{uname} — пропуск: {label} ({reason})",
+                    level="warn",
+                    context={"account_id": account_id, "username": uname, "status": "skipped"},
+                )
+                continue
+
             await db.execute(
                 """
                 UPDATE creation_jobs
@@ -554,8 +586,9 @@ class CreationPipeline:
                 idx + 1,
             )
             await self.log(
-                f"[{idx + 1}/{total}] @{uname} — старт",
+                f"[{idx + 1}/{total}] @{uname} — старт на {label}",
                 progress=f"{idx}/{total}: @{uname}",
+                context={"account_id": account_id, "username": uname, "status": "creating"},
             )
 
             async def on_step(msg: str, step_id: str = "") -> None:
@@ -588,14 +621,52 @@ class CreationPipeline:
                 created_count += 1
                 self._record_row_result(spec, idx, "done", bot_id=bot.get("id"))
                 await self.log(
-                    f"[{idx + 1}/{total}] @{uname} — готово (#{bot.get('id')})",
+                    f"[{idx + 1}/{total}] @{uname} — готово на {label} (#{bot.get('id')})",
                     level="success",
                     progress=f"{idx + 1}/{total}",
+                    context={"account_id": account_id, "username": uname, "status": "done"},
                 )
             except Exception as exc:
-                err = str(exc)[:300]
+                details: dict[str, Any] = getattr(exc, "details", None) or {}
+
+                # Бан BotFather («you cannot create new bots at this time»):
+                # помечаем аккаунт забаненным и переходим к следующему аккаунту,
+                # не прерывая всю партию.
+                if details.get("botfather_blocked"):
+                    ban_reason: str = _format_creation_error(exc)
+                    await self._mark_account_banned(account_id, label, ban_reason)
+                    skip_accounts[account_id] = "аккаунт забанен BotFather"
+                    self._record_row_result(spec, idx, "error", error=ban_reason[:300])
+                    await self.log(
+                        f"[{idx + 1}/{total}] @{uname} — {label} забанен BotFather, "
+                        "берём следующий аккаунт",
+                        level="error",
+                        context={"account_id": account_id, "username": uname, "status": "banned"},
+                    )
+                    continue
+
+                # Лимит Telegram (на аккаунте уже 20 ботов): помечаем аккаунт
+                # исчерпанным и берём следующий аккаунт, очередь не прерываем.
+                if details.get("bots_limit_reached"):
+                    limit_reason: str = "на аккаунте уже 20 ботов"
+                    await self._mark_account_exhausted(account_id, label)
+                    skip_accounts[account_id] = limit_reason
+                    self._record_row_result(spec, idx, "error", error=limit_reason)
+                    await self.log(
+                        f"[{idx + 1}/{total}] @{uname} — на аккаунте {label} уже 20 ботов, "
+                        "берём следующий аккаунт",
+                        level="warn",
+                        context={"account_id": account_id, "username": uname, "status": "exhausted"},
+                    )
+                    continue
+
+                err: str = str(exc)[:300]
                 self._record_row_result(spec, idx, "error", error=err)
-                await self.log(f"[{idx + 1}/{total}] @{uname} — {err}", level="error")
+                await self.log(
+                    f"[{idx + 1}/{total}] @{uname} на {label} — {err}",
+                    level="error",
+                    context={"account_id": account_id, "username": uname, "status": "error"},
+                )
                 if _should_stop_batch_on_error(exc):
                     await self.log("Остановка партии из-за ограничения Telegram", level="error")
                     break
@@ -688,12 +759,13 @@ class CreationPipeline:
                         processed,
                     )
                     await self.log(
-                        f"[{processed}/{len(plans)}] @{uname} — старт",
+                        f"[{processed}/{len(plans)}] @{uname} — старт на {label}",
                         progress=f"{processed - 1}/{len(plans)}: @{uname}",
                         context={
                             "row_id": row_id,
                             "plan_index": idx,
                             "username": uname,
+                            "account_id": account_id,
                             "status": "creating",
                         },
                     )
@@ -733,13 +805,14 @@ class CreationPipeline:
                             created_count,
                         )
                         await self.log(
-                            f"[{processed}/{len(plans)}] @{uname} — создан",
+                            f"[{processed}/{len(plans)}] @{uname} — создан на {label}",
                             level="info",
                             progress=f"{processed}/{len(plans)}: готово",
                             context={
                                 "row_id": row_id,
                                 "plan_index": idx,
                                 "username": uname,
+                                "account_id": account_id,
                                 "status": "done",
                                 "bot_id": bot.get("id"),
                             },
@@ -756,12 +829,13 @@ class CreationPipeline:
                             break
                         details = getattr(exc, "details", None) or {}
                         await self.log(
-                            f"[{processed}/{len(plans)}] @{uname} — {_format_creation_error(exc)}",
+                            f"[{processed}/{len(plans)}] @{uname} на {label} — {_format_creation_error(exc)}",
                             level="error",
                             context={
                                 "row_id": row_id,
                                 "plan_index": idx,
                                 "username": uname,
+                                "account_id": account_id,
                                 "status": "error",
                                 "error": _format_creation_error(exc),
                                 "step": details.get("step"),
@@ -986,6 +1060,7 @@ class CreationPipeline:
             generate_avatar=bool(plan.get("generate_avatar")) and not avatar_bytes,
             telethon_client=client,
             use_referral_api=plan.get("use_referral_api"),
+            source_username=plan.get("source_username"),
             on_step=lambda msg, step: self.log(
                 msg,
                 context={
@@ -1133,10 +1208,20 @@ class CreationPipeline:
             max(0, int(a["max_bots_limit"]) - int(a["bots_created"])) for a in account_rows
         )
 
-        await self.log(
-            f"Мультиаккаунт: {total} бот(ов), {len(account_ids)} акк.: {', '.join(labels)}",
-            progress=f"0/{total}",
-        )
+        # Признак копирования по username — у планов задан source_username.
+        is_copy = any(p.get("source_username") for p in plans)
+        if is_copy:
+            await self.log(
+                f"Копирование {total} бот(ов) по username, "
+                f"{len(account_ids)} акк. с ротацией: {', '.join(labels)}",
+                progress=f"0/{total}",
+                context={"mode": "copy", "account_ids": account_ids},
+            )
+        else:
+            await self.log(
+                f"Мультиаккаунт: {total} бот(ов), {len(account_ids)} акк.: {', '.join(labels)}",
+                progress=f"0/{total}",
+            )
         await self.log(
             f"Суммарно свободных слотов: {total_slots}",
             level="debug",
@@ -1463,6 +1548,7 @@ class CreationPipeline:
                     generate_avatar=bool(plan.get("generate_avatar")) and not avatar_bytes,
                     telethon_client=client,
                     use_referral_api=plan.get("use_referral_api"),
+                    source_username=plan.get("source_username"),
                     on_step=lambda msg, step: self.log(
                         msg,
                         context={

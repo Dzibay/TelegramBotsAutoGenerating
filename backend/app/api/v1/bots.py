@@ -214,15 +214,18 @@ async def copy_bots_by_username(
     if idem.replay:
         return _idempotent_json(idem, JSONResponse(content={}))
     try:
-        specs = await bot_service.build_copy_specs(
+        plans = await bot_service.build_copy_plans(
             campaign_id=body.campaign_id,
-            telegram_account_ids=body.telegram_account_ids,
             pairs=body.pairs,
         )
-        job = await job_service.start_batch_create_job(specs)
+        job = await job_service.start_copy_multi_job(
+            body.campaign_id,
+            plans=plans,
+            telegram_account_ids=body.telegram_account_ids,
+        )
         payload = success_response(
             data={"job": job, "queued": True},
-            message=f"Копирование {len(specs)} ботов поставлено в очередь",
+            message=f"Копирование {len(plans)} ботов поставлено в очередь",
         )
         await complete_idempotent(idem, {"status_code": 202, "body": payload})
         return payload

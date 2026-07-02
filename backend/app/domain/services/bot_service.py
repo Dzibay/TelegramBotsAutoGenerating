@@ -1016,52 +1016,45 @@ async def create_bots_batch(specs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def build_copy_specs(
+async def build_copy_plans(
     *,
     campaign_id: int,
-    telegram_account_ids: list[int],
     pairs: list[tuple[str, str]],
 ) -> list[dict[str, Any]]:
     """
-    Строит spec'и пакетного создания для копирования ботов по username.
-    Аккаунты распределяются по парам по кругу. Тексты приветствия и кнопка —
+    Строит планы мультиаккаунтного создания для копирования ботов по username.
+    Аккаунт для каждой пары выбирается динамически движком ротации
+    (_run_manual_multi) — заранее не привязывается. Тексты приветствия и кнопка —
     из настроек кампании, реферальная ссылка — автоматически по API.
     """
     if not pairs:
         raise BadRequestError("Не указаны пары username")
-    if not telegram_account_ids:
-        raise BadRequestError("Не выбран аккаунт для создания")
 
     campaign = await campaign_service.get_campaign(campaign_id)
     defaults = bot_promo_service.campaign_text_defaults(campaign)
     target_url = (campaign.get("resource_url") or "").strip()
 
-    specs: list[dict[str, Any]] = []
+    plans: list[dict[str, Any]] = []
     for idx, (source, target) in enumerate(pairs):
-        account_id = telegram_account_ids[idx % len(telegram_account_ids)]
-        specs.append(
+        plans.append(
             {
-                "campaign_id": campaign_id,
-                "telegram_account_id": account_id,
+                "row_id": idx + 1,
+                "source_username": source,  # исходный бот для копирования профиля
+                "username": target,  # точный целевой username, без авто-подбора
                 "target_url": target_url,
                 "display_name": "",  # берётся из исходного бота при создании
-                "username": target,
                 "description": "",  # копируется из исходного бота
                 "about_text": "",  # копируется из исходного бота
                 "welcome_message": "",  # дефолт кампании через finalize_bot_texts
                 "welcome_button_enabled": defaults["welcome_button_enabled"],
                 "welcome_button_text": defaults["welcome_button_text"],
-                "keyword": None,
-                "redirect_slug": None,
                 "link_mode": bot_promo_service.LINK_MODE_REDIRECT,
-                "create_via_botfather": True,
                 "auto_start": True,
-                "generate_avatar": False,
+                "generate_avatar": False,  # аватар копируется из исходного бота
                 "use_referral_api": None,  # по настройкам кампании
-                "source_username": source,
             }
         )
-    return specs
+    return plans
 
 
 async def import_bot_by_token(*, campaign_id: int, token: str) -> dict[str, Any]:

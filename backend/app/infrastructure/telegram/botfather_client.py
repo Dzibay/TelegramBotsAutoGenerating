@@ -626,10 +626,53 @@ async def _click_next_mybots_page(reply) -> bool:
     return False
 
 
+def _reply_signature(reply) -> tuple[str, tuple[str, ...]]:
+    """Отпечаток сообщения (текст + подписи кнопок) для детекта редактирования."""
+    text: str = reply.raw_text or ""
+    labels: list[str] = []
+    if reply.buttons:
+        for row in reply.buttons:
+            for btn in row:
+                labels.append((getattr(btn, "text", None) or str(btn)).strip())
+    return (text, tuple(labels))
+
+
+async def _wait_mybots_page_edit(
+    client,
+    reply,
+    prev_sig: tuple[str, tuple[str, ...]],
+    *,
+    attempts: int = 12,
+    delay: float = 0.5,
+):
+    """
+    BotFather при листании /mybots РЕДАКТИРУЕТ то же сообщение (не шлёт новое),
+    поэтому обычный get_response() тут не сработает. Перечитываем сообщение по id
+    и ждём, пока его содержимое сменится на новую страницу.
+    """
+    entity = getattr(reply, "input_chat", None) or "BotFather"
+    msg_id: int = reply.id
+    for _ in range(attempts):
+        await asyncio.sleep(delay)
+        try:
+            fresh = await client.get_messages(entity, ids=msg_id)
+        except FloodWaitError as exc:
+            await _handle_flood_wait(exc, context="mybots page edit")
+            continue
+        except Exception as exc:
+            logger.debug("mybots refetch failed: %s", exc)
+            continue
+        if fresh is None:
+            continue
+        if _reply_signature(fresh) != prev_sig:
+            return fresh
+    return None
+
+
 async def list_bots_via_botfather(client) -> list[str]:
     """Список username ботов аккаунта через /mybots (с пагинацией)."""
     found: list[str] = []
-    max_pages = 50
+    max_pages: int = 50
 
     async with _botfather_conv(client, timeout=30) as conv:
         await _conv_send(conv, "/mybots")
@@ -639,29 +682,32 @@ async def list_bots_via_botfather(client) -> list[str]:
             return []
 
         for page in range(max_pages):
-            before = len(found)
             found.extend(_extract_bot_usernames_from_reply(reply))
             found = list(dict.fromkeys(found))
 
             if not _has_next_page(reply):
                 break
 
+            prev_sig: tuple[str, tuple[str, ...]] = _reply_signature(reply)
             if not await _click_next_mybots_page(reply):
-                logger.warning("mybots: next page button not found (page %s, bots %s)", page + 1, len(found))
+                logger.warning(
+                    "mybots: next page button not found (page %s, bots %s)",
+                    page + 1,
+                    len(found),
+                )
                 break
 
-            try:
-                reply = await _wait_reply(conv, timeout=25)
-            except Exception as exc:
-                logger.warning("mybots pagination failed on page %s: %s", page + 2, exc)
+            # BotFather редактирует то же сообщение — ждём смену содержимого,
+            # а не новое сообщение (иначе считаем только первую страницу).
+            updated = await _wait_mybots_page_edit(client, reply, prev_sig)
+            if updated is None:
+                logger.warning(
+                    "mybots: страница не обновилась после листания (page %s, bots %s)",
+                    page + 1,
+                    len(found),
+                )
                 break
-
-            # BotFather иногда редактирует то же сообщение — выходим, если страница не изменилась
-            page_users = _extract_bot_usernames_from_reply(reply)
-            if page > 0 and not page_users:
-                break
-            if page > 0 and len(found) == before and not any(u not in found for u in page_users):
-                break
+            reply = updated
 
         logger.info("mybots: listed %s bot(s)", len(found))
 

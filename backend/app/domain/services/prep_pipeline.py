@@ -152,11 +152,10 @@ class AccountPrepPipeline:
         )
         await self.log(f"{label}: подключение tdata…", account_id=account_id)
 
-        session_file = Config.PREP_TDATA_DIR / str(self.job_id) / f"{account_id}.session"
         client = None
         async with prep_account_lock(account_id):
             try:
-                client, me = await load_client_from_tdata(Path(acc["tdata_path"]), session_file)
+                client, me = await load_client_from_tdata(Path(acc["tdata_path"]))
                 phone = getattr(me, "phone", None) or str(me.id)
                 username = getattr(me, "username", None)
                 await db.execute(

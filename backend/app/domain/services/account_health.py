@@ -178,10 +178,7 @@ async def verify_account(campaign_id: int, account_id: int) -> dict[str, Any]:
     client = None
     async with account_lock(account_id):
         try:
-            session_file = (
-                Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{account_id}.session"
-            )
-            client, me = await load_client_from_tdata(Path(row["tdata_path"]), session_file)
+            client, me = await load_client_from_tdata(Path(row["tdata_path"]))
             phone = getattr(me, "phone", None) or str(getattr(me, "id", ""))
             username = getattr(me, "username", None)
 

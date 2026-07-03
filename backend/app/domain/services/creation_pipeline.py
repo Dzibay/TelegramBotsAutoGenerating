@@ -19,6 +19,7 @@ from app.domain.services import (
 from app.domain.services.account_session_service import (
     account_lock,
     acquire_cached_client,
+    ensure_client_connected,
     release_cached_session,
 )
 from app.infrastructure.ai.provider import AIService, generate_image_bytes
@@ -727,7 +728,6 @@ class CreationPipeline:
 
         created_count = 0
         processed = 0
-        session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
 
         client = None
         flood_ctx = None
@@ -980,19 +980,36 @@ class CreationPipeline:
         account: dict[str, Any],
         clients: dict[int, Any],
     ) -> Any:
-        if account_id in clients:
-            return clients[account_id]
-        async with account_lock(account_id):
-            if account_id in clients:
-                return clients[account_id]
-            session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
-            client, _ = await acquire_cached_client(self.campaign_id, account_id, account)
-            clients[account_id] = client
-            await self.log(
-                f"Telethon: сессия загружена для {self._account_label(account)}",
-                level="debug",
-            )
-            return client
+        # ВАЖНО: вызывать под уже захваченным account_lock(account_id). Жнец
+        # (reap_stale_cached_sessions) отключает сессию только если lock СВОБОДЕН,
+        # поэтому lock должен удерживаться на всё время работы с клиентом, а не
+        # только на момент загрузки — иначе бота, создающегося дольше TTL (90с),
+        # реально отключит посреди диалога с BotFather.
+        cached = clients.get(account_id)
+        if cached is not None:
+            # Клиент мог быть отключён maintenance-жнецом (idle > TTL) или сетью,
+            # пока шли паузы между ботами. Локальный clients-словарь держит ссылку
+            # на тот же объект, поэтому без проверки соединения мы бы отдали
+            # уже disconnected-клиент и copy-флоу падал бы на первом же get_entity
+            # («Cannot send requests while disconnected»). Переподключаем, а если
+            # клиент мёртв безнадёжно — перезагружаем сессию заново.
+            try:
+                await ensure_client_connected(cached)
+                return cached
+            except Exception as exc:
+                clients.pop(account_id, None)
+                await self.log(
+                    f"Telethon: сессия {self._account_label(account)} отвалилась "
+                    f"({exc}) — перезагрузка",
+                    level="debug",
+                )
+        client, _ = await acquire_cached_client(self.campaign_id, account_id, account)
+        clients[account_id] = client
+        await self.log(
+            f"Telethon: сессия загружена для {self._account_label(account)}",
+            level="debug",
+        )
+        return client
 
     async def _pick_multi_account(
         self,
@@ -1365,14 +1382,20 @@ class CreationPipeline:
                         flood_contexts[account_id] = flood_ctx
 
                     try:
-                        client = await self._get_or_load_client(account_id, account, clients)
-                        bot = await self._create_manual_bot_once(
-                            plan,
-                            avatar_bytes=avatar_bytes,
-                            description_picture_bytes=description_picture_bytes,
-                            client=client,
-                            account_id=account_id,
-                        )
+                        # Держим account_lock на всю загрузку клиента И создание бота:
+                        # пока lock захвачен, maintenance-жнец не отключит сессию, даже
+                        # если бот создаётся дольше TTL кэша (flood/паузы BotFather).
+                        async with account_lock(account_id):
+                            client = await self._get_or_load_client(
+                                account_id, account, clients
+                            )
+                            bot = await self._create_manual_bot_once(
+                                plan,
+                                avatar_bytes=avatar_bytes,
+                                description_picture_bytes=description_picture_bytes,
+                                client=client,
+                                account_id=account_id,
+                            )
                         pending.pop(0)
                         processed += 1
                         created_count += 1
@@ -1478,7 +1501,14 @@ class CreationPipeline:
                         else:
                             bot_done = True
 
-                if not bot_done and pending and pending[0] is plan:
+                # Бот не создан — снимаем его с очереди ровно один раз.
+                # Успех удаляет plan из pending ВЫШЕ (до bot_done=True), поэтому
+                # признак «не создан» — это идентичность головы очереди, а НЕ
+                # флаг bot_done. Ошибочные ветки (BadRequestError→fail, bot-specific,
+                # «нет доступных аккаунтов») тоже выставляют bot_done=True, и без
+                # этого условия бот навсегда застревал в очереди: outer-цикл
+                # перезапускал его по кругу без единого лога.
+                if pending and pending[0] is plan:
                     pending.pop(0)
                     processed += 1
                     await db.execute(
@@ -1750,7 +1780,6 @@ class CreationPipeline:
         )
         await self.log(f"{label}: план — {len(plan_items)} бот(ов)", progress=f"Аккаунт: {label}")
 
-        session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
         client = None
         created_count = 0
         resource_url = campaign.get("resource_url") or ""
@@ -1848,7 +1877,6 @@ class CreationPipeline:
         )
         await self.log(f"{label}: подключение tdata…", progress=f"Аккаунт: {label}")
 
-        session_file = Config.STORAGE_ROOT / "sessions" / str(self.campaign_id) / f"{account_id}.session"
         client = None
         created_count = 0
 

@@ -124,8 +124,7 @@ async def _load_account_client(campaign_id: int, account_id: int, account: dict[
     if not _tdata_path_valid(account.get("tdata_path")):
         raise BadRequestError("Файлы tdata аккаунта не найдены на сервере")
 
-    session_file = Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{account_id}.session"
-    return await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+    return await load_client_from_tdata(Path(account["tdata_path"]))
 
 
 async def _use_account_client(campaign_id: int, account_id: int, account: dict[str, Any]):

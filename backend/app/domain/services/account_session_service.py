@@ -1,4 +1,4 @@
-"""Сериализация доступа к Telethon-сессии одного аккаунта (SQLite .session)."""
+"""Сериализация доступа к Telethon-сессии одного аккаунта (in-memory, из tdata)."""
 from __future__ import annotations
 
 import asyncio
@@ -93,10 +93,7 @@ async def acquire_cached_client(
             await _disconnect_cached(entry)
             _cache.pop(key, None)
 
-    session_file = (
-        Config.STORAGE_ROOT / "sessions" / str(campaign_id) / f"{account_id}.session"
-    )
-    client, me = await load_client_from_tdata(Path(account["tdata_path"]), session_file)
+    client, me = await load_client_from_tdata(Path(account["tdata_path"]))
     if ttl > 0:
         _cache[key] = _CachedSession(client=client, me=me, last_used=now)
     return client, me

@@ -281,6 +281,23 @@ async def list_account_bots(
     return success_response(data=data)
 
 
+@router.post("/{campaign_id}/accounts/{account_id}/bots/import-missing")
+async def import_missing_account_bots(
+    campaign_id: int,
+    account_id: int,
+    _user: dict = Depends(get_current_user),
+):
+    data = await account_service.import_missing_account_bots(campaign_id, account_id)
+    return success_response(
+        data=data,
+        message=(
+            f"Импортировано: {data['imported_count']}, "
+            f"перепривязано: {data['relinked_count']}, "
+            f"ошибок: {data['failed_count']}"
+        ),
+    )
+
+
 @router.delete("/{campaign_id}/accounts/{account_id}/bots/{username}")
 async def delete_account_bot(
     campaign_id: int,

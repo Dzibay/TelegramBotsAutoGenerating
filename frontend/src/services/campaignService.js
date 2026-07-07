@@ -93,6 +93,15 @@ export const campaignService = {
     return res.data;
   },
 
+  async importMissingAccountBots(campaignId, accountId) {
+    const res = await apiClient.post(
+      API_ENDPOINTS.CAMPAIGNS.IMPORT_MISSING_ACCOUNT_BOTS(campaignId, accountId),
+      null,
+      { timeout: 300000 }
+    );
+    return res.data;
+  },
+
   async deleteAccountBot(campaignId, accountId, username) {
     const res = await apiClient.delete(
       API_ENDPOINTS.CAMPAIGNS.DELETE_ACCOUNT_BOT(campaignId, accountId, username),

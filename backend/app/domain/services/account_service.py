@@ -238,6 +238,89 @@ async def list_account_bots(campaign_id: int, account_id: int) -> dict[str, Any]
     }
 
 
+async def import_missing_account_bots(campaign_id: int, account_id: int) -> dict[str, Any]:
+    """
+    Импортирует в БД ботов, которые есть на аккаунте в Telegram (/mybots), но отсутствуют
+    в приложении: по каждому получает токен через BotFather и заводит запись выключенной
+    (status='stopped') с привязкой к аккаунту. Профиль тянется по токену как при импорте.
+    """
+    from app.domain.services import bot_service
+    from app.infrastructure.telegram.botfather_client import (
+        bot_username_exists,
+        get_bot_token_via_botfather,
+        list_bots_via_botfather,
+    )
+    from app.utils.telegram_username import normalize_bot_username
+
+    await campaign_service.get_campaign(campaign_id)
+    account = await _get_campaign_account(campaign_id, account_id)
+
+    imported: list[dict[str, Any]] = []
+    relinked: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+
+    async with account_lock(account_id):
+        client, _ = await _use_account_client(campaign_id, account_id, account)
+        telegram_usernames = await list_bots_via_botfather(client)
+        telegram_set = set(telegram_usernames)
+
+        db_rows = await db.fetch_all(
+            "SELECT username FROM bots WHERE telegram_account_id = $1",
+            account_id,
+        )
+        db_usernames = {
+            normalize_bot_username(row.get("username") or "")
+            for row in db_rows
+            if row.get("username")
+        }
+
+        missing = [u for u in dict.fromkeys(telegram_usernames) if u not in db_usernames]
+
+        for username in missing:
+            try:
+                # Бот уже есть в системе (импортирован без аккаунта или под другим) —
+                # /mybots этого аккаунта актуальнее, перепривязываем к нему.
+                existing = await db.fetch_one(
+                    "SELECT id, telegram_account_id FROM bots WHERE lower(username) = lower($1)",
+                    username,
+                )
+                if existing:
+                    if existing["telegram_account_id"] != account_id:
+                        await db.execute(
+                            "UPDATE bots SET telegram_account_id = $1, updated_at = NOW() WHERE id = $2",
+                            account_id,
+                            existing["id"],
+                        )
+                        relinked.append({"username": username, "bot_id": existing["id"]})
+                    continue
+
+                token = await get_bot_token_via_botfather(client, username)
+                bot = await bot_service.import_bot_by_token(
+                    campaign_id=campaign_id,
+                    token=token,
+                    telegram_account_id=account_id,
+                    status="stopped",
+                )
+                imported.append(bot)
+            except Exception as exc:
+                err = getattr(exc, "message", None) or str(exc)
+                errors.append({"username": username, "error": err[:300]})
+
+        total_in_telegram = len(telegram_set)
+
+    await sync_bots_created_count(account_id, total_in_telegram)
+
+    return {
+        "account_id": account_id,
+        "imported_count": len(imported),
+        "relinked_count": len(relinked),
+        "failed_count": len(errors),
+        "bots": imported,
+        "relinked": relinked,
+        "errors": errors,
+    }
+
+
 async def delete_account_bot(
     campaign_id: int, account_id: int, username: str
 ) -> dict[str, Any]:

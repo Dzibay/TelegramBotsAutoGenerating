@@ -50,6 +50,23 @@ export const TASK_PRESETS = {
       'Сверка с bots в кампании',
     ],
   },
+  IMPORT_ACCOUNT_BOTS: {
+    title: 'Импорт ботов аккаунта',
+    icon: 'botfather',
+    estimatedSec: 60,
+    steps: [
+      'Подключение к Telegram…',
+      'Получаем список ботов…',
+      'Читаем токены недостающих ботов…',
+      'Импорт по токену…',
+    ],
+    verboseSteps: [
+      'API: POST import-missing',
+      'BotFather: /mybots → /token по каждому недостающему',
+      'Bot API: getMe/getMyName/getMyDescription',
+      'DB: INSERT bot (status stopped, привязка к аккаунту)',
+    ],
+  },
   DELETE_ACCOUNT_BOT: {
     title: 'Удаление бота',
     icon: 'botfather',

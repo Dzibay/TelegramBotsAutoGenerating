@@ -426,13 +426,16 @@ async def set_bot_name(client, username: str, display_name: str) -> None:
 
 
 async def set_bot_description(client, username: str, description: str) -> None:
+    text = (description or "").strip()[:512]
+    if not text:
+        return
     try:
         async with _botfather_conv(client, timeout=20) as conv:
             await _conv_send(conv, "/setdescription")
             await _wait_reply(conv)
             await _conv_send(conv, f"@{username.lstrip('@')}")
             await _wait_reply(conv)
-            await _conv_send(conv, description[:512])
+            await _conv_send(conv, text)
             reply = await _wait_reply(conv)
             _validate_set_field_reply(reply.raw_text or "", field="description", username=username)
     except BadRequestError:
@@ -798,6 +801,35 @@ async def delete_bot_via_botfather(client, username: str) -> None:
             raise BadRequestError(f"BotFather не нашёл бота @{uname}")
 
         raise BadRequestError(f"BotFather не подтвердил удаление @{uname}: {text[:200]}")
+
+
+async def get_bot_token_via_botfather(client, username: str) -> str:
+    """Возвращает токен уже существующего бота через /token в BotFather."""
+    uname = normalize_bot_username(username)
+    if not uname:
+        raise BadRequestError("У бота нет username для получения токена")
+
+    async with _botfather_conv(client, timeout=30) as conv:
+        await _conv_send(conv, "/token")
+        await _wait_reply(conv)
+
+        await _conv_send(conv, f"@{uname}")
+        reply = await _wait_reply(conv)
+        text = reply.raw_text or ""
+
+        match = TOKEN_RE.search(text)
+        if match:
+            logger.info("Token fetched for @%s via BotFather", uname)
+            return match.group(1)
+
+        _check_botfather_throttle(text)
+        if _is_bot_not_found(text):
+            raise BadRequestError(f"BotFather не нашёл бота @{uname}")
+        if _is_botfather_menu_reply(text):
+            raise BadRequestError(
+                f"BotFather не принял @{uname} для /token (вернул меню). Повторите позже."
+            )
+        raise BadRequestError(f"BotFather не вернул токен для @{uname}: {text[:200]}")
 
 
 async def set_bot_photo(client, username: str, image_path: Path) -> None:

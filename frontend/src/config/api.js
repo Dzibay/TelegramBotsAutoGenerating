@@ -17,6 +17,8 @@ export const API_ENDPOINTS = {
       `/campaigns/${campaignId}/accounts/${accountId}`,
     ACCOUNT_BOTS: (campaignId, accountId) =>
       `/campaigns/${campaignId}/accounts/${accountId}/bots`,
+    IMPORT_MISSING_ACCOUNT_BOTS: (campaignId, accountId) =>
+      `/campaigns/${campaignId}/accounts/${accountId}/bots/import-missing`,
     DELETE_ACCOUNT_BOT: (campaignId, accountId, username) =>
       `/campaigns/${campaignId}/accounts/${accountId}/bots/${encodeURIComponent(username)}`,
     UPLOAD_ACCOUNT: (id) => `/campaigns/${id}/accounts`,

@@ -1057,12 +1057,20 @@ async def build_copy_plans(
     return plans
 
 
-async def import_bot_by_token(*, campaign_id: int, token: str) -> dict[str, Any]:
+async def import_bot_by_token(
+    *,
+    campaign_id: int,
+    token: str,
+    telegram_account_id: int | None = None,
+    status: str = "active",
+) -> dict[str, Any]:
     """Импорт уже созданного вручную бота по токену.
 
     Данные (username, name, description, about) читаются из Bot API без изменений.
-    telegram_account_id и avatar_path остаются пустыми; welcome — из дефолтов кампании;
+    avatar_path остаётся пустым; welcome — из дефолтов кампании;
     target_url — через реферальный API кампании по username (best-effort).
+    telegram_account_id и status задаются вызывающим (ручной импорт: NULL/'active';
+    подгрузка ботов аккаунта: id аккаунта/'stopped').
     """
     campaign = await campaign_service.get_campaign(campaign_id)
 
@@ -1108,10 +1116,11 @@ async def import_bot_by_token(*, campaign_id: int, token: str) -> dict[str, Any]
             target_url, link_mode, redirect_slug, status,
             telegram_sync_status
         )
-        VALUES ($1, NULL, NULL, $2, $3, $4, $5, $6, NULL, $7, $8, $9, $10, $11, NULL, 'active', $12)
+        VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, NULL, $8, $9, $10, $11, $12, NULL, $13, $14)
         RETURNING *
         """,
         campaign_id,
+        telegram_account_id,
         username,
         display_name,
         description or None,
@@ -1122,9 +1131,11 @@ async def import_bot_by_token(*, campaign_id: int, token: str) -> dict[str, Any]
         welcome_button_text,
         target_url or None,
         link_mode,
+        status,
         TELEGRAM_SYNC_IDLE,
     )
-    await signal_bot_runner_reload(f"bot_import:{row['id']}")
+    if status == "active":
+        await signal_bot_runner_reload(f"bot_import:{row['id']}")
     return _bot_row(row, include_welcome=True)
 
 

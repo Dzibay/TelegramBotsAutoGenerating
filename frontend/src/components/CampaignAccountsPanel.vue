@@ -147,6 +147,19 @@
           <p v-else-if="!botsLists[a.id]?.length" class="muted small">
             На этом аккаунте пока нет ботов
           </p>
+          <div v-if="missingBotsCount(a) > 0" class="bots-import-row">
+            <span class="muted small">
+              Не в кампании: {{ missingBotsCount(a) }}
+            </span>
+            <button
+              type="button"
+              class="btn btn-xs"
+              :disabled="importBusyId === a.id || busy"
+              @click="$emit('import-missing', a)"
+            >
+              {{ importBusyId === a.id ? 'Импорт…' : 'Импортировать недостающие' }}
+            </button>
+          </div>
           <ul v-else class="bot-mini-list">
             <li v-for="b in botsLists[a.id]" :key="b.username" class="bot-mini-item">
               <div class="bot-mini-info">
@@ -213,13 +226,14 @@ const props = defineProps({
   busy: { type: Boolean, default: false },
   busyId: { type: Number, default: null },
   botsBusyId: { type: Number, default: null },
+  importBusyId: { type: Number, default: null },
   deleteBusy: { type: String, default: null },
   botsLists: { type: Object, default: () => ({}) },
   botsError: { type: Object, default: () => ({}) },
   attachMessage: { type: String, default: null },
 });
 
-const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'delete-bot', 'update-label', 'update-banned']);
+const emit = defineEmits(['attach', 'verify', 'verify-all', 'remove', 'load-bots', 'import-missing', 'delete-bot', 'update-label', 'update-banned']);
 
 const selectedIds = ref([]);
 const pickerRef = ref(null);
@@ -246,6 +260,11 @@ function floodRemainingSec(account) {
 
 function displayLabel(a) {
   return accountDisplayLabel(a);
+}
+
+function missingBotsCount(a) {
+  const list = props.botsLists[a.id] || [];
+  return list.filter((b) => b.in_telegram && !b.in_app).length;
 }
 
 function startEdit(account) {
@@ -535,6 +554,14 @@ defineExpose({
   margin: 0;
   font-size: 0.78rem;
   color: #f87171;
+}
+
+.bots-import-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
 }
 
 .bot-mini-list {

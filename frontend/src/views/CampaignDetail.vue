@@ -213,6 +213,7 @@
           :busy="accountBusy || taskStore.isActive"
           :busy-id="accountBusyId"
           :bots-busy-id="botsBusyId"
+          :import-busy-id="importMissingBusyId"
           :delete-busy="deleteBotBusy"
           :bots-lists="accountBotsLists"
           :bots-error="accountBotsErrors"
@@ -224,6 +225,7 @@
           @update-label="onUpdateAccountLabel"
           @update-banned="onUpdateAccountBanned"
           @load-bots="onLoadAccountBots"
+          @import-missing="onImportMissingAccountBots"
           @delete-bot="onDeleteAccountBot"
         />
       </div>
@@ -477,6 +479,7 @@ const verifyingAll = ref(false);
 const accountBusy = ref(false);
 const accountBusyId = ref(null);
 const botsBusyId = ref(null);
+const importMissingBusyId = ref(null);
 const deleteBotBusy = ref(null);
 const accountBotsLists = ref({});
 const accountBotsErrors = ref({});
@@ -834,6 +837,54 @@ async function onLoadAccountBots(account) {
     };
   } finally {
     botsBusyId.value = null;
+  }
+}
+
+async function onImportMissingAccountBots(account) {
+  importMissingBusyId.value = account.id;
+  accountBotsErrors.value = { ...accountBotsErrors.value, [account.id]: null };
+  try {
+    const data = await taskStore.run(
+      'IMPORT_ACCOUNT_BOTS',
+      async ({ logStep }) => {
+        const result = await campaignService.importMissingAccountBots(
+          campaignId.value,
+          account.id
+        );
+        logStep(
+          `Импортировано: ${result.imported_count}, перепривязано: ${result.relinked_count}, ошибок: ${result.failed_count}`,
+          'info'
+        );
+        const listData = await campaignService.listAccountBots(campaignId.value, account.id);
+        accountBotsLists.value = {
+          ...accountBotsLists.value,
+          [account.id]: listData.bots ?? [],
+        };
+        return { ...result, listData };
+      },
+      { accountId: account.id, accountLabel: accountLabel(account) }
+    );
+    patchAccount({
+      id: account.id,
+      bots_created: data.listData?.bots_created,
+      bots_in_telegram: data.listData?.telegram_bots_count,
+      bots_in_db: data.listData?.bots_in_app,
+    });
+    if (data.failed_count > 0) {
+      accountBotsErrors.value = {
+        ...accountBotsErrors.value,
+        [account.id]: `Не удалось импортировать ${data.failed_count} бот(ов). Повторите позже.`,
+      };
+    }
+    await loadCampaign();
+    await loadExtras();
+  } catch (err) {
+    accountBotsErrors.value = {
+      ...accountBotsErrors.value,
+      [account.id]: formatApiError(err, 'Не удалось импортировать ботов'),
+    };
+  } finally {
+    importMissingBusyId.value = null;
   }
 }
 

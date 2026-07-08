@@ -62,7 +62,6 @@ CREATE TABLE IF NOT EXISTS bots (
         CHECK (link_mode IN ('redirect', 'direct')),
     redirect_slug TEXT,
     click_count BIGINT NOT NULL DEFAULT 0,
-    start_count BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK (status IN ('pending', 'active', 'stopped', 'failed', 'banned')),
     botfather_error TEXT,
@@ -74,6 +73,21 @@ CREATE TABLE IF NOT EXISTS bots (
 );
 
 -- Индекс idx_bots_redirect_slug — в migrate_bot_promo.sql (для уже существующих БД)
+
+-- Пользователи, которые пишут в ботов (любое сообщение, включая /start)
+CREATE TABLE IF NOT EXISTS bot_users (
+    id BIGSERIAL PRIMARY KEY,
+    bot_id BIGINT NOT NULL REFERENCES bots (id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL,
+    username TEXT,
+    first_name TEXT,
+    last_name TEXT,
+    message_count BIGINT NOT NULL DEFAULT 0,
+    first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (bot_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_bot_users_bot_id ON bot_users (bot_id);
 
 -- Единый реестр фоновых задач (создание, массовое создание, BotFather sync)
 CREATE TABLE IF NOT EXISTS async_tasks (

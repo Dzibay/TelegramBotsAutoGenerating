@@ -110,15 +110,19 @@ async def run_bot_polling(bot_info: dict, stop_event: asyncio.Event) -> None:
     from aiogram.filters import CommandStart
     from aiogram.types import Message
 
+    from app.domain.services import bot_user_service
+
     bot = Bot(token=bot_info["token"])
     dp = Dispatcher()
 
     @dp.message(CommandStart())
     async def on_start(message: Message) -> None:
+        await bot_user_service.record_interaction(bot_info["id"], message.from_user)
         await _send_welcome(message, bot_info)
 
     @dp.message()
     async def on_any(message: Message) -> None:
+        await bot_user_service.record_interaction(bot_info["id"], message.from_user)
         await _send_welcome(message, bot_info)
 
     logger.info("Polling bot id=%s @%s", bot_info["id"], bot_info.get("username"))

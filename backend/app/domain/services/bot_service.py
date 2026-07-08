@@ -246,6 +246,7 @@ def _bot_row(row: dict, *, include_welcome: bool = False) -> dict[str, Any]:
         "tracking_url": tracking_url,
         "redirect_slug": slug,
         "click_count": int(row.get("click_count") or 0),
+        "user_count": int(row.get("user_count") or 0),
         "welcome_button_enabled": bool(row.get("welcome_button_enabled", True)),
         "welcome_button_text": bot_promo_service.welcome_button_label(
             row.get("welcome_button_text")
@@ -417,7 +418,8 @@ async def list_bots(
     rows = await db.fetch_all(
         f"""
         SELECT b.*, c.title AS campaign_title,
-               ta.label AS account_label, ta.phone AS account_phone
+               ta.label AS account_label, ta.phone AS account_phone,
+               (SELECT COUNT(*) FROM bot_users bu WHERE bu.bot_id = b.id) AS user_count
         FROM bots b
         JOIN campaigns c ON c.id = b.campaign_id
         LEFT JOIN telegram_accounts ta ON ta.id = b.telegram_account_id
@@ -462,7 +464,8 @@ async def get_bot(bot_id: int) -> dict[str, Any]:
     row = await db.fetch_one(
         """
         SELECT b.*, c.title AS campaign_title,
-               ta.label AS account_label, ta.phone AS account_phone
+               ta.label AS account_label, ta.phone AS account_phone,
+               (SELECT COUNT(*) FROM bot_users bu WHERE bu.bot_id = b.id) AS user_count
         FROM bots b
         JOIN campaigns c ON c.id = b.campaign_id
         LEFT JOIN telegram_accounts ta ON ta.id = b.telegram_account_id

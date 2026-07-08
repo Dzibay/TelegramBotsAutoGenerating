@@ -2,6 +2,10 @@
   <section class="card bot-telegram-panel">
     <h2 class="panel-title">Ссылки и статистика</h2>
 
+    <p class="stats users-stat">
+      Пользователей: <strong>{{ bot.user_count ?? 0 }}</strong>
+    </p>
+
     <div v-if="promoLink" class="promo-block">
       <p class="block-label">
         {{ isRedirect ? 'Ссылка в боте (со счётчиком)' : 'Прямая ссылка в боте' }}
